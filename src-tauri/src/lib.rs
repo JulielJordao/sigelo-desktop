@@ -13,6 +13,12 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
      tauri::Builder::default()
+        // 1. REGISTRAMOS OS COMANDOS AQUI:
+        .invoke_handler(tauri::generate_handler![
+            greet, // Seu comando de teste original
+            crate::monitors::display::get_monitors,
+            crate::monitors::detector::detect_projector_cmd
+        ])
         .setup(|app| {
             crate::monitors::watch::start_monitor_watcher(app.handle().clone());
             Ok(())

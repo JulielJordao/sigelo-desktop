@@ -1,15 +1,25 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import SettingsModal from '../components/config/SettingsModal.vue'
+import { useConfigStore } from '../stores/useConfigStore';
 
 const router = useRouter();
+
+const settingsModalRef = ref<any>(null)
 
 // Estado da aba lateral da Bíblia
 const bibleDrawer = ref(false);
 
+const configStore = useConfigStore();
+
 const toggleBible = () => {
   bibleDrawer.value = !bibleDrawer.value;
 };
+
+const openSettingsModal = () =>  {
+  settingsModalRef.value.openDialog()
+}
 
 const logout = () => {
   // Limpa o token e volta para a tela de login
@@ -58,6 +68,7 @@ const logout = () => {
           <v-list-item 
             prepend-icon="mdi-cog" 
             title="Configurações" 
+            @click="openSettingsModal"
             value="config"
           ></v-list-item>
           <v-list-item 
@@ -110,6 +121,7 @@ const logout = () => {
         </transition>
       </router-view>
     </v-main>
+    <SettingsModal ref="settingsModalRef" />
     
   </v-layout>
 </template>
