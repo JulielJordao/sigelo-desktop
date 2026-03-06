@@ -36,7 +36,7 @@ const onSelectSong = (id: string) => {
 
 <template>
   <v-container fluid class="fill-height pa-0 bg-grey-lighten-4" style="user-select: none;">
-    <v-row no-gutters class="fill-height">
+    <v-row density="compact" class="fill-height">
       
       <template v-if="showSidebarLists">
         <v-col cols="2" class="border-e bg-white transition-all">

@@ -34,7 +34,7 @@ const logout = () => {
           title="Músicas" 
           value="musicas" 
           to="/app/musicas"
-          active-color="primary"
+          color="primary"
         ></v-list-item>
         
         <v-list-item 
@@ -43,7 +43,7 @@ const logout = () => {
           value="bible" 
           @click="toggleBible"
           :active="bibleDrawer"
-          active-color="primary"
+          color="primary"
         ></v-list-item>
         
         <v-list-item 
