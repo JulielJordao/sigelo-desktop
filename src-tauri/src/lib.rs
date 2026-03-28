@@ -1,9 +1,9 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
 mod commands;
+mod monitors;
 mod projection;
 mod state;
-mod monitors;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -12,7 +12,8 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-     tauri::Builder::default()
+    tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         // 1. REGISTRAMOS OS COMANDOS AQUI:
         .invoke_handler(tauri::generate_handler![
             greet, // Seu comando de teste original

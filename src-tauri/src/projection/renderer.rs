@@ -1,5 +1,5 @@
-use tauri::{AppHandle, Manager, Emitter};
 use crate::state::app_state::AppState;
+use tauri::{AppHandle, Emitter, Manager};
 
 pub fn render_html(app: &AppHandle, html: String) {
     let state: tauri::State<AppState> = app.state();

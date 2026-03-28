@@ -1,6 +1,6 @@
-use tauri::{AppHandle, Monitor, Manager};
+use tauri::{AppHandle, Manager, Monitor};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::monitors::detector::detect_projector;
 use crate::state::app_state::AppState;
@@ -14,9 +14,7 @@ pub fn choose_monitor(app: &AppHandle) -> Option<Monitor> {
     match pref {
         MonitorPreference::Auto => detect_projector(app),
 
-        MonitorPreference::Monitor(index) => {
-            monitors.get(index).cloned()
-        }
+        MonitorPreference::Monitor(index) => monitors.get(index).cloned(),
     }
 }
 

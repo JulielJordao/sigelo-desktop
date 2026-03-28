@@ -1,31 +1,48 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import routes from "../routes/index"
+
+import  { useUserStore } from "../stores/userStore";
 
 const router = useRouter();
+const userRoute = routes.user();
 const email = ref("");
 const password = ref("");
 const showPassword = ref(false);
 const errLogin = ref("");
 
+const userStore = useUserStore()
+ 
 const login = async () => {
   errLogin.value = "";
   
-  // Lógica de teste para o Sigelo
-  if (email.value === "admin@sigelo.com" && password.value === "123") {
-    localStorage.setItem("userToken", "token-de-teste");
-    
-    const jaViOnboarding = localStorage.getItem("hideOnboarding") === "true";
+  const response =  await userRoute.login(email.value, password.value)
+
+  if(response.success) {
+    redirect()
+  } else { 
+    errLogin.value = response.msg
+  }
+};
+
+const redirect = () => {
+  const jaViOnboarding = localStorage.getItem("hideOnboarding") === "true";
     
     if (!jaViOnboarding) {
       router.push("/onboarding");
     } else {
       router.push("/musicas");
-    }
-  } else {
-    errLogin.value = "Credenciais inválidas. Tente admin@sigelo.com / 123";
+    } 
+}
+
+onMounted(async() => {
+  await userStore.init()
+  if(userStore.userId) {
+    redirect()
   }
-};
+
+})
 </script>
 
 <template>

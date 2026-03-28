@@ -2,7 +2,6 @@ use tauri::{AppHandle, Manager, Monitor};
 
 use crate::monitors::display::MonitorInfo;
 
-
 pub fn detect_projector(app: &AppHandle) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
     let primary = app.primary_monitor().ok().flatten();
@@ -64,10 +63,17 @@ pub fn detect_projector_cmd(app: tauri::AppHandle) -> Result<Option<MonitorInfo>
     match best_monitor {
         Some(monitor) => {
             let size = monitor.size();
-            let name = monitor.name().cloned().unwrap_or_else(|| "Desconhecido".to_string());
-            
+            let name = monitor
+                .name()
+                .cloned()
+                .unwrap_or_else(|| "Desconhecido".to_string());
+
             // Verifica se é o primário
-            let primary_name = app.primary_monitor().ok().flatten().and_then(|m| m.name().map(|n| n.to_string()));
+            let primary_name = app
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .and_then(|m| m.name().map(|n| n.to_string()));
             let is_primary = Some(name.clone()) == primary_name;
 
             Ok(Some(MonitorInfo {
@@ -76,7 +82,7 @@ pub fn detect_projector_cmd(app: tauri::AppHandle) -> Result<Option<MonitorInfo>
                 height: size.height,
                 is_primary,
             }))
-        },
-        None => Ok(None) // Não achou nenhum
+        }
+        None => Ok(None), // Não achou nenhum
     }
 }

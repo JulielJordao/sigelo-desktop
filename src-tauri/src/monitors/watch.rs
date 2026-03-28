@@ -1,7 +1,7 @@
-use tauri::{AppHandle, Manager};
-use std::{thread, time::Duration};
-use crate::monitors::manager::choose_projection_monitor;
 use crate::monitors::manager::choose_monitor;
+use crate::monitors::manager::choose_projection_monitor;
+use std::{thread, time::Duration};
+use tauri::{AppHandle, Manager};
 
 pub fn reposition_projection(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("projection") {

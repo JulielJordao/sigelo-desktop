@@ -37,7 +37,7 @@ const deleteEmptyFields = (form: any, fields: string[]): any => {
 };
 
 const getToken = (): string | null => {
-  return localStorage.getItem("userToken");
+  return localStorage.getItem("userToken") ?? "";
 };
 
 const getDefaultHeaders = (): HeadersInit => {
@@ -47,8 +47,8 @@ const getDefaultHeaders = (): HeadersInit => {
   return headers;
 };
 
-const withAuth = (useToken: boolean): RequestInit => {
-  return useToken ? { credentials: "include" as RequestCredentials } : {};
+const withAuth = (useToken: string): RequestInit => {
+  return useToken.length < 1 ? { credentials: "include" as RequestCredentials } : {};
 };
 
 // 3. Tratamento de Erros e Validação
@@ -70,7 +70,7 @@ const getValidateMessage = async (response: any, status: number): Promise<ApiRes
 };
 
 // 4. Métodos Base de Requisicao (Generics)
-const getData = async <T = any>(url: string, useToken = false, body: any = null): Promise<T> => {
+const getData = async <T = any>(url: string, useToken : string, body: any = null): Promise<T> => {
   const method = body ? "POST" : "GET";
   const response = await fetch(url, {
     method,
@@ -83,8 +83,9 @@ const getData = async <T = any>(url: string, useToken = false, body: any = null)
   return await response.json();
 };
 
-const deleteData = async (url: string, useToken = false): Promise<Response> => {
+const deleteData = async (url: string, useToken: string): Promise<Response> => {
   const response = await fetch(url, {
+    
     method: "DELETE",
     headers: getDefaultHeaders(),
     ...withAuth(useToken)
@@ -93,7 +94,7 @@ const deleteData = async (url: string, useToken = false): Promise<Response> => {
   return response;
 };
 
-const createData = async <T = any>(url: string, useToken = false, body: any): Promise<T> => {
+const createData = async <T = any>(url: string, useToken: string, body: any): Promise<T> => {
   const response = await fetch(url, {
     method: "POST",
     headers: getDefaultHeaders(),
@@ -104,7 +105,7 @@ const createData = async <T = any>(url: string, useToken = false, body: any): Pr
   return await response.json();
 };
 
-const updateData = async <T = any>(url: string, useToken = false, body: any): Promise<T> => {
+const updateData = async <T = any>(url: string, useToken: string, body: any): Promise<T> => {
   const response = await fetch(url, {
     method: "PUT",
     headers: getDefaultHeaders(),
@@ -118,13 +119,12 @@ const updateData = async <T = any>(url: string, useToken = false, body: any): Pr
 // 5. Exportação dos Módulos
 export const api = {
   defaultUrl: url_base,
-  
   files: () => {
     const url = `${baseUrl}songFile/`;
     const updateUrl = `${baseUrl}files/`;
 
     const create = async (data: any) => {
-      const token = !!getToken();
+      const token = getToken();
       return createData(`${url}create`, token, deleteEmptyFields(data, ["tone"]));
     };
 
@@ -143,7 +143,7 @@ export const api = {
       } catch (error: any) {
         alert(`Erro ao enviar arquivo: ${error.message}`);
         return error;
-      }
+      } 
     };
 
     const uploadListFiles = async (data: any[]) => {
@@ -180,18 +180,18 @@ export const api = {
       upload,
       uploadListFiles,
       create,
-      update: (data: any) => updateData(`${url}update`, !!getToken(), data),
+      update: (data: any) => updateData(`${url}update`, getToken(), data),
       deleteFile: async (id: string) => {
-        const response = await deleteData(`${url}delete/${id}`, !!getToken());
+        const response = await deleteData(`${url}delete/${id}`, getToken());
         return response.json();
       },
-      getListBySongId: (data: any) => getData(`${url}getListBySongId`, !!getToken(), data),
+      getListBySongId: (songId: string) => getData(`${url}getListBySongId`, getToken(), {songId}),
       showFile: (fileName: string) => ({ sendUrl: getLinkFiles(fileName) }),
       generate: async (data: any) => {
         const response = await fetch(`${url}generate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          ...withAuth(true),
+          ...withAuth(""),
           body: JSON.stringify(data),
         });
         if (!response.ok) throw new Error("Erro na requisição");
@@ -203,13 +203,46 @@ export const api = {
   user: () => {
     const url = `${baseUrl}user/`;
     return {
-      create: (data: any) => createData(`${url}create`, false, data),
-      update: (data: any) => updateData(`${url}update`, !!getToken(), data),
-      getList: () => getData(`${url}list`, !!getToken()),
+      getUserById: (userId: string) => getData(`${url}getUserById`, getToken(), {id: userId}),
+      create: (data: any) => createData(`${url}create`, "", data),
+      update: (data: any) => updateData(`${url}update`, getToken(), data),
+      getList: () => getData(`${url}list`, getToken()),
       getUserByToken: async () => {
-        const response = await fetch(`${url_base}api/me`, { ...withAuth(true) });
+        const response = await fetch(`${url_base}api/me`, { ...withAuth("") });
         if (!response.ok) throw new Error('Usuário não autenticado');
         return response.json();
+      },
+      login: async(email: string, password: string) => {
+          let msgError = ''
+
+            try {
+                const body = {
+                email: email,
+                password: password
+            }
+                const response = await fetch(url_base + 'api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body),
+                credentials: 'include'
+            
+            });
+
+            const data = await response.json();
+
+            if (response.status != 200) {
+                msgError = data.msg ? data.msg : '';
+                throw new Error('Login failed');
+            }
+
+            localStorage.setItem('userToken', data.token);
+
+            return { success: true, msg: "" }
+        } catch (err: any) {
+             return { success: false, msg: 'Login falhou. Verifique os dados e tente novamente.' + msgError }
+        }
       },
       logout: async () => {
         const response = await fetch(`${url_base}api/logout`, {
@@ -219,8 +252,26 @@ export const api = {
         });
         return response.json();
       }
-      // ... Adicione as outras funções seguindo o padrão createData/getData
     };
+  },
+
+  songGroup: () => {
+    const url = baseUrl + "songGroup/";
+
+    const get = async() => getData(`${url}list`, getToken())
+
+    return {
+        get
+    }
+  },
+  song: () => {
+    const url = baseUrl + "song/";
+
+    const list = async(songGroupId: string) => getData(`${url}listBySongGroup`, getToken(), {songGroupId})
+
+    return {
+        list
+    }
   },
 
   bibleApi: async (book: string, chapter: number, rangeParam: string) => {
@@ -229,11 +280,25 @@ export const api = {
     return response.json();
   },
 
+  settings: () => {
+    const url = baseUrl + "settings/";
+
+    async function get() {
+      const token = getToken();
+      const response = await getData(url + "get", token);
+      return response;
+    }
+
+    return{
+        get
+    }
+  },
+
   apiFetch: async (url: string, options: RequestInit = {}) => {
     let response = await fetch(baseUrl + url, {
       ...options,
       headers: { ...getDefaultHeaders(), ...options.headers },
-      ...withAuth(true)
+      ...withAuth("")
     });
 
     if (response.status === 401) {
@@ -242,6 +307,14 @@ export const api = {
       return fetch(baseUrl + url, { ...options, credentials: 'include' });
     }
     return response;
+  },
+
+  proxy: async(url: string) => {
+    let response = await fetch(url_base + "proxy?url=" + url, {
+      headers: { ...getDefaultHeaders()},
+      ...withAuth("")
+    });
+    return response.json();
   }
 };
 

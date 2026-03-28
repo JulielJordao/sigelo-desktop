@@ -1,10 +1,10 @@
-use std::sync::Mutex;
 use crate::monitors::manager::MonitorPreference;
+use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct AppState {
     pub projection_html: Mutex<String>,
-    pub monitor_preference: Mutex<MonitorPreference>
+    pub monitor_preference: Mutex<MonitorPreference>,
 }
 
 impl Default for MonitorPreference {
@@ -17,7 +17,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             projection_html: Mutex::new(String::new()),
-            monitor_preference: Mutex::new(MonitorPreference::Auto)
+            monitor_preference: Mutex::new(MonitorPreference::Auto),
         }
     }
 

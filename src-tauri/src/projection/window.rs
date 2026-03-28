@@ -13,19 +13,16 @@ pub fn open_projection_window(app: &AppHandle) -> tauri::Result<()> {
     let monitor = monitors.get(1).unwrap();
 
     // cria a janela de projeção
-    let window = WebviewWindowBuilder::new(
-        app,
-        "projection",
-        WebviewUrl::App("projection.html".into()),
-    )
-    .decorations(false)
-    .build()?;
+    let window =
+        WebviewWindowBuilder::new(app, "projection", WebviewUrl::App("projection.html".into()))
+            .decorations(false)
+            .build()?;
 
     // move a janela para a segunda tela
     window.set_position(tauri::Position::Physical(*monitor.position()))?;
 
     // pega resolução do monitor
-    let size= *monitor.size();
+    let size = *monitor.size();
 
     window.set_size(tauri::Size::Physical(size))?;
 

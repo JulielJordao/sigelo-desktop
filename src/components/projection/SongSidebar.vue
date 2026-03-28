@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{
+import { ref, computed } from 'vue';
+
+const props = defineProps<{
   songs: Array<{ _id: string, fullName: string }>;
   selectedId: string | null;
 }>();
@@ -7,33 +9,83 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'select', id: string): void
 }>();
+
+// --- Lógica de Busca ---
+const isSearchActive = ref(false);
+const searchQuery = ref('');
+
+const filteredSongs = computed(() => {
+  if (!searchQuery.value) return props.songs;
+  
+  const lowerCaseQuery = searchQuery.value.toLowerCase();
+  return props.songs.filter(song => 
+    song.fullName.toLowerCase().includes(lowerCaseQuery)
+  );
+});
+
+const toggleSearch = () => {
+  isSearchActive.value = !isSearchActive.value;
+  if (!isSearchActive.value) {
+    searchQuery.value = ''; // Limpa a busca ao fechar
+  }
+};
 </script>
 
 <template>
-  <div class="d-flex flex-column fill-height">
-    <v-toolbar density="compact" color="white" elevation="0" class="border-b">
-      <v-toolbar-title class="text-subtitle-2 font-weight-bold">
-        Músicas ({{ songs.length }})
+  <div class="d-flex flex-column" style="height: 100%; max-height: 100%;">
+    
+    <v-toolbar 
+      density="compact" 
+      color="white" 
+      elevation="0" 
+      class="border-b flex-grow-0 flex-shrink-0"
+    >
+      <v-toolbar-title v-if="!isSearchActive" class="text-subtitle-2 font-weight-bold">
+        Músicas ({{ filteredSongs.length }})
       </v-toolbar-title>
+      
+      <v-text-field
+        v-else
+        v-model="searchQuery"
+        density="compact"
+        variant="solo-filled"
+        flat
+        hide-details
+        placeholder="Buscar música..."
+        prepend-inner-icon="mdi-magnify"
+        autofocus
+        class="mx-2"
+      ></v-text-field>
+
+      <v-spacer v-if="!isSearchActive"></v-spacer>
+
+      <v-btn icon density="comfortable" @click="toggleSearch">
+        <v-icon>{{ isSearchActive ? 'mdi-close' : 'mdi-magnify' }}</v-icon>
+      </v-btn>
     </v-toolbar>
     
-    <v-list density="compact" class="flex-grow-1 overflow-y-auto pa-2" nav>
-      <v-list-item
-        v-for="song in songs" 
-        :key="song._id" 
-        :value="song._id"
-        :active="selectedId === song._id" 
-        color="primary" 
-        rounded="lg" 
-        class="mb-1 border"
-        @click="emit('select', song._id)"
-      >
-        <v-list-item-title class="text-body-2 font-weight-medium">{{ song.fullName }}</v-list-item-title>
-      </v-list-item>
-      
-      <div v-if="songs.length === 0" class="text-center pa-4 text-caption text-grey">
-        Nenhuma música neste grupo.
-      </div>
-    </v-list>
+    <div class="flex-grow-1" style="overflow-y: auto; min-height: 0;">
+      <v-list density="compact" class="pa-2" nav>
+        <v-list-item
+          v-for="song in filteredSongs" 
+          :key="song._id" 
+          :value="song._id"
+          :active="selectedId === song._id" 
+          color="primary" 
+          rounded="lg" 
+          class="mb-1 border"
+          @click="emit('select', song._id)"
+        >
+          <v-list-item-title class="text-body-2 font-weight-medium">
+            {{ song.fullName }}
+          </v-list-item-title>
+        </v-list-item>
+        
+        <div v-if="filteredSongs.length === 0" class="text-center pa-4 text-caption text-grey">
+          {{ searchQuery ? 'Nenhuma música encontrada.' : 'Nenhuma música neste grupo.' }}
+        </div>
+      </v-list>
+    </div>
+
   </div>
 </template>

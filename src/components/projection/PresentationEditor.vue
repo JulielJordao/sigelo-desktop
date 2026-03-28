@@ -2,13 +2,15 @@
 import { ref, computed, watch, onUnmounted } from 'vue';
 
 const props = defineProps<{
-    activeSong: { _id: string, fullName: string, lyrics: string } | null;
+    activeSong: { _id: string, fullName: string} | null;
     showSidebar: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: 'toggle-sidebar'): void
 }>();
+
+const lyric = ref("")
 
 // --- ESTADOS GERAIS E TELA ---
 const currentTab = ref('slides');
@@ -58,7 +60,7 @@ watch(() => props.activeSong, () => { currentSlideIndex.value = 0; });
 
 const songSlides = computed(() => {
     if (!props.activeSong) return [];
-    return props.activeSong.lyrics.split('\n\n').map(block => {
+    return lyric.value.split('\n\n').map(block => {
         const lines = block.split('\n');
         return {
             label: lines[0].startsWith('[') ? lines[0] : '',
@@ -179,6 +181,12 @@ const stopAction = () => {
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', stopAction);
 };
+
+defineExpose({
+    updateLyric: (newLyric: string) => {
+        lyric.value = newLyric
+    }
+})
 
 onUnmounted(() => { stopAction(); });
 </script>
