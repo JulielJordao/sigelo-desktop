@@ -26,6 +26,17 @@ pub fn run() {
             crate::commands::projection::stop_projection,
             crate::commands::projection::get_current_projection
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Se a janela que está tentando fechar for a "projection"
+                if window.label() == "projection" {
+                    // Impede o sistema de destruir a janela
+                    api.prevent_close();
+                    // Apenas oculta, mantendo ela viva na memória para a próxima vez
+                    let _ = window.hide(); 
+                }
+            }
+        })
         .setup(|app| {
             crate::monitors::watch::start_monitor_watcher(app.handle().clone());
             Ok(())
