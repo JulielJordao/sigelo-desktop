@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
+import { invoke } from '@tauri-apps/api/core'; 
+import { useConfigStore } from '../../stores/useConfigStore';
+
+const configStore = useConfigStore();
 
 const props = defineProps<{
     activeSong: { _id: string, fullName: string} | null;
@@ -12,8 +16,11 @@ const emit = defineEmits<{
 
 const lyric = ref("")
 
+const fileInput = ref({click: () => {}})
+
 // --- ESTADOS GERAIS E TELA ---
 const currentTab = ref('slides');
+const isProjecting = ref(false);
 const currentSlideIndex = ref<number>(0);
 const previewContainer = ref<HTMLElement | null>(null);
 
@@ -35,23 +42,24 @@ const design = ref({
     bgColor: '#000000',
     bgMedia: '',
     bgIsVideo: false,
-    bgFit: 'cover', // 'cover' (Cortar) ou 'fill' (Estender)
+    bgFit: 'cover' as 'cover' | 'fill' | 'contain',
 
     // Posição da caixa
-    posX: 10,
-    posY: 35,
-    width: 80,
-    height: 30
+    posX: 5,
+    posY: 5,
+    width: 90,
+    height: 90
 });
 
 // 2. Estilos de Texto Separados por Tipo de Slide
 const textStyles = ref({
-    geral: { fontFamily: 'Inter', fontSize: 6, align: 'center', bold: false, italic: false, color: '#FFFFFF' },
-    titulo: { fontFamily: 'Inter', fontSize: 8, align: 'center', bold: true, italic: false, color: '#FFFFFF' },
-    verso: { fontFamily: 'Inter', fontSize: 6, align: 'left', bold: false, italic: false, color: '#FFFFFF' },
-    refrao: { fontFamily: 'Inter', fontSize: 6.5, align: 'center', bold: true, italic: true, color: '#FFFFFF' }
+    geral: { fontFamily: 'Inter', fontSize: 5, align: 'center' as 'left' | 'center' | 'right' | 'justify', bold: false, italic: false, color: '#FFFFFF' },
+    titulo: { fontFamily: 'Inter', fontSize: 8, align: 'center' as 'left' | 'center' | 'right' | 'justify', bold: true, italic: false, color: '#FFFFFF' },
+    verso: { fontFamily: 'Inter', fontSize: 4.5, align: 'left' as 'left' | 'center' | 'right' | 'justify', bold: false, italic: false, color: '#FFFFFF' },
+    refrao: { fontFamily: 'Inter', fontSize: 6, align: 'center' as 'left' | 'center' | 'right' | 'justify', bold: true, italic: true, color: '#FFFFFF' }
 });
-const activeTextSetting = ref('geral'); // Controla qual tipo estamos editando na Aba Texto
+
+const activeTextSetting = ref('geral' as 'geral' | 'titulo' | 'verso' | 'refrao'); // Controla qual tipo estamos editando na Aba Texto
 const autoFontSize = ref(false);
 const fontOptions = ['Inter', 'Arial', 'Times New Roman', 'Georgia', 'Verdana', 'Courier New', 'Montserrat'];
 
@@ -60,11 +68,13 @@ watch(() => props.activeSong, () => { currentSlideIndex.value = 0; });
 
 const songSlides = computed(() => {
     if (!props.activeSong) return [];
-    return lyric.value.split('\n\n').map(block => {
-        const lines = block.split('\n');
+
+    return infoSlides.value.slides.map((block, index) => {
+        let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
+
         return {
-            label: lines[0].startsWith('[') ? lines[0] : '',
-            text: lines[0].startsWith('[') ? lines.slice(1).join('\n') : block
+            label: label,
+            text: block
         };
     });
 });
@@ -182,13 +192,236 @@ const stopAction = () => {
     window.removeEventListener('mouseup', stopAction);
 };
 
+const parseSlides = function(rawText: string) {
+  const lines = rawText.split('\n')
+  const estrofes = []
+  let chorusLines = []
+  let chorus = []
+  let buffer = []
+  const typeText = []
+  const typeSlides = []
+
+  // Pré-define o que é refrão e o que é estrofe
+  for (let line of lines) {
+    // Quebra de linha
+    if (!line.trim()) {
+      if (buffer.length > 0) {
+        estrofes.push(buffer.join('\n'))
+        buffer = []
+        typeText.push(0) // Estrofe
+      }
+
+      if (chorusLines.length > 0) {
+        if (chorus.length < 1) {
+          typeText.push(1)
+        } else {
+          typeText.push(chorus.length + 1)
+        }
+        chorus.push(chorusLines.join('\n'))
+        chorusLines = []
+      }
+      // Refrão (linha com 5 espaços)
+    } else if (/^\s{5}/.test(line)) {
+      chorusLines.push(line.trim())
+    } else {
+      buffer.push(line.trim())
+    }
+  }
+
+  if (buffer.length > 0) {
+    estrofes.push(buffer.join('\n'))
+    typeText.push(0)
+  }
+
+  if (chorusLines.length > 0) {
+    typeText.push(chorus.length + 1)
+    chorus.push(chorusLines.join('\n'))
+  }
+
+  const slides = []
+  let countChorus = 0
+  let countVerse = 0
+  let afterChorus = false
+  let onVerse = false
+  let sType = 0
+
+  // Constroí os slides e adiciona o refrão onde é necessário
+  for (let i = 0; i < typeText.length; i++) {
+    sType = typeText[i]
+    if (sType == 0) {
+      slides.push(estrofes[countVerse])
+      countVerse++
+      typeSlides.push(0)
+      onVerse = true
+    } else if (sType == 1) {
+      slides.push(chorus[0])
+      onVerse = false
+      typeSlides.push(1)
+      afterChorus = true
+    } else {
+      countChorus++
+      slides.push(chorus[countChorus])
+      typeSlides.push(1)
+      onVerse = false
+    }
+
+    if ((i + 1) < typeText.length) {
+      if (afterChorus && onVerse && typeText[i + 1] < 1) {
+        slides.push(chorus[countChorus])
+        typeSlides.push(1)
+      }
+    } else {
+      if (afterChorus && onVerse) {
+        slides.push(chorus[countChorus])
+        typeSlides.push(1)
+      }
+    }
+  }
+
+
+  console.log({ slides, typeSlides })
+  return { slides, typeSlides }
+}
+
+const infoSlides = ref(parseSlides(""))
+
+const projectCurrentSlide = async () => {
+    if (!props.activeSong) return;
+
+    isProjecting.value = true;
+
+    const style = currentActiveStyle.value;
+    const conf = configStore.settings;
+    const text = currentSlideText.value;
+    const currentDesign = design.value;
+
+    // 1. Resolve o Fundo (Cor, Imagem ou Vídeo)
+    let bgHtml = '';
+    if (currentDesign.bgType === 'color') {
+        bgHtml = `<div style="position: absolute; inset: 0; background-color: ${currentDesign.bgColor}; z-index: -1;"></div>`;
+    } else if (currentDesign.bgIsVideo && currentDesign.bgMedia) {
+        bgHtml = `<video src="${currentDesign.bgMedia}" autoplay loop muted style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${currentDesign.bgFit}; z-index: -1;"></video>`;
+    } else if (currentDesign.bgMedia) {
+        bgHtml = `<img src="${currentDesign.bgMedia}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${currentDesign.bgFit}; z-index: -1;" />`;
+    }
+
+    // 2. Monta o Payload HTML combinando o layout do Editor com a SafeArea do ConfigStore
+    const htmlPayload = `
+        <div id="projection-root" class="theme-${conf.activeTheme.toLowerCase()}" style="
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+            background-color: ${conf.chromaKey !== 'none' ? conf.chromaKey : 'transparent'};
+            opacity: ${conf.bgOpacity / 100};
+            transition: opacity 0.3s ${conf.transitionType === 'fade' ? 'ease-in-out' : 'none'};
+            box-sizing: border-box;
+            padding: ${conf.marginTop}px ${conf.marginRight}px ${conf.marginBottom}px ${conf.marginLeft}px;
+        ">
+            ${bgHtml}
+
+            <div style="position: relative; width: 100%; height: 100%;">
+                
+                <div style="
+                    position: absolute;
+                    left: ${currentDesign.posX}%;
+                    top: ${currentDesign.posY}%;
+                    width: ${currentDesign.width}%;
+                    height: ${currentDesign.height}%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    container-type: inline-size; /* ESSENCIAL para o cqi funcionar */
+                ">
+                    <div style="
+                        font-family: '${style.fontFamily}', sans-serif;
+                        font-size: ${style.fontSize}cqi; 
+                        color: ${style.color};
+                        text-align: ${style.align};
+                        font-weight: ${style.bold ? 'bold' : 'normal'};
+                        font-style: ${style.italic ? 'italic' : 'normal'};
+                        white-space: pre-wrap;
+                        width: 100%;
+                        max-height: 100%;
+                        overflow: hidden;
+                        pointer-events: none;
+                    ">${text}</div>
+                </div>
+
+            </div>
+        </div>
+    `;
+
+    // 3. Envia para o Tauri
+    try {
+        await invoke('update_projection', { 
+            html: htmlPayload, 
+            targetMonitor: conf.selectedMonitor || null
+        });
+    } catch (error) { 
+        console.error("Erro ao projetar o slide:", error);
+    }
+};
+
+const stopProjection = async () => {
+    isProjecting.value = false;
+    try {
+        await invoke('stop_projection');
+    } catch (error) {
+        console.error("Erro ao parar a projeção:", error);
+    }
+};
+
+const handleKeydown = (e: KeyboardEvent) => {
+    if (!isProjecting.value) return; // Só funciona se a projeção estiver rodando
+
+    switch (e.key) {
+        case 'ArrowRight':
+        case 'ArrowDown':
+            // Avança slide
+            if (currentSlideIndex.value < songSlides.value.length - 1) {
+                currentSlideIndex.value++;
+            }
+            break;
+        case 'ArrowLeft':
+        case 'ArrowUp':
+            // Volta slide
+            if (currentSlideIndex.value > 0) {
+                currentSlideIndex.value--;
+            }
+            break;
+        case 'Escape':
+            // Pergunta se quer encerrar ao apertar ESC
+            if (confirm("Deseja encerrar a apresentação?")) {
+                stopProjection();
+            }
+            break;
+    }
+};
+
+onMounted(() => {
+    window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => { 
+    stopAction(); 
+    window.removeEventListener('keydown', handleKeydown);
+});
+
+watch(currentSlideIndex, () => {
+    if (isProjecting.value) { // Só envia se estiver no modo apresentação
+        projectCurrentSlide();
+    }
+});
+
 defineExpose({
     updateLyric: (newLyric: string) => {
         lyric.value = newLyric
+        infoSlides.value = parseSlides(newLyric)
     }
 })
 
-onUnmounted(() => { stopAction(); });
+
 </script>
 
 <template>
@@ -200,9 +433,20 @@ onUnmounted(() => { stopAction(); });
             <v-toolbar-title class="text-subtitle-1 font-weight-bold">
                 {{ activeSong ? activeSong.fullName : 'Modo de Apresentação' }}
             </v-toolbar-title>
+            
             <v-spacer></v-spacer>
-            <v-btn v-if="activeSong" color="primary" variant="flat" size="small"
-                prepend-icon="mdi-play">Projetar</v-btn>
+
+            <span v-if="isProjecting" class="text-caption text-medium-emphasis mr-4">
+                (Use ← → para navegar, Esc para sair)
+            </span>
+
+            <v-btn v-if="activeSong && !isProjecting" color="primary" variant="flat" size="small"
+                prepend-icon="mdi-play"
+                @click="projectCurrentSlide">Projetar</v-btn>
+                
+            <v-btn v-if="activeSong && isProjecting" color="error" variant="flat" size="small"
+                prepend-icon="mdi-stop"
+                @click="stopProjection">Parar Apresentação</v-btn>
         </v-toolbar>
 
         <div v-if="activeSong" class="d-flex flex-column flex-grow-1 overflow-hidden">
@@ -266,24 +510,41 @@ onUnmounted(() => { stopAction(); });
 
                 <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
                     <v-window v-model="currentTab" class="fill-height">
+                        <v-window-item value="slides" class="pa-4 fill-height overflow-y-auto">
+                            <v-row density="comfortable">
+                                <v-col cols="6" sm="4" md="3" lg="2" v-for="(slide, index) in songSlides" :key="index">
+                                    
+                                    <v-card 
+                                        @click="currentSlideIndex = index"
+                                        :elevation="currentSlideIndex === index ? 3 : 1"
+                                        :class="[
+                                            'cursor-pointer d-flex flex-column transition-swing',
+                                            currentSlideIndex === index ? 'border-primary' : 'border'
+                                        ]"
+                                        style="aspect-ratio: 16/9; border-width: 2px !important;"
+                                    >
+                                        <div class="px-2 py-1 border-b d-flex justify-space-between align-center" style="background-color: rgba(0,0,0,0.04);">
+                                            <span class="text-caption font-weight-bold text-truncate">
+                                                {{ slide.label || `Slide ${index + 1}` }}
+                                            </span>
+                                            <v-icon v-if="currentSlideIndex === index" color="primary" size="small">
+                                                mdi-check-circle
+                                            </v-icon>
+                                        </div>
 
-                        <v-window-item value="slides" class="pa-4 fill-height">
-                            <v-row density="compact">
-                                <v-col cols="12" sm="4" md="3" v-for="(slide, index) in songSlides" :key="index">
-                                    <v-card @click="currentSlideIndex = index"
-                                        :color="currentSlideIndex === index ? 'primary' : ''"
-                                        :variant="currentSlideIndex === index ? 'tonal' : 'outlined'"
-                                        class="h-100 cursor-pointer bg-surface">
-                                        <v-card-title class="text-caption font-weight-bold bg-surface-variant pa-2">
-                                            {{ slide.label || `Slide ${index + 1}` }}
-                                        </v-card-title>
-                                        <v-card-text class="pa-2 text-caption text-truncate-multiline">{{ slide.text
-                                            }}</v-card-text>
+                                        <div class="flex-grow-1 d-flex align-start justify-center pa-2 overflow-hidden bg-white">
+                                            <span 
+                                                class="text-caption text-grey-darken-3 text-truncate-multiline" 
+                                                
+                                            >
+                                                {{ slide.text }}
+                                            </span>
+                                        </div>
                                     </v-card>
+
                                 </v-col>
                             </v-row>
                         </v-window-item>
-
                         <v-window-item value="fundo" class="pa-6 fill-height">
                             <v-row>
                                 <v-col cols="12" md="4" class="border-e">
@@ -307,7 +568,7 @@ onUnmounted(() => { stopAction(); });
 
                                         <v-card width="100" height="70" color="surface-variant"
                                             class="d-flex align-center justify-center cursor-pointer border"
-                                            @click="$refs.fileInput.click()">
+                                            @click="fileInput.click()">
                                             <v-icon>mdi-upload</v-icon>
                                             <input type="file" ref="fileInput" class="d-none" accept="image/*,video/*"
                                                 @change="handleFileUpload">
@@ -424,8 +685,8 @@ onUnmounted(() => { stopAction(); });
                                         <v-divider class="my-6"></v-divider>
 
                                         <p class="text-caption font-weight-bold mb-0">Tamanho da Fonte</p>
-                                        <v-slider v-model="textStyles[activeTextSetting].fontSize" min="2" max="25"
-                                            step="0.5" thumb-label color="primary" append-icon="mdi-format-size"
+                                        <v-slider v-model="textStyles[activeTextSetting].fontSize" min="2" max="7"
+                                            step="0.1" thumb-label color="primary" append-icon="mdi-format-size"
                                             hide-details></v-slider>
 
                                     </v-card-text>
@@ -548,10 +809,12 @@ onUnmounted(() => { stopAction(); });
 }
 
 .text-truncate-multiline {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4; 
+  line-clamp: 4;/* Limita a 4 linhas no preview */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .gap-2 {

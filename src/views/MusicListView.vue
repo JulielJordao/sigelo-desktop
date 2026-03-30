@@ -39,7 +39,7 @@ interface SongFiles {
     songIdObj: string
 }
 
-const refPresentationEditor = ref({updateLyric : (newLyric: string) => {}})
+const refPresentationEditor = ref({updateLyric : (newLyric: string) => { console.log(newLyric)}})
 
 const isLoading = ref(false)
 
@@ -48,8 +48,8 @@ const songRoutes = routes.song()
 const filesRoutes = routes.files()
 // --- ESTADOS DA TELA ---
 const showSidebarLists = ref(true);
-const selectedGroupId = ref<string | null>("68f8be456569689b456edd83");
-const selectedSongId = ref<string | null>(null);
+const selectedGroupId = ref<string>("68f8be456569689b456edd83");
+const selectedSongId = ref<string>("");
 
 // --- MOCK DATA ---
 const rawGroups = ref([{ "_id": "68f8be456569689b456edd83", "name": "Composições Luteranas" }]);
@@ -57,8 +57,9 @@ const rawSongs = ref([
   { "_id": "68f9246b6569689b456edf30", "fullName": "Nossa esperança em Deus está", "songGroupId": "68f8be456569689b456edd83" },
   { "_id": "68f94eaf6569689b456edf88", "fullName": "Guiados", "songGroupId": "68f8be456569689b456edd83" }
 ]);
+rawSongs.value.splice(0, rawGroups.value.length+1)
 
-const files = ref<Array<SongFiles>>([])
+// const files = ref<Array<SongFiles>>([])
 
 const generateLyrics = (title: string) => `[Verso 1]\nSenhor, nós te louvamos\nEm espírito e em verdade\n\n[Refrão]\n${title}\nÉ o nosso clamor`;
 const songs = ref(rawSongs.value.map(song => ({ ...song, lyrics: generateLyrics(song.fullName) })));
@@ -73,7 +74,7 @@ const onSelectGroup = (id: string) => {
     isLoading.value = true
     selectedGroupId.value = id;
     getListMusic()
-    selectedSongId.value = null; 
+    selectedSongId.value = ''; 
   }
 };
 
@@ -96,6 +97,8 @@ const getLyric = async() => {
       const rawLyric = await routes.proxy(url)
 
       refPresentationEditor.value.updateLyric(rawLyric.content)
+    } else {
+      refPresentationEditor.value.updateLyric("")
     }
   }
 }
@@ -107,7 +110,7 @@ const getData = async () => {
 
   if(Array.isArray(response?.response)) {
     const list = response.response
-    list.forEach((it) => {
+    list.forEach((it: any) => {
       rawGroups.value.push(it)
     });
   }
@@ -130,7 +133,7 @@ const getListMusic = async () => {
     isLoading.value = false
   }
 }
- 
+
 onMounted(async() => {
   await getData()
 }) 

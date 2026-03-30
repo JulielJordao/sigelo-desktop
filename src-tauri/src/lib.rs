@@ -10,15 +10,21 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+use crate::state::app_state::AppState;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState::default())
         .plugin(tauri_plugin_http::init())
         // 1. REGISTRAMOS OS COMANDOS AQUI:
         .invoke_handler(tauri::generate_handler![
             greet, // Seu comando de teste original
             crate::monitors::display::get_monitors,
-            crate::monitors::detector::detect_projector_cmd
+            crate::monitors::detector::detect_projector_cmd,
+            crate::commands::projection::update_projection,
+            crate::commands::projection::stop_projection,
+            crate::commands::projection::get_current_projection
         ])
         .setup(|app| {
             crate::monitors::watch::start_monitor_watcher(app.handle().clone());

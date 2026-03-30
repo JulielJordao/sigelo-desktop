@@ -21,7 +21,7 @@ const login = async () => {
 
   if(response.success) {
     redirect()
-  } else { 
+  } else {  
     errLogin.value = response.msg
   }
 };
@@ -39,10 +39,10 @@ const redirect = () => {
 onMounted(async() => {
   await userStore.init()
   if(userStore.userId) {
-    redirect()
+      redirect()
+    }
   }
-
-})
+)
 </script>
 
 <template>
@@ -120,7 +120,7 @@ onMounted(async() => {
       <div class="d-flex align-center my-6 no-drag">
         <v-divider></v-divider>
         <span class="mx-4 text-caption text-grey-lighten-1 font-weight-bold">OU</span>
-        <v-divider></v-divider>
+        <v-divider></v-divider> 
       </div>
 
       <v-btn 

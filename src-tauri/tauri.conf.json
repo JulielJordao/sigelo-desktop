@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "sigelo-app",
+  "productName": "Sigelo",
   "version": "0.1.0",
-  "identifier": "com.julieljordao.sigelo-app",
+  "identifier": "com.julieljordao.Sigelo",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -12,9 +12,17 @@
   "app": {
     "windows": [
       {
-        "title": "sigelo-app",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "Sigelo - Editor",
+        "url": "/"
+      },
+      {
+        "label": "projection",
+        "title": "Sigelo - Projeção",
+        "url": "/projection", 
+        "visible": false, 
+        "fullscreen": false,
+        "alwaysOnTop": true
       }
     ],
     "security": {

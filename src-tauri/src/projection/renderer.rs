@@ -8,7 +8,5 @@ pub fn render_html(app: &AppHandle, html: String) {
     state.set_html(html.clone());
 
     // envia evento para a janela de projeção
-    if let Some(window) = app.get_webview_window("projection") {
-        let _ = window.emit("update-projection", html);
-    }
+    let _ = app.emit("update-projection", html);
 }

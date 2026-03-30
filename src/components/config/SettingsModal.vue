@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useConfigStore } from '../../stores/useConfigStore'; 
 import { invoke } from '@tauri-apps/api/core';
@@ -109,7 +109,7 @@ const clearCache = async () => {
     }
 };
 
-// Vamos simular o carregamento do tamanho das pastas ao abrir o modal
+/* Vamos simular o carregamento do tamanho das pastas ao abrir o modal
 const fetchStorageStats = async () => {
     try {
         // const stats = await invoke('get_storage_stats_cmd');
@@ -123,7 +123,7 @@ const fetchStorageStats = async () => {
     } catch (error) {
         console.error("Erro ao ler armazenamento:", error);
     }
-};
+};*/
 
 const openDialog = () => {
     isDialogOpen.value = true;

@@ -18,7 +18,6 @@ const url_base = isDev
   : "https://meu-app-backend-f9867824586e.herokuapp.com/";
 
 const baseUrl = `${url_base}api/`;
-const publicUrl = `${url_base}public/`;
 
 // 2. Helpers de Utilitários
 const getLinkFiles = (filename: string): string => {

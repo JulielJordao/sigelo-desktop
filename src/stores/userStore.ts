@@ -20,7 +20,7 @@ export const useUserStore = defineStore('user', () => {
     const init = async () => {
         if(isLoaded.value || onLoading.value) return 
         onLoading.value = true
-        loadUserData()
+        await loadUserData()
     }
 
     const loadUserData = async () => {
@@ -38,7 +38,7 @@ export const useUserStore = defineStore('user', () => {
             //await reloadPermissions();
             await loadSettings();
 
-            console.log()
+            console.log("loaded")
             
         } catch (error) {
             console.log(error)
@@ -50,11 +50,11 @@ export const useUserStore = defineStore('user', () => {
     }
 
     const clearUser = () => {
-        userId.value = null
+        userId.value = ''
         fullName.value = ''
         profileImage.value = ''
         groupUserId.value = ''
-        permissions.value = null
+        permissions.value = {}
         isAdmin.value = false
         settings.value = {}
     }
@@ -93,7 +93,8 @@ export const useUserStore = defineStore('user', () => {
     return {
         settings,
         userId,
-        init
+        init,
+        logout
     }
 
 

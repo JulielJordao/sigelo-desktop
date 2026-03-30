@@ -1,28 +1,35 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import SettingsModal from '../components/config/SettingsModal.vue'
-import { useConfigStore } from '../stores/useConfigStore';
+import SettingsModal from '../components/config/SettingsModal.vue';
+import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o novo componente
+// import { useConfigStore } from '../stores/useConfigStore';
 
 const router = useRouter();
 
-const settingsModalRef = ref<any>(null)
+const settingsModalRef = ref<any>(null);
+const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filho
 
-// Estado da aba lateral da Bíblia
-const bibleDrawer = ref(false);
+// const configStore = useConfigStore();
 
-const configStore = useConfigStore();
-
+// Essa função agora chama o método open() exposto pelo BibleDrawer
 const toggleBible = () => {
-  bibleDrawer.value = !bibleDrawer.value;
+  bibleDrawerRef.value?.open();
+  
+  // Exemplo de como você poderia abri-lo já buscando um texto de outro lugar do app:
+  // bibleDrawerRef.value?.open({ abbr: 'Rm', chapter: 3, verses: '10-12' });
+};
+
+const handleProjection = (bibleData: any) => {
+  console.log("Enviando para projeção:", bibleData);
+  // Aqui você chama a lógica de exibição, WebSocket, ou integração com Holyrics
 };
 
 const openSettingsModal = () =>  {
-  settingsModalRef.value.openDialog()
-}
+  settingsModalRef.value.openDialog();
+};
 
 const logout = () => {
-  // Limpa o token e volta para a tela de login
   localStorage.removeItem('userToken');
   router.push('/');
 };
@@ -52,7 +59,6 @@ const logout = () => {
           title="Bíblia" 
           value="bible" 
           @click="toggleBible"
-          :active="bibleDrawer"
           color="primary"
         ></v-list-item>
         
@@ -81,38 +87,10 @@ const logout = () => {
       </template>
     </v-navigation-drawer>
 
-    <v-navigation-drawer 
-      v-model="bibleDrawer" 
-      location="right" 
-      temporary 
-      width="380"
-      elevation="6"
-    >
-      <v-toolbar color="primary" density="compact" class="text-white border-b">
-        <v-icon class="ml-4">mdi-book-cross</v-icon>
-        <v-toolbar-title class="text-subtitle-1 font-weight-bold ml-2">Bíblia Sagrada</v-toolbar-title>
-        <v-spacer></v-spacer>
-        <v-btn icon="mdi-close" variant="text" size="small" @click="toggleBible"></v-btn>
-      </v-toolbar>
-      
-      <v-container class="pa-4 d-flex flex-column fill-height">
-        <v-text-field
-          prepend-inner-icon="mdi-magnify"
-          label="Buscar livro, capítulo..."
-          variant="outlined"
-          density="compact"
-          color="primary"
-          hide-details
-          class="mb-4 flex-grow-0"
-        ></v-text-field>
-        
-        <div class="flex-grow-1 d-flex flex-column align-center justify-center text-grey text-caption">
-          <v-icon icon="mdi-bookshelf" size="48" class="mb-2 text-grey-lighten-2"></v-icon>
-          <p class="font-weight-medium">Módulo em desenvolvimento</p>
-          <p class="text-center px-4 mt-2">A pesquisa instantânea em JSON será integrada aqui para projeção rápida de versículos.</p>
-        </div>
-      </v-container>
-    </v-navigation-drawer>
+    <BibleDrawer 
+      ref="bibleDrawerRef" 
+      @project="handleProjection" 
+    />
 
     <v-main class="d-flex flex-column h-screen overflow-hidden">
       <router-view v-slot="{ Component }">
@@ -121,13 +99,13 @@ const logout = () => {
         </transition>
       </router-view>
     </v-main>
+    
     <SettingsModal ref="settingsModalRef" />
     
   </v-layout>
 </template>
 
 <style scoped>
-/* Transição suave ao trocar de telas no menu principal */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.15s ease;

@@ -26,6 +26,9 @@ const routes: Array<RouteRecordRaw> = [
       },
       // Aqui você adicionará outras telas como 'slides', 'configuracoes', etc.
     ]
+  },
+  {
+    path: '/projection', component: () => import('../views/ProjectionView.vue')
   }
 ];
 
