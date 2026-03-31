@@ -3,6 +3,7 @@ import { computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core'; 
 import { useConfigStore } from '../../stores/useConfigStore'; // Ajuste o caminho se necessário
 import bibleData from "../../data/bible.json"
+import { calculateMaxFontSize, getMaxCharsFromSlides, getMaxLinesFromSlides } from '../../utils/projection';
 
 const configStore = useConfigStore();
 const emit = defineEmits(['project', 'close']);
@@ -218,11 +219,31 @@ watch(isOpen, (newVal) => {
   else window.removeEventListener('keydown', handleKeydown);
 });
 
+const maxCharsInBible = computed(() => getMaxCharsFromSlides(bibleSlides.value));
+const maxLinesInBible = computed(() => getMaxLinesFromSlides(bibleSlides.value));
+
+const maxBibleFontSize = computed(() => {
+    return calculateMaxFontSize({
+        maxChars: maxCharsInBible.value, // Caracteres totais do slide
+        maxLines: maxLinesInBible.value,
+        aspectRatio: configStore.settings.aspectRatio,
+        safeMargin: 1.20, // Valor padrão
+        absoluteMax: 15
+    }); 
+});
+
+watch(maxBibleFontSize, (newMax) => {
+    if (projectionSettings.value.fontSize > newMax) {
+        projectionSettings.value.fontSize = newMax;
+        if (step.value === 'projecting') projectCurrentSlide();
+    }
+}); 
+
 defineExpose({ open, close });
 </script>
 
 <template>
-  <v-navigation-drawer v-model="isOpen" location="right" temporary width="450" elevation="6">
+  <v-navigation-drawer v-model="isOpen" location="right" temporary width="450" elevation="6"> 
     <v-toolbar :color="step === 'projecting' ? 'error' : 'primary'" density="compact" class="text-white border-b">
       <v-icon class="ml-4">mdi-book-cross</v-icon>
       <v-toolbar-title class="text-subtitle-1 font-weight-bold ml-2">
@@ -298,10 +319,10 @@ defineExpose({ open, close });
 
           <v-window-item value="config" class="h-100 overflow-y-auto pr-2">
             <p class="text-caption font-weight-bold mb-1 mt-2">Versículos por Slide</p>
-            <v-slider v-model="projectionSettings.versesPerSlide" min="1" max="10" step="1" thumb-label color="primary" hide-details></v-slider>
+            <v-slider v-model="projectionSettings.versesPerSlide" min="1" max="5" step="1" thumb-label color="primary" hide-details></v-slider>
 
             <p class="text-caption font-weight-bold mb-1 mt-4">Tamanho da Fonte</p>
-            <v-slider v-model="projectionSettings.fontSize" min="2" max="10" step="0.5" thumb-label color="primary" hide-details></v-slider>
+            <v-slider v-model="projectionSettings.fontSize" min="2" :max="maxBibleFontSize" step="0.1" thumb-label color="primary" hide-details></v-slider>
 
             <div class="d-flex align-center mt-4 mb-2">
               <v-checkbox v-model="projectionSettings.showReference" label="Exibir Referência no Rodapé" color="primary" density="compact" hide-details></v-checkbox>

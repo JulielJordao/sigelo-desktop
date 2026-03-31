@@ -2,6 +2,7 @@
 import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core'; 
 import { useConfigStore } from '../../stores/useConfigStore';
+import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection'
 
 const configStore = useConfigStore();
 
@@ -191,6 +192,33 @@ const stopAction = () => {
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', stopAction);
 };
+
+// 1. Descobre o número máximo de linhas na música atual
+const maxLinesInSong = computed(() => {
+    return getMaxLinesFromSlides(songSlides.value);
+});
+
+const maxAllowedFontSize = computed(() => {
+    return calculateMaxFontSize({
+        maxLines: maxLinesInSong.value,
+        aspectRatio: configStore.settings.aspectRatio,
+        customWidth: screenResolution.value.width,
+        customHeight: screenResolution.value.height
+    });
+});
+
+// 3. Monitora mudanças e "esmaga" a fonte se ela estourar o limite
+watch(maxAllowedFontSize, (newMax) => {
+    const styles = ['geral', 'titulo', 'verso', 'refrao'] as const;
+    
+    styles.forEach(style => {
+        if (textStyles.value[style].fontSize > newMax) {
+            textStyles.value[style].fontSize = newMax;
+        }
+    });
+    
+    if (isProjecting.value) projectCurrentSlide();
+});
 
 const parseSlides = function(rawText: string) {
   const lines = rawText.split('\n')
@@ -685,7 +713,7 @@ defineExpose({
                                         <v-divider class="my-6"></v-divider>
 
                                         <p class="text-caption font-weight-bold mb-0">Tamanho da Fonte</p>
-                                        <v-slider v-model="textStyles[activeTextSetting].fontSize" min="2" max="7"
+                                        <v-slider v-model="textStyles[activeTextSetting].fontSize" min="2" :max="maxAllowedFontSize"
                                             step="0.1" thumb-label color="primary" append-icon="mdi-format-size"
                                             hide-details></v-slider>
 
