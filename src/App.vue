@@ -1,11 +1,51 @@
 <script setup lang="ts">
-// No App.vue, geralmente não precisamos de muita lógica, 
-// pois ela fica dentro de cada View (Login, Músicas, etc.)
+import PdfPresenter from './components/projection/PdfPresenter.vue';
+import AppHeader from './components/AppHeader.vue';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ref, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
+
+const refPdfPresenter = ref<InstanceType<typeof PdfPresenter> | null>(null);
+const windowLabel = ref('');
+const route = useRoute();
+
+const showToolbar = computed(() => {
+  const isProjectionWindow = windowLabel.value === 'projection';
+  const isProjectionRoute = route.path.includes('projection');
+  
+  return !isProjectionWindow && !isProjectionRoute;
+});
+
+// Aqui você conecta com a sua função do PDF!
+const handleImportAction = () => {
+  refPdfPresenter.value?.openPdfFile()
+  console.log("Usuário clicou em importar ou usou o menu nativo!");
+  // ex: pdfPresenterRef.value?.openPdfFile();
+};
+
+const handleExportAction = () => {
+  console.log("Usuário clicou em exportar ou usou o menu nativo!");
+  // ex: exportToPPTX();
+};
+
+onMounted(async () => {
+  const appWindow = getCurrentWindow();
+  windowLabel.value = appWindow.label;
+});
 </script>
 
 <template>
-  <v-app>
-    <router-view />
+  <v-app class="d-flex flex-column fill-height bg-background overflow-hidden">
+    <AppHeader 
+      @import="handleImportAction" 
+      @export="handleExportAction" 
+      v-if="showToolbar"
+    />
+    <pdf-presenter ref="refPdfPresenter"></pdf-presenter>
+
+    <v-main class="flex-grow-1 overflow-hidden">
+      <router-view />
+    </v-main>
   </v-app>
 </template>
 

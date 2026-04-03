@@ -14,7 +14,11 @@
       {
         "label": "main",
         "title": "Sigelo - Editor",
-        "url": "/"
+        "url": "/",
+        "width": 1200,
+        "height": 800,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       },
       {
         "label": "projection",

@@ -8,6 +8,11 @@
   "permissions": [
     "core:default",
     "fs:default",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "core:window:allow-start-dragging",
     "shell:default",
     "opener:default",
     "http:default",
@@ -15,7 +20,13 @@
     "fs:allow-appdata-write-recursive",
     {
       "identifier": "shell:allow-open",
-      "allow": [{ "name": "open", "cmd": "", "args": true }]
+      "allow": [
+        {
+          "name": "open",
+          "cmd": "",
+          "args": true
+        }
+      ]
     },
     {
       "identifier": "http:default",
@@ -30,6 +41,8 @@
           "url": "https://*.sigelo.cloud/*"
         }
       ]
-    }
+    },
+    "dialog:default",
+    "os:default"
   ]
 }

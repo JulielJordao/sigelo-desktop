@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
 import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
+import { exportToPPTX } from '../../utils/pptxGen';
+import { Slide } from '../../utils/pptxGen'; // Importando a interface Slide para tipagem
 
 // Importação das Abas Separadas
 import TabSlides from '../tabs/TabSlides.vue';
@@ -128,9 +130,6 @@ const parseSlides = function(rawText: string) {
       }
     }
   }
-
-
-  console.log({ slides, typeSlides })
   return { slides, typeSlides }
 }
 
@@ -251,13 +250,34 @@ watch(maxAllowedFontSize, (newMax) => {
     if (isProjecting.value) projectCurrentSlide();
 });
 
+interface SlideProj {
+    label: string;
+    text: string;
+}
 
+function convertToSlideFmt(label: SlideProj[]): Slide[] {
+    const props = ['título', 'verso', 'refrão', 'geral'];
+    return label.map(slide => ({ text: slide.text, type: removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral'}));
+}
+
+function removeAccents(str: string | undefined) : string | null{
+    if (!str) return null;
+
+    return str
+        .toLowerCase()
+        .normalize('NFD') // Decompõe os acentos
+        .replace(/[\u0300-\u036f]/g, "");
+}
 
 const projectCurrentSlide = async () => {
     if (!props.activeSong) return;
 
-    isProjecting.value = true;
-
+    // isProjecting.value = true;
+ 
+    exportToPPTX(convertToSlideFmt(songSlides.value as SlideProj[]), props.activeSong.fullName).catch(e => {
+        console.error("Erro ao exportar para PPTX:", e);
+    });
+ 
     const style = currentActiveStyle.value;
     const conf = configStore.settings;
     const text = currentSlideText.value;
@@ -322,13 +342,15 @@ const projectCurrentSlide = async () => {
 
     // 3. Envia para o Tauri
     try {
+        /*
         await invoke('update_projection', { 
             html: htmlPayload, 
             targetMonitor: conf.selectedMonitor || null
-        });
+        });*/
     } catch (error) { 
         console.error("Erro ao projetar o slide:", error);
     }
+        
 };
 
 const stopProjection = async () => {

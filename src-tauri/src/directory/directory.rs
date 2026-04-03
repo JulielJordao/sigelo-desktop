@@ -6,17 +6,26 @@ use std::process::Command; // Adicione isso no topo do arquivo junto com os outr
 pub fn open_folder_native(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        Command::new("explorer").arg(&path).spawn().map_err(|e| e.to_string())?;
+        Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(&path).spawn().map_err(|e| e.to_string())?;
+        Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+        Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -35,7 +44,7 @@ pub fn get_dir_size(path: String) -> Result<u64, String> {
         for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let metadata = entry.metadata().map_err(|e| e.to_string())?;
-            
+
             if metadata.is_dir() {
                 // Chamada recursiva para subpastas
                 size += get_dir_size(entry.path().to_string_lossy().into_owned())?;
