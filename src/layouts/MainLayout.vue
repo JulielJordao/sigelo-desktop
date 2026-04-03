@@ -2,13 +2,66 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import SettingsModal from '../components/config/SettingsModal.vue';
+import { emit } from '@tauri-apps/api/event';
 import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o novo componente
 // import { useConfigStore } from '../stores/useConfigStore';
+import MediaSidebar from '../components/media/MediaSidebar.vue';
+
+// Interface igual à do componente filho para manter a tipagem correta
+interface MediaFile {
+  name: string;
+  path: string;
+  url: string;
+  isVideo: boolean;
+}
+
+// Estados locais para a interface de controle saber o que está ativo (opcional)
+const currentPlaying = ref<MediaFile | null>(null);
+const currentBackground = ref<MediaFile | null>(null);
+
+// 1. Ação: Projetar Imediatamente
+const handleProject = async (file: MediaFile) => {
+  currentPlaying.value = file;
+  
+  try {
+    // Dispara um evento global que a sua Janela de Projeção vai escutar
+    await emit('update-projection', {
+      action: 'play_media',
+      payload: {
+        url: file.url,
+        isVideo: file.isVideo
+      }
+    });
+    console.log("Comando de projeção enviado:", file.name);
+  } catch (error) {
+    console.error("Erro ao emitir projeção:", error);
+  }
+};
+
+// 2. Ação: Fixar como Fundo
+const handleSetFixedBackground = async (file: MediaFile) => {
+  currentBackground.value = file;
+  
+  try {
+    // Dispara um evento para a Janela de Projeção alterar o fundo base
+    await emit('update-projection', {
+      action: 'set_background',
+      payload: {
+        url: file.url,
+        isVideo: file.isVideo
+      }
+    });
+    console.log("Comando de fundo fixo enviado:", file.name);
+  } catch (error) {
+    console.error("Erro ao emitir fundo:", error);
+  }
+};
 
 const router = useRouter();
 
 const settingsModalRef = ref<any>(null);
 const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filho
+const mediaSidebarRef = ref<any>(null); 
 
 // const configStore = useConfigStore();
 
@@ -18,6 +71,10 @@ const toggleBible = () => {
   
   // Exemplo de como você poderia abri-lo já buscando um texto de outro lugar do app:
   // bibleDrawerRef.value?.open({ abbr: 'Rm', chapter: 3, verses: '10-12' });
+};
+
+const toogleMediaSidebar = () => {
+  mediaSidebarRef.value?.open();
 };
 
 const handleProjection = (bibleData: any) => {
@@ -65,6 +122,7 @@ const logout = () => {
         <v-list-item 
           prepend-icon="mdi-image-multiple" 
           title="Mídia / Imagens" 
+          @click="toogleMediaSidebar"
           value="midia"
         ></v-list-item>
       </v-list>
@@ -101,6 +159,11 @@ const logout = () => {
     </v-main>
     
     <SettingsModal ref="settingsModalRef" />
+    <MediaSidebar 
+        ref="mediaSidebarRef"
+        @project="(file) => handleProject(file)" 
+        @setFixed="(file) => handleSetFixedBackground(file)" 
+      />
     
   </v-layout>
 </template>

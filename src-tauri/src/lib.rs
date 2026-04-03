@@ -4,6 +4,7 @@ mod commands;
 mod monitors;
 mod projection;
 mod state;
+mod directory;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -15,8 +16,12 @@ use crate::state::app_state::AppState;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(AppState::default())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
         // 1. REGISTRAMOS OS COMANDOS AQUI:
         .invoke_handler(tauri::generate_handler![
             greet, // Seu comando de teste original
@@ -24,7 +29,10 @@ pub fn run() {
             crate::monitors::detector::detect_projector_cmd,
             crate::commands::projection::update_projection,
             crate::commands::projection::stop_projection,
-            crate::commands::projection::get_current_projection
+            crate::commands::projection::get_current_projection,
+            crate::directory::directory::get_dir_size,
+            crate::directory::directory::open_folder_native,
+            crate::directory::directory::clear_directory
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -33,7 +41,7 @@ pub fn run() {
                     // Impede o sistema de destruir a janela
                     api.prevent_close();
                     // Apenas oculta, mantendo ela viva na memória para a próxima vez
-                    let _ = window.hide(); 
+                    let _ = window.hide();
                 }
             }
         })

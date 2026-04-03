@@ -7,14 +7,28 @@
   ],
   "permissions": [
     "core:default",
+    "fs:default",
+    "shell:default",
     "opener:default",
     "http:default",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [{ "name": "open", "cmd": "", "args": true }]
+    },
     {
       "identifier": "http:default",
       "allow": [
-        { "url": "http://localhost:3000/*" },
-        { "url": "https://*.herokuapp.com/*"},
-        { "url": "https://*.sigelo.cloud/*" }
+        {
+          "url": "http://localhost:3000/*"
+        },
+        {
+          "url": "https://*.herokuapp.com/*"
+        },
+        {
+          "url": "https://*.sigelo.cloud/*"
+        }
       ]
     }
   ]

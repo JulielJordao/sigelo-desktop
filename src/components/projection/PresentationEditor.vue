@@ -2,223 +2,46 @@
 import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core'; 
 import { useConfigStore } from '../../stores/useConfigStore';
-import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection'
+import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
+import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
+
+// Importação das Abas Separadas
+import TabSlides from '../tabs/TabSlides.vue';
+import TabBackground from '../tabs/TabBackground.vue';
+import TabText from '../tabs/TabText.vue';
+import TabPosition from '../tabs/TabPosition.vue';
 
 const configStore = useConfigStore();
+const presentationStore = usePresentationStore(); // INSTANCIANDO O STORE
 
 const props = defineProps<{
     activeSong: { _id: string, fullName: string} | null;
     showSidebar: boolean;
 }>();
 
-const emit = defineEmits<{
-    (e: 'toggle-sidebar'): void
-}>();
+const emit = defineEmits<{ (e: 'toggle-sidebar'): void }>();
 
-const lyric = ref("")
-
-const fileInput = ref({click: () => {}})
-
-// --- ESTADOS GERAIS E TELA ---
+const lyric = ref("");
 const currentTab = ref('slides');
 const isProjecting = ref(false);
 const currentSlideIndex = ref<number>(0);
 const previewContainer = ref<HTMLElement | null>(null);
 
-// Simulação de detecção da resolução
 const screenResolution = ref({ width: 1920, height: 1080 });
 const screenRatio = computed(() => screenResolution.value.width / screenResolution.value.height);
 
-// Controles de interação (Drag & Drop)
+// Drag & Drop (Mantido aqui pois interage diretamente com o DOM do Preview)
 const interactionType = ref<string | null>(null);
 const startMouse = { x: 0, y: 0 };
 const startBox = { x: 0, y: 0, w: 0, h: 0 };
-let startFontSize = 0; // Guardará a fonte inicial no momento do clique
+let startFontSize = 0; 
 
-// --- ESTADOS DO DESIGN ---
+// AQUI ESTÁ O SEGREDO: Atalhos para os valores do Store para facilitar a leitura no componente principal
+const design = computed(() => presentationStore.design);
+const textStyles = computed(() => presentationStore.textStyles);
 
-// 1. Posição e Fundo (Geral para todos os slides)
-const design = ref({
-    bgType: 'color', // 'color', 'saved', 'upload'
-    bgColor: '#000000',
-    bgMedia: '',
-    bgIsVideo: false,
-    bgFit: 'cover' as 'cover' | 'fill' | 'contain',
-
-    // Posição da caixa
-    posX: 5,
-    posY: 5,
-    width: 90,
-    height: 90
-});
-
-// 2. Estilos de Texto Separados por Tipo de Slide
-const textStyles = ref({
-    geral: { fontFamily: 'Inter', fontSize: 5, align: 'center' as 'left' | 'center' | 'right' | 'justify', bold: false, italic: false, color: '#FFFFFF' },
-    titulo: { fontFamily: 'Inter', fontSize: 8, align: 'center' as 'left' | 'center' | 'right' | 'justify', bold: true, italic: false, color: '#FFFFFF' },
-    verso: { fontFamily: 'Inter', fontSize: 4.5, align: 'left' as 'left' | 'center' | 'right' | 'justify', bold: false, italic: false, color: '#FFFFFF' },
-    refrao: { fontFamily: 'Inter', fontSize: 6, align: 'center' as 'left' | 'center' | 'right' | 'justify', bold: true, italic: true, color: '#FFFFFF' }
-});
-
-const activeTextSetting = ref('geral' as 'geral' | 'titulo' | 'verso' | 'refrao'); // Controla qual tipo estamos editando na Aba Texto
-const autoFontSize = ref(false);
-const fontOptions = ['Inter', 'Arial', 'Times New Roman', 'Georgia', 'Verdana', 'Courier New', 'Montserrat'];
-
-// --- PROCESSAMENTO DOS SLIDES ---
+// --- PROCESSAMENTO DOS SLIDES (MANTIDO) ---
 watch(() => props.activeSong, () => { currentSlideIndex.value = 0; });
-
-const songSlides = computed(() => {
-    if (!props.activeSong) return [];
-
-    return infoSlides.value.slides.map((block, index) => {
-        let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
-
-        return {
-            label: label,
-            text: block
-        };
-    });
-});
-
-const currentSlideText = computed(() => songSlides.value[currentSlideIndex.value]?.text || 'Selecione uma música');
-
-// Descobre o TIPO de slide atual para aplicar a fonte certa no telão
-const currentSlideType = computed(() => {
-    if (!songSlides.value[currentSlideIndex.value]) return 'geral';
-    const label = songSlides.value[currentSlideIndex.value].label.toLowerCase();
-
-    if (label.includes('título') || label.includes('titulo')) return 'titulo';
-    if (label.includes('refrão') || label.includes('refrao') || label.includes('coro')) return 'refrao';
-    if (label.includes('verso') || label.includes('estrofe')) return 'verso';
-
-    return 'geral';
-});
-
-// Retorna os estilos da fonte aplicável para o slide atual
-const currentActiveStyle = computed(() => textStyles.value[currentSlideType.value]);
-
-const applyToAll = () => {
-    const base = textStyles.value.geral;
-    textStyles.value.titulo = { ...base };
-    textStyles.value.verso = { ...base };
-    textStyles.value.refrao = { ...base };
-};
-
-// --- MOCK DE FUNDOS SALVOS ---
-const savedBackgrounds = [
-    { id: 1, type: 'image', url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba', name: 'Montanhas' },
-    { id: 2, type: 'image', url: 'https://images.unsplash.com/photo-1478760329108-5c3ed9d495a0', name: 'Escuro/Abstrato' },
-    { id: 3, type: 'video', url: 'https://www.w3schools.com/html/mov_bbb.mp4', name: 'Fundo Animado' }
-];
-
-const selectSavedBackground = (bg: any) => {
-    design.value.bgType = 'saved';
-    design.value.bgMedia = bg.url;
-    design.value.bgIsVideo = bg.type === 'video';
-};
-
-const handleFileUpload = (event: Event) => {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) {
-        design.value.bgType = 'upload';
-        design.value.bgMedia = URL.createObjectURL(file);
-        design.value.bgIsVideo = file.type.startsWith('video/');
-    }
-};
-
-// --- LÓGICA DE ARRASTAR E SOLTAR (DRAG & DROP) ---
-const startAction = (e: MouseEvent, type: string) => {
-    e.preventDefault();
-    if (currentTab.value !== 'posicao') return;
-
-    interactionType.value = type;
-    startMouse.x = e.clientX;
-    startMouse.y = e.clientY;
-
-    startBox.x = design.value.posX;
-    startBox.y = design.value.posY;
-    startBox.w = design.value.width;
-    startBox.h = design.value.height;
-
-    // Captura o tamanho da fonte do slide atual
-    startFontSize = currentActiveStyle.value.fontSize;
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', stopAction);
-};
-
-const onMove = (e: MouseEvent) => {
-    if (!interactionType.value || !previewContainer.value) return;
-
-    const rect = previewContainer.value.getBoundingClientRect();
-    const deltaX = ((e.clientX - startMouse.x) / rect.width) * 100;
-    const deltaY = ((e.clientY - startMouse.y) / rect.height) * 100;
-
-    let newX = startBox.x, newY = startBox.y, newW = startBox.w, newH = startBox.h;
-
-    switch (interactionType.value) {
-        case 'move': newX = startBox.x + deltaX; newY = startBox.y + deltaY; break;
-        case 'br': newW = startBox.w + deltaX; newH = startBox.h + deltaY; break;
-        case 'bl': newW = startBox.w - deltaX; newX = startBox.x + deltaX; newH = startBox.h + deltaY; break;
-        case 'tr': newW = startBox.w + deltaX; newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
-        case 'tl': newW = startBox.w - deltaX; newX = startBox.x + deltaX; newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
-        case 'r': newW = startBox.w + deltaX; break;
-        case 'l': newW = startBox.w - deltaX; newX = startBox.x + deltaX; break;
-        case 'b': newH = startBox.h + deltaY; break;
-        case 't': newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
-    }
-
-    const minSize = 5;
-    if (newW < minSize) { if (['l', 'tl', 'bl'].includes(interactionType.value!)) newX += newW - minSize; newW = minSize; }
-    if (newH < minSize) { if (['t', 'tl', 'tr'].includes(interactionType.value!)) newY += newH - minSize; newH = minSize; }
-
-    newX = Math.max(0, Math.min(100 - newW, newX));
-    newY = Math.max(0, Math.min(100 - newH, newY));
-
-    // Ajuste Automático da fonte baseado no TIPO de slide selecionado no momento
-    if (autoFontSize.value && interactionType.value !== 'move') {
-        const scaleRatio = newH / startBox.h;
-        textStyles.value[currentSlideType.value].fontSize = Math.max(2, Math.min(30, startFontSize * scaleRatio));
-    }
-
-    design.value.posX = Math.round(newX);
-    design.value.posY = Math.round(newY);
-    design.value.width = Math.round(newW);
-    design.value.height = Math.round(newH);
-};
-
-const stopAction = () => {
-    interactionType.value = null;
-    window.removeEventListener('mousemove', onMove);
-    window.removeEventListener('mouseup', stopAction);
-};
-
-// 1. Descobre o número máximo de linhas na música atual
-const maxLinesInSong = computed(() => {
-    return getMaxLinesFromSlides(songSlides.value);
-});
-
-const maxAllowedFontSize = computed(() => {
-    return calculateMaxFontSize({
-        maxLines: maxLinesInSong.value,
-        aspectRatio: configStore.settings.aspectRatio,
-        customWidth: screenResolution.value.width,
-        customHeight: screenResolution.value.height
-    });
-});
-
-// 3. Monitora mudanças e "esmaga" a fonte se ela estourar o limite
-watch(maxAllowedFontSize, (newMax) => {
-    const styles = ['geral', 'titulo', 'verso', 'refrao'] as const;
-    
-    styles.forEach(style => {
-        if (textStyles.value[style].fontSize > newMax) {
-            textStyles.value[style].fontSize = newMax;
-        }
-    });
-    
-    if (isProjecting.value) projectCurrentSlide();
-});
 
 const parseSlides = function(rawText: string) {
   const lines = rawText.split('\n')
@@ -311,7 +134,124 @@ const parseSlides = function(rawText: string) {
   return { slides, typeSlides }
 }
 
-const infoSlides = ref(parseSlides(""))
+const infoSlides = ref(parseSlides("")); // (Sua função parseSlides permanece inalterada)
+
+const songSlides = computed(() => {
+    if (!props.activeSong) return [];
+    return infoSlides.value.slides.map((block, index) => {
+        let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
+        return { label, text: block };
+    });
+});
+
+const currentSlideText = computed(() => songSlides.value[currentSlideIndex.value]?.text || 'Selecione uma música');
+
+const currentSlideType = computed(() => {
+    if (!songSlides.value[currentSlideIndex.value]) return 'geral';
+    const label = songSlides.value[currentSlideIndex.value].label.toLowerCase();
+    if (label.includes('título') || label.includes('titulo')) return 'titulo';
+    if (label.includes('refrão') || label.includes('refrao') || label.includes('coro')) return 'refrao';
+    if (label.includes('verso') || label.includes('estrofe')) return 'verso';
+    return 'geral';
+});
+
+const currentActiveStyle = computed(() => textStyles.value[currentSlideType.value]);
+
+// Lógica de Drag & Drop (Atualizada para usar o store)
+const startAction = (e: MouseEvent, type: string) => {
+    e.preventDefault();
+    if (currentTab.value !== 'posicao') return;
+
+    interactionType.value = type;
+    startMouse.x = e.clientX;
+    startMouse.y = e.clientY;
+
+    // Lendo do Store diretamente
+    startBox.x = presentationStore.design.posX;
+    startBox.y = presentationStore.design.posY;
+    startBox.w = presentationStore.design.width;
+    startBox.h = presentationStore.design.height;
+
+    startFontSize = currentActiveStyle.value.fontSize;
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', stopAction);
+};
+
+const onMove = (e: MouseEvent) => {
+    if (!interactionType.value || !previewContainer.value) return;
+
+    const rect = previewContainer.value.getBoundingClientRect();
+    const deltaX = ((e.clientX - startMouse.x) / rect.width) * 100;
+    const deltaY = ((e.clientY - startMouse.y) / rect.height) * 100;
+
+    let newX = startBox.x, newY = startBox.y, newW = startBox.w, newH = startBox.h;
+
+    switch (interactionType.value) {
+        case 'move': newX = startBox.x + deltaX; newY = startBox.y + deltaY; break;
+        case 'br': newW = startBox.w + deltaX; newH = startBox.h + deltaY; break;
+        case 'bl': newW = startBox.w - deltaX; newX = startBox.x + deltaX; newH = startBox.h + deltaY; break;
+        case 'tr': newW = startBox.w + deltaX; newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
+        case 'tl': newW = startBox.w - deltaX; newX = startBox.x + deltaX; newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
+        case 'r': newW = startBox.w + deltaX; break;
+        case 'l': newW = startBox.w - deltaX; newX = startBox.x + deltaX; break;
+        case 'b': newH = startBox.h + deltaY; break;
+        case 't': newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
+    }
+
+    const minSize = 5;
+    if (newW < minSize) { if (['l', 'tl', 'bl'].includes(interactionType.value)) newX += newW - minSize; newW = minSize; }
+    if (newH < minSize) { if (['t', 'tl', 'tr'].includes(interactionType.value)) newY += newH - minSize; newH = minSize; }
+
+    newX = Math.max(0, Math.min(100 - newW, newX));
+    newY = Math.max(0, Math.min(100 - newH, newY));
+
+    if (presentationStore.autoFontSize && interactionType.value !== 'move') {
+        const scaleRatio = newH / startBox.h;
+        presentationStore.textStyles[currentSlideType.value].fontSize = Math.max(2, Math.min(30, startFontSize * scaleRatio));
+    }
+
+    // Salvando no Store DIRETAMENTE
+    presentationStore.design.posX = Math.round(newX);
+    presentationStore.design.posY = Math.round(newY);
+    presentationStore.design.width = Math.round(newW);
+    presentationStore.design.height = Math.round(newH);
+};
+
+const stopAction = () => {
+    interactionType.value = null;
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', stopAction);
+};
+
+// 1. Descobre o número máximo de linhas na música atual
+const maxLinesInSong = computed(() => {
+    return getMaxLinesFromSlides(songSlides.value);
+});
+
+const maxAllowedFontSize = computed(() => {
+    return calculateMaxFontSize({
+        maxLines: maxLinesInSong.value,
+        aspectRatio: configStore.settings.aspectRatio,
+        customWidth: screenResolution.value.width,
+        customHeight: screenResolution.value.height
+    });
+});
+
+// 3. Monitora mudanças e "esmaga" a fonte se ela estourar o limite
+watch(maxAllowedFontSize, (newMax) => {
+    const styles = ['geral', 'titulo', 'verso', 'refrao'] as const;
+    
+    styles.forEach(style => {
+        if (textStyles.value[style].fontSize > newMax) {
+            textStyles.value[style].fontSize = newMax;
+        }
+    });
+    
+    if (isProjecting.value) projectCurrentSlide();
+});
+
+
 
 const projectCurrentSlide = async () => {
     if (!props.activeSong) return;
@@ -498,7 +438,6 @@ defineExpose({
                         width: `${design.width}%`,
                         height: `${design.height}%`,
                         fontFamily: currentActiveStyle.fontFamily
-                        /* A propriedade fontSize saiu daqui e foi para o elemento filho */
                     }" @mousedown="startAction($event, 'move')">
 
                         <div class="text-inner-content" :style="{
@@ -506,7 +445,7 @@ defineExpose({
                             textAlign: currentActiveStyle.align,
                             fontWeight: currentActiveStyle.bold ? 'bold' : 'normal',
                             fontStyle: currentActiveStyle.italic ? 'italic' : 'normal',
-                            color: currentActiveStyle.color, /* ADICIONE ESTA LINHA */
+                            color: currentActiveStyle.color,
                             width: '100%',
                             maxHeight: '100%',
                             overflow: 'hidden'
@@ -538,223 +477,21 @@ defineExpose({
 
                 <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
                     <v-window v-model="currentTab" class="fill-height">
+                        
                         <v-window-item value="slides" class="pa-4 fill-height overflow-y-auto">
-                            <v-row density="comfortable">
-                                <v-col cols="6" sm="4" md="3" lg="2" v-for="(slide, index) in songSlides" :key="index">
-                                    
-                                    <v-card 
-                                        @click="currentSlideIndex = index"
-                                        :elevation="currentSlideIndex === index ? 3 : 1"
-                                        :class="[
-                                            'cursor-pointer d-flex flex-column transition-swing',
-                                            currentSlideIndex === index ? 'border-primary' : 'border'
-                                        ]"
-                                        style="aspect-ratio: 16/9; border-width: 2px !important;"
-                                    >
-                                        <div class="px-2 py-1 border-b d-flex justify-space-between align-center" style="background-color: rgba(0,0,0,0.04);">
-                                            <span class="text-caption font-weight-bold text-truncate">
-                                                {{ slide.label || `Slide ${index + 1}` }}
-                                            </span>
-                                            <v-icon v-if="currentSlideIndex === index" color="primary" size="small">
-                                                mdi-check-circle
-                                            </v-icon>
-                                        </div>
-
-                                        <div class="flex-grow-1 d-flex align-start justify-center pa-2 overflow-hidden bg-white">
-                                            <span 
-                                                class="text-caption text-grey-darken-3 text-truncate-multiline" 
-                                                
-                                            >
-                                                {{ slide.text }}
-                                            </span>
-                                        </div>
-                                    </v-card>
-
-                                </v-col>
-                            </v-row>
+                            <TabSlides :slides="songSlides" v-model:currentSlideIndex="currentSlideIndex" />
                         </v-window-item>
+                        
                         <v-window-item value="fundo" class="pa-6 fill-height">
-                            <v-row>
-                                <v-col cols="12" md="4" class="border-e">
-                                    <p class="text-caption font-weight-bold mb-2">Preenchimento da Tela</p>
-                                    <v-radio-group v-model="design.bgFit" hide-details density="compact">
-                                        <v-radio label="Cortar (Cover - Sem bordas)" value="cover"
-                                            color="primary"></v-radio>
-                                        <v-radio label="Estender (Fill - Distorce)" value="fill"
-                                            color="primary"></v-radio>
-                                    </v-radio-group>
-                                </v-col>
-
-                                <v-col cols="12" md="8">
-                                    <p class="text-caption font-weight-bold mb-2">Selecione o Fundo</p>
-                                    <div class="d-flex gap-2 overflow-x-auto pb-2">
-                                        <v-card width="100" height="70" color="surface"
-                                            class="d-flex align-center justify-center cursor-pointer border"
-                                            @click="design.bgType = 'color'; design.bgMedia = ''">
-                                            <v-icon>mdi-palette</v-icon>
-                                        </v-card>
-
-                                        <v-card width="100" height="70" color="surface-variant"
-                                            class="d-flex align-center justify-center cursor-pointer border"
-                                            @click="fileInput.click()">
-                                            <v-icon>mdi-upload</v-icon>
-                                            <input type="file" ref="fileInput" class="d-none" accept="image/*,video/*"
-                                                @change="handleFileUpload">
-                                        </v-card>
-
-                                        <v-card v-for="bg in savedBackgrounds" :key="bg.id" width="100" height="70"
-                                            class="cursor-pointer border position-relative"
-                                            @click="selectSavedBackground(bg)">
-                                            <v-img v-if="bg.type === 'image'" :src="bg.url" cover height="100%"></v-img>
-                                            <div v-if="bg.type === 'video'"
-                                                class="bg-black fill-height d-flex align-center justify-center text-white">
-                                                <v-icon>mdi-play-circle-outline</v-icon>
-                                            </div>
-                                        </v-card>
-                                    </div>
-                                </v-col>
-                            </v-row>
+                            <TabBackground />
                         </v-window-item>
 
                         <v-window-item value="texto" class="fill-height overflow-y-auto pa-2 pa-sm-4">
-                            <div class="d-flex justify-center pb-4">
-                                <v-card max-width="750" width="100%" variant="outlined" class="rounded-lg bg-surface">
-
-                                    <v-tabs v-model="activeTextSetting" color="primary" density="compact" show-arrows
-                                        class="border-b bg-surface-light">
-                                        <v-tab value="geral">Geral</v-tab>
-                                        <v-tab value="refrao">Refrão</v-tab>
-                                        <v-tab value="verso">Verso</v-tab>
-                                        <v-tab value="titulo">Título</v-tab>
-                                    </v-tabs>
-
-                                    <v-card-text class="pa-4 pa-sm-6">
-
-                                        <v-btn v-if="activeTextSetting === 'geral'" prepend-icon="mdi-content-copy"
-                                            variant="tonal" color="primary" class="mb-6 w-100" size="small"
-                                            @click="applyToAll">
-                                            Aplicar este estilo a todos os slides
-                                        </v-btn>
-
-                                        <v-row>
-                                            <v-col cols="12" md="6">
-                                                <p class="text-caption font-weight-bold mb-2">Cor do Texto</p>
-                                                <div class="d-flex align-center gap-4 mb-6">
-
-                                                    <v-btn icon size="small" class="border color-btn"
-                                                        :class="{ 'selected-color': textStyles[activeTextSetting].color === '#FFFFFF' }"
-                                                        color="#FFFFFF"
-                                                        @click="textStyles[activeTextSetting].color = '#FFFFFF'">
-                                                        <v-icon v-if="textStyles[activeTextSetting].color === '#FFFFFF'"
-                                                            color="black" size="18">mdi-check</v-icon>
-                                                    </v-btn>
-
-                                                    <v-btn icon size="small" class="border color-btn"
-                                                        :class="{ 'selected-color': textStyles[activeTextSetting].color === '#000000' }"
-                                                        color="#000000"
-                                                        @click="textStyles[activeTextSetting].color = '#000000'">
-                                                        <v-icon v-if="textStyles[activeTextSetting].color === '#000000'"
-                                                            color="white" size="18">mdi-check</v-icon>
-                                                    </v-btn>
-
-                                                    <v-divider vertical class="mx-1"></v-divider>
-
-                                                    <div class="d-flex align-center">
-                                                        <label
-                                                            class="text-caption font-weight-bold mr-3">Customizada:</label>
-                                                        <div class="position-relative">
-                                                            <v-btn icon size="small" class="border color-btn"
-                                                                :class="{ 'selected-color': !['#FFFFFF', '#000000'].includes(textStyles[activeTextSetting].color) }"
-                                                                :color="!['#FFFFFF', '#000000'].includes(textStyles[activeTextSetting].color) ? textStyles[activeTextSetting].color : 'surface-variant'">
-                                                                <v-icon
-                                                                    :color="!['#FFFFFF', '#000000'].includes(textStyles[activeTextSetting].color) ? 'white' : 'primary'">mdi-palette</v-icon>
-                                                            </v-btn>
-
-                                                            <input type="color"
-                                                                v-model="textStyles[activeTextSetting].color"
-                                                                class="position-absolute top-0 left-0 w-100 h-100 cursor-pointer"
-                                                                style="opacity: 0;">
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <p class="text-caption font-weight-bold mb-2">Alinhamento</p>
-                                                <v-btn-toggle v-model="textStyles[activeTextSetting].align"
-                                                    color="primary" variant="outlined" divided density="compact"
-                                                    mandatory class="mb-4 mb-md-0">
-                                                    <v-btn value="left" icon="mdi-format-align-left"></v-btn>
-                                                    <v-btn value="center" icon="mdi-format-align-center"></v-btn>
-                                                    <v-btn value="right" icon="mdi-format-align-right"></v-btn>
-                                                </v-btn-toggle>
-                                            </v-col>
-
-                                            <v-col cols="12" md="6">
-                                                <p class="text-caption font-weight-bold mb-2">Família da Fonte</p>
-                                                <v-select v-model="textStyles[activeTextSetting].fontFamily"
-                                                    :items="fontOptions" variant="outlined" density="compact"
-                                                    class="mb-6" hide-details></v-select>
-
-                                                <p class="text-caption font-weight-bold mb-2">Estilo</p>
-                                                <div class="d-flex gap-2 mb-4 mb-md-0">
-                                                    <v-btn
-                                                        :variant="textStyles[activeTextSetting].bold ? 'flat' : 'outlined'"
-                                                        :color="textStyles[activeTextSetting].bold ? 'primary' : 'surface-variant'"
-                                                        icon="mdi-format-bold" density="compact"
-                                                        @click="textStyles[activeTextSetting].bold = !textStyles[activeTextSetting].bold"></v-btn>
-                                                    <v-btn
-                                                        :variant="textStyles[activeTextSetting].italic ? 'flat' : 'outlined'"
-                                                        :color="textStyles[activeTextSetting].italic ? 'primary' : 'surface-variant'"
-                                                        icon="mdi-format-italic" density="compact"
-                                                        @click="textStyles[activeTextSetting].italic = !textStyles[activeTextSetting].italic"></v-btn>
-                                                </div>
-                                            </v-col>
-                                        </v-row>
-
-                                        <v-divider class="my-6"></v-divider>
-
-                                        <p class="text-caption font-weight-bold mb-0">Tamanho da Fonte</p>
-                                        <v-slider v-model="textStyles[activeTextSetting].fontSize" min="2" :max="maxAllowedFontSize"
-                                            step="0.1" thumb-label color="primary" append-icon="mdi-format-size"
-                                            hide-details></v-slider>
-
-                                    </v-card-text>
-                                </v-card>
-                            </div>
+                            <TabText :maxAllowedFontSize="maxAllowedFontSize" />
                         </v-window-item>
-                        <v-window-item value="posicao"
-                            class="pa-6 fill-height d-flex flex-column align-center justify-center">
-
-                            <v-checkbox v-model="autoFontSize" label="Ajustar fonte automaticamente ao redimensionar"
-                                color="primary" density="compact" hide-details class="mb-4"></v-checkbox>
-
-                            <v-card width="400" variant="outlined" class="pa-6 rounded-lg text-center bg-surface">
-                                <v-icon icon="mdi-gesture-tap" size="40" color="primary" class="mb-2"></v-icon>
-                                <h3 class="text-h6 font-weight-bold mb-1">Ajuste Livre</h3>
-                                <p class="text-body-2 text-medium-emphasis mb-6">Arraste a caixa pontilhada no telão
-                                    acima
-                                    para posicionar o texto onde desejar.</p>
-
-                                <v-row>
-                                    <v-col cols="6">
-                                        <v-text-field v-model="design.posX" label="Eixo X (%)" type="number"
-                                            variant="outlined" density="compact" suffix="%"></v-text-field>
-                                    </v-col>
-                                    <v-col cols="6">
-                                        <v-text-field v-model="design.posY" label="Eixo Y (%)" type="number"
-                                            variant="outlined" density="compact" suffix="%"></v-text-field>
-                                    </v-col>
-                                </v-row>
-                                <v-row>
-                                    <v-col cols="6">
-                                        <v-text-field v-model="design.width" label="Largura (%)" type="number"
-                                            variant="outlined" density="compact" suffix="%"></v-text-field>
-                                    </v-col>
-                                    <v-col cols="6">
-                                        <v-text-field v-model="design.height" label="Altura (%)" type="number"
-                                            variant="outlined" density="compact" suffix="%"></v-text-field>
-                                    </v-col>
-                                </v-row>
-                            </v-card>
+                        
+                        <v-window-item value="posicao" class="pa-6 fill-height d-flex flex-column align-center justify-center">
+                            <TabPosition />
                         </v-window-item>
 
                     </v-window>

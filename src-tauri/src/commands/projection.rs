@@ -1,5 +1,5 @@
-use tauri::{AppHandle, Manager, Position};
-use crate::projection::renderer::render_html; // Mantemos o import para usar a função mais abaixo
+use crate::projection::renderer::render_html;
+use tauri::{AppHandle, Manager, Position}; // Mantemos o import para usar a função mais abaixo
 
 #[tauri::command]
 pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<String>) {
@@ -8,7 +8,6 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
 
     // 2. Manipulação da janela
     if let Some(window) = app.get_webview_window("projection") {
-        
         // Só mexe na posição e no fullscreen se a janela estiver invisível
         let is_visible = window.is_visible().unwrap_or(false);
 
@@ -19,13 +18,16 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
             // Move para o monitor correto
             if let Some(monitor_name) = target_monitor {
                 if let Ok(monitors) = app.available_monitors() {
-                    if let Some(monitor) = monitors.into_iter().find(|m| m.name() == Some(&monitor_name)) {
+                    if let Some(monitor) = monitors
+                        .into_iter()
+                        .find(|m| m.name() == Some(&monitor_name))
+                    {
                         let position = monitor.position();
                         let _ = window.set_position(tauri::Position::Physical(*position));
                     }
                 }
             }
-            
+
             let _ = window.set_fullscreen(true);
 
             // BÔNUS: Devolve o foco para o editor principal imediatamente
@@ -38,7 +40,9 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
 }
 
 #[tauri::command]
-pub fn get_current_projection(state: tauri::State<'_, crate::state::app_state::AppState>) -> String {
+pub fn get_current_projection(
+    state: tauri::State<'_, crate::state::app_state::AppState>,
+) -> String {
     // Retorna o HTML salvo no estado
     state.get_html()
 }

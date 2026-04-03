@@ -3,6 +3,8 @@ import { ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useConfigStore } from '../../stores/useConfigStore'; 
 import { invoke } from '@tauri-apps/api/core';
+import { appDataDir, join } from '@tauri-apps/api/path';
+import { mkdir, exists } from '@tauri-apps/plugin-fs';
 
 const configStore = useConfigStore();
 const { isDialogOpen, settings } = storeToRefs(configStore);
@@ -20,6 +22,10 @@ interface MonitorInfo {
 
 // Lista reativa de monitores
 const availableMonitors = ref<{ title: string, value: string }[]>([]);
+
+// Referências para os caminhos das pastas
+const mediaFolderPath = ref('');
+const cacheFolderPath = ref('');
 
 // --- OPÇÕES ESTÁTICAS PARA OS SELECTS ---
 const aspectOptions = [
@@ -91,22 +97,48 @@ const openMediaFolder = async () => {
     try {
         // No futuro, isso chamará o Rust para abrir a pasta nativa no Mac/Windows
         // await invoke('open_media_folder_cmd');
-        console.log("Comando para abrir a pasta de mídia acionado.");
+        await invoke('open_folder_native', { path: mediaFolderPath.value });
     } catch (error) {
         console.error("Erro ao tentar abrir pasta:", error);
     }
 };
 
+// Função utilitária para formatar bytes em MB/GB
+const formatBytes = (bytes: number) => {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+// Busca os tamanhos invocando o Rust
+const loadStats = async () => {
+  try {
+    const mediaBytes = await invoke('get_dir_size', { path: mediaFolderPath.value });
+    const cacheBytes = await invoke('get_dir_size', { path: cacheFolderPath.value });
+
+    storageStats.value = {
+      mediaSize: formatBytes(mediaBytes as number),
+      cacheSize: formatBytes(cacheBytes as number)
+    };
+  } catch (error) {
+    console.error("Erro ao carregar tamanhos:", error);
+    storageStats.value.mediaSize = 'Erro';
+    storageStats.value.cacheSize = 'Erro';
+  }
+};
+
+// Limpa o cache invocando o comando Rust
 const clearCache = async () => {
-    if (confirm("Tem certeza que deseja limpar os dados baixados? Mídias salvas não serão apagadas, apenas o cache da internet.")) {
-        try {
-            // await invoke('clear_cache_cmd');
-            storageStats.value.cacheSize = '0 MB';
-            console.log("Cache limpo com sucesso.");
-        } catch (error) {
-            console.error("Erro ao limpar cache:", error);
-        }
-    }
+  try {
+    // Você pode querer adicionar um v-dialog de confirmação aqui no futuro
+    storageStats.value.cacheSize = 'Limpando...';
+    await invoke('clear_directory', { path: cacheFolderPath.value });
+    await loadStats(); // Recalcula o tamanho após limpar
+  } catch (error) {
+    console.error("Erro ao limpar cache:", error);
+  }
 };
 
 /* Vamos simular o carregamento do tamanho das pastas ao abrir o modal
@@ -125,7 +157,31 @@ const fetchStorageStats = async () => {
     }
 };*/
 
+// Inicializa os caminhos e garante que as pastas existem
+const setupFolders = async () => {
+  try {
+    const baseDir = await appDataDir();
+    
+    // Define os caminhos
+    mediaFolderPath.value = await join(baseDir, 'media');
+    cacheFolderPath.value = await join(baseDir, 'cache');
+    // Nossas novas subpastas!
+    const slidesFolder = await join(mediaFolderPath.value, 'slides');
+    const reproductionFolder = await join(mediaFolderPath.value, 'reproducao');
+
+    // Cria as pastas recursivamente (o recursive: true já cria a pasta 'media' pai se faltar)
+    if (!(await exists(slidesFolder))) await mkdir(slidesFolder, { recursive: true });
+    if (!(await exists(reproductionFolder))) await mkdir(reproductionFolder, { recursive: true });
+    if (!(await exists(cacheFolderPath.value))) await mkdir(cacheFolderPath.value, { recursive: true });
+
+    await loadStats();
+  } catch (error) {
+    console.error("Erro ao configurar pastas:", error);
+  }
+};
+
 const openDialog = () => {
+    setupFolders();
     isDialogOpen.value = true;
     fetchMonitors();
 }
