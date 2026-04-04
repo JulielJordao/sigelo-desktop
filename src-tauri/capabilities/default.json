@@ -3,7 +3,7 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": [
-    "main"
+    "*"
   ],
   "permissions": [
     "core:default",
@@ -43,6 +43,20 @@
       ]
     },
     "dialog:default",
-    "os:default"
+    "os:default",
+    {
+      "identifier": "core:event:allow-emit",
+      "allow": [
+        { "event": "sync-pdf-scroll" },
+        { "event": "update-projection" }
+      ]
+    },
+    {
+      "identifier": "core:event:allow-listen",
+      "allow": [
+        { "event": "sync-pdf-scroll" },
+        { "event": "update-projection" }
+      ]
+    }
   ]
 }

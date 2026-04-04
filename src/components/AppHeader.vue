@@ -35,11 +35,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="app-header d-flex align-center px-4" data-tauri-drag-region>
+  <v-app-bar 
+    height="48" 
+    elevation="0" 
+    class="app-header px-4" 
+  >
+    <div data-tauri-drag-region class="drag-layer"></div>
     
-    <div v-if="isMac" style="width: 70px;" data-tauri-drag-region></div>
+    <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
 
-    <v-spacer data-tauri-drag-region></v-spacer>
+    <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 
     <div class="z-10" :class="isMac ? '' : 'mr-4'">
       <v-btn-group 
@@ -93,30 +98,43 @@ onUnmounted(() => {
         @click="close"
       ></v-btn>
     </div>
-  </header>
+  </v-app-bar>
 </template>
 
 <style scoped>
 .app-header {
-  height: 48px;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.85) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  user-select: none;
-  flex-shrink: 0;
-  position: relative;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+  
+  /* MÁGICA 2: Mata qualquer comportamento de seleção de texto nativo */
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  cursor: default !important; /* Trava o cursor como setinha */
   z-index: 50;
+}
+
+/* Oculta completamente a camada extra do layout visual, mas captura cliques */
+.drag-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1; /* Fica atrás de tudo no header */
+  cursor: default !important;
 }
 
 .z-10 {
   z-index: 10;
+  position: relative; /* Necessário para que o z-index funcione e fique sobre a drag-layer */
 }
 
 /* Container flexível para os controles nativos */
 .window-controls {
-  gap: 4px; /* Pequeno espaço entre os botões */
-  margin-right: -4px; /* Ajuste fino para encostar na borda direita */
+  gap: 4px;
+  margin-right: -4px;
 }
 
 /* Força as dimensões do botão para garantir o alinhamento perfeito */
@@ -125,7 +143,9 @@ onUnmounted(() => {
   height: 32px !important;
   border-radius: 6px !important;
   color: #666;
-  font-size: 0.8rem; /* Controla o tamanho interno do ícone */
+  font-size: 0.8rem;
+  /* Garante que botões não deixem arrastar a tela acidentalmente */
+  -webkit-app-region: no-drag; 
 }
 
 .window-btn:hover {

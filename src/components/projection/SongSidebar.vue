@@ -32,7 +32,7 @@ const toggleSearch = () => {
 </script>
 
 <template>
-  <div class="d-flex flex-column" style="height: 100%; max-height: 100%;">
+  <div class="d-flex flex-column h-100 overflow-hidden">
     
     <v-toolbar 
       density="compact" 
@@ -64,7 +64,8 @@ const toggleSearch = () => {
       </v-btn>
     </v-toolbar>
     
-    <div class="flex-grow-1" style="overflow-y: auto; min-height: 0;">
+    <div class="flex-grow-1 overflow-y-auto" style="min-height: 0;">
+      
       <v-list density="compact" class="pa-2" nav>
         <v-list-item
           v-for="song in filteredSongs" 

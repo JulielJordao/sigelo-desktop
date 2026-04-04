@@ -35,36 +35,47 @@ onMounted(async () => {
 </script>
 
 <template>
-  <v-app class="d-flex flex-column fill-height bg-background overflow-hidden">
+  <v-app class="bg-background" style="max-height: 100vh; overflow: hidden;">
+    
     <AppHeader 
       @import="handleImportAction" 
       @export="handleExportAction" 
       v-if="showToolbar"
     />
+    
     <pdf-presenter ref="refPdfPresenter"></pdf-presenter>
 
-    <v-main class="flex-grow-1 overflow-hidden">
-      <router-view />
+    <v-main style="max-height: 100vh; overflow: hidden;">
+      
+      <div class="h-100 overflow-y-auto">
+        <router-view />
+      </div>
+
     </v-main>
+    
   </v-app>
 </template>
 
 <style>
 /* Estilos Globais para o seu Desktop App */
-html {
-  /* Impede que o usuário selecione texto em partes indesejadas do app (comum em apps desktop) */
+html, body {
+  margin: 0;
+  padding: 0;
   user-select: none;
-  overflow: hidden; /* O scroll será controlado internamente pelos componentes */
+  /* Trava totalmente o scroll da janela nativa */
+  overflow: hidden !important; 
+  height: 100%;
+}
+
+#app {
+  height: 100vh;
+  width: 100vw;
+  /* Blinda o container principal contra vazamentos de layout */
+  overflow: hidden; 
 }
 
 :root {
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-}
-
-/* Garante que o app ocupe 100% da janela do Tauri */
-#app {
-  height: 100vh;
-  width: 100vw;
 }
 
 /* Personalização da barra de rolagem para ficar mais elegante no Mac */

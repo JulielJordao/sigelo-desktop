@@ -93,7 +93,7 @@ const logout = () => {
 </script>
 
 <template>
-  <v-layout class="fill-height bg-grey-lighten-4" style="user-select: none;">
+  <v-layout class="fill-height bg-grey-lighten-4 overflow-hidden" style="user-select: none;">
     
     <v-navigation-drawer 
       permanent 
@@ -150,7 +150,7 @@ const logout = () => {
       @project="handleProjection" 
     />
 
-    <v-main class="d-flex flex-column h-screen overflow-hidden">
+    <v-main class="d-flex flex-column h-100 overflow-hidden">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
           <component :is="Component" />

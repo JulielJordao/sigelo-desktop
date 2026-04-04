@@ -244,148 +244,176 @@ defineExpose({ open, close });
 
 <template>
   <v-navigation-drawer v-model="isOpen" location="right" temporary width="450" elevation="6"> 
-    <v-toolbar :color="step === 'projecting' ? 'error' : 'primary'" density="compact" class="text-white border-b">
-      <v-icon class="ml-4">mdi-book-cross</v-icon>
-      <v-toolbar-title class="text-subtitle-1 font-weight-bold ml-2">
-        {{ step === 'projecting' ? 'Projetando Bíblia' : 'Bíblia Sagrada' }}
-      </v-toolbar-title>
-      <v-spacer></v-spacer>
-      <v-btn icon="mdi-close" variant="text" size="small" @click="close"></v-btn>
-    </v-toolbar>
     
-    <v-container class="pa-4 d-flex flex-column h-100 overflow-hidden">
+    <div class="d-flex flex-column h-100 overflow-hidden">
       
-      <div v-if="step === 'book'" class="d-flex flex-column h-100">
-        <v-text-field v-model="searchQuery" @keyup.enter="onSearchEnter" prepend-inner-icon="mdi-magnify" label="Buscar livro (ex: Gn, Mateus)..." variant="outlined" density="compact" color="primary" hide-details class="mb-4 flex-shrink-0" autofocus></v-text-field>
-        <v-list density="compact" class="pa-0 overflow-y-auto flex-grow-1">
-          <v-list-item v-for="book in filteredBooks" :key="book.abbr" :title="book.name" append-icon="mdi-chevron-right" @click="selectBook(book)" class="border-b"></v-list-item>
-        </v-list>
-      </div>
-
-      <div v-else-if="step === 'chapter'" class="d-flex flex-column h-100">
-        <div class="d-flex align-center mb-4 flex-shrink-0">
-          <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="step = 'book'"></v-btn>
-          <span class="text-h6 ml-2">{{ selectedBook.name }}</span>
-        </div>
-        <div class="overflow-y-auto flex-grow-1 overflow-x-hidden">
-          <v-row dense>
-            <v-col cols="3" v-for="cap in selectedBook.chapters.length" :key="cap">
-              <v-btn block variant="tonal" color="primary" @click="selectChapter(cap)">{{ cap }}</v-btn>
-            </v-col>
-          </v-row>
-        </div>
-      </div>
-
-      <div v-else-if="step === 'verse'" class="d-flex flex-column h-100">
-        <div class="d-flex align-center mb-4 flex-shrink-0">
-          <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="step = 'chapter'"></v-btn>
-          <span class="text-h6 ml-2">{{ selectedBook.name }} {{ selectedChapter }}</span>
-        </div>
+      <v-toolbar :color="step === 'projecting' ? 'error' : 'primary'" density="compact" class="text-white border-b flex-shrink-0">
+        <v-icon class="ml-4">mdi-book-cross</v-icon>
+        <v-toolbar-title class="text-subtitle-1 font-weight-bold ml-2">
+          {{ step === 'projecting' ? 'Projetando Bíblia' : 'Bíblia Sagrada' }}
+        </v-toolbar-title>
+        <v-spacer></v-spacer>
+        <v-btn icon="mdi-close" variant="text" size="small" @click="close"></v-btn>
+      </v-toolbar>
+      
+      <div class="flex-grow-1 overflow-hidden">
         
-        <v-card variant="outlined" class="pa-4 mb-2 rounded-lg flex-shrink-0">
-          <v-row dense>
-            <v-col cols="6"><v-autocomplete v-model="verseStart" :items="availableVerses" label="De (Início)" variant="outlined" density="compact" hide-details></v-autocomplete></v-col>
-            <v-col cols="6"><v-autocomplete v-model="verseEnd" :items="availableVerses" label="Até (Fim)" variant="outlined" density="compact" hide-details></v-autocomplete></v-col>
-          </v-row>
-          <v-btn block color="primary" variant="flat" class="mt-5" @click="confirmVerses">Buscar Versículos</v-btn>
-        </v-card>
-        <v-btn block color="secondary" variant="tonal" class="mt-4" @click="selectWholeChapter">Capítulo Completo</v-btn>
-      </div>
+        <div v-if="step === 'book'" class="d-flex flex-column h-100 pa-4">
+          <v-text-field v-model="searchQuery" @keyup.enter="onSearchEnter" prepend-inner-icon="mdi-magnify" label="Buscar livro (ex: Gn, Mateus)..." variant="outlined" density="compact" color="primary" hide-details class="mb-4 flex-shrink-0" autofocus></v-text-field>
+          <v-list density="compact" class="pa-0 overflow-y-auto flex-grow-1">
+            <v-list-item v-for="book in filteredBooks" :key="book.abbr" :title="book.name" append-icon="mdi-chevron-right" @click="selectBook(book)" class="border-b"></v-list-item>
+          </v-list>
+        </div>
 
-      <div v-else-if="step === 'loading'" class="flex-grow-1 d-flex flex-column align-center justify-center">
-        <v-progress-circular indeterminate color="primary"></v-progress-circular>
-      </div>
-
-      <div v-else-if="step === 'view' && fetchedData" class="d-flex flex-column h-100">
-        <div class="d-flex align-center mb-2 flex-shrink-0 justify-space-between">
-          <div class="d-flex align-center">
-            <v-btn icon="mdi-arrow-left" variant="text" size="small" class="mr-1" @click="step = 'verse'"></v-btn>
-            <span class="text-h6 font-weight-bold text-primary">{{ fetchedData.book }} {{ fetchedData.chapter }}</span>
+        <div v-else-if="step === 'chapter'" class="d-flex flex-column h-100 pa-4">
+          <div class="d-flex align-center mb-4 flex-shrink-0">
+            <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="step = 'book'"></v-btn>
+            <span class="text-h6 ml-2">{{ selectedBook.name }}</span>
           </div>
-          <v-btn icon="mdi-magnify" variant="text" size="small" @click="resetSelection"></v-btn>
+          <div class="overflow-y-auto flex-grow-1 overflow-x-hidden pr-2">
+            <v-row density="comfortable">
+              <v-col cols="3" v-for="cap in selectedBook.chapters.length" :key="cap">
+                <v-btn block variant="tonal" color="primary" @click="selectChapter(cap)">{{ cap }}</v-btn>
+              </v-col>
+            </v-row>
+          </div>
         </div>
 
-        <v-tabs v-model="currentTab" color="primary" density="compact" class="border-b flex-shrink-0">
-          <v-tab value="texto">Versículos</v-tab>
-          <v-tab value="config">Aparência da Tela</v-tab>
-        </v-tabs>
+        <div v-else-if="step === 'verse'" class="d-flex flex-column h-100 pa-4">
+          <div class="d-flex align-center mb-4 flex-shrink-0">
+            <v-btn icon="mdi-arrow-left" variant="text" size="small" @click="step = 'chapter'"></v-btn>
+            <span class="text-h6 ml-2">{{ selectedBook.name }} {{ selectedChapter }}</span>
+          </div>
+          
+          <v-card variant="outlined" class="pa-4 mb-2 rounded-lg flex-shrink-0">
+            <v-row density="comfortable">
+              <v-col cols="6"><v-autocomplete v-model="verseStart" :items="availableVerses" label="De (Início)" variant="outlined" density="compact" hide-details></v-autocomplete></v-col>
+              <v-col cols="6"><v-autocomplete v-model="verseEnd" :items="availableVerses" label="Até (Fim)" variant="outlined" density="compact" hide-details></v-autocomplete></v-col>
+            </v-row>
+            <v-btn block color="primary" variant="flat" class="mt-5" @click="confirmVerses">Buscar Versículos</v-btn>
+            
+            <v-divider class="my-4"></v-divider>
+            
+            <v-btn block color="secondary" variant="tonal" @click="selectWholeChapter">Capítulo Completo</v-btn>
+          </v-card>
+        </div>
 
-        <v-window v-model="currentTab" class="flex-grow-1 overflow-hidden mt-2">
-          <v-window-item value="texto" class="h-100 overflow-y-auto pr-2 pb-2">
-             <p v-for="(verse, index) in fetchedData.verses" :key="index" class="mb-3 text-body-2 line-height-relaxed">
-              <sup class="font-weight-bold text-primary mr-1">{{ index + verseStart }}</sup>{{ verse }}
-            </p>
-          </v-window-item>
+        <div v-else-if="step === 'loading'" class="flex-grow-1 d-flex flex-column align-center justify-center h-100">
+          <v-progress-circular indeterminate color="primary"></v-progress-circular>
+        </div>
 
-          <v-window-item value="config" class="h-100 overflow-y-auto pr-2">
-            <p class="text-caption font-weight-bold mb-1 mt-2">Versículos por Slide</p>
-            <v-slider v-model="projectionSettings.versesPerSlide" min="1" max="5" step="1" thumb-label color="primary" hide-details></v-slider>
-
-            <p class="text-caption font-weight-bold mb-1 mt-4">Tamanho da Fonte</p>
-            <v-slider v-model="projectionSettings.fontSize" min="2" :max="maxBibleFontSize" step="0.1" thumb-label color="primary" hide-details></v-slider>
-
-            <div class="d-flex align-center mt-4 mb-2">
-              <v-checkbox v-model="projectionSettings.showReference" label="Exibir Referência no Rodapé" color="primary" density="compact" hide-details></v-checkbox>
+        <div v-else-if="step === 'view' && fetchedData" class="d-flex flex-column h-100">
+          
+          <div class="flex-shrink-0 px-4 pt-4">
+            <div class="d-flex align-center justify-space-between mb-2">
+              <div class="d-flex align-center">
+                <v-btn icon="mdi-arrow-left" variant="text" size="small" class="mr-1" @click="step = 'verse'"></v-btn>
+                <span class="text-h6 font-weight-bold text-primary">{{ fetchedData.book }} {{ fetchedData.chapter }}</span>
+              </div>
+              
+              <v-tooltip text="Nova Busca" location="bottom">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" icon="mdi-magnify" variant="text" size="small" @click="resetSelection"></v-btn>
+                </template>
+              </v-tooltip>
             </div>
 
-            <p class="text-caption font-weight-bold mb-2 mt-2">Fundo Personalizado</p>
-            <div class="d-flex gap-2">
-                <v-card width="60" height="40" color="black" class="d-flex align-center justify-center cursor-pointer border" @click="projectionSettings.bgType = 'color'; projectionSettings.bgColor = '#000000'; projectionSettings.bgMedia = ''">
-                    <v-icon color="white" size="small">mdi-format-color-fill</v-icon>
-                </v-card>
-                <v-card width="60" height="40" color="surface-variant" class="d-flex align-center justify-center cursor-pointer border" @click="fileInput.click()">
-                    <v-icon size="small">mdi-image-plus</v-icon>
-                    <input type="file" ref="fileInput" class="d-none" accept="image/*,video/*" @change="handleFileUpload">
-                </v-card>
-                <div v-if="projectionSettings.bgType === 'upload'" class="text-caption text-success d-flex align-center ml-2">
-                  <v-icon size="small" class="mr-1">mdi-check-circle</v-icon> Mídia Carregada
+            <v-tabs v-model="currentTab" color="primary" density="compact" class="border-b">
+              <v-tab value="texto">Versículos</v-tab>
+              <v-tab value="config">Aparência da Tela</v-tab>
+            </v-tabs>
+          </div>
+
+          <div class="flex-grow-1 overflow-hidden">
+            <v-window v-model="currentTab" class="h-100">
+              
+              <v-window-item value="texto" class="h-100 overflow-y-auto px-4 py-4">
+                 <p v-for="(verse, index) in fetchedData.verses" :key="index" class="mb-3 text-body-2 line-height-relaxed" :style="{ fontFamily: projectionSettings.fontFamily || 'inherit' }">
+                  <sup class="font-weight-bold text-primary mr-1">{{ index + verseStart }}</sup>{{ verse }}
+                </p>
+              </v-window-item>
+
+              <v-window-item value="config" class="h-100 overflow-y-auto px-4 py-4">
+                <p class="text-caption font-weight-bold mb-1">Versículos por Slide</p>
+                <v-slider v-model="projectionSettings.versesPerSlide" min="1" max="5" step="1" thumb-label color="primary" hide-details></v-slider>
+
+                <p class="text-caption font-weight-bold mb-1 mt-4">Tamanho da Fonte</p>
+                <v-slider v-model="projectionSettings.fontSize" min="2" :max="maxBibleFontSize" step="0.1" thumb-label color="primary" hide-details></v-slider>
+
+                <p class="text-caption font-weight-bold mb-1 mt-4">Tipo de Fonte</p>
+                <v-select 
+                  v-model="projectionSettings.fontFamily" 
+                  :items="['Roboto', 'Arial', 'Times New Roman', 'Verdana', 'Georgia']" 
+                  variant="outlined" 
+                  density="compact" 
+                  hide-details
+                ></v-select>
+
+                <div class="d-flex align-center mt-4 mb-2">
+                  <v-checkbox v-model="projectionSettings.showReference" label="Exibir Referência no Rodapé" color="primary" density="compact" hide-details></v-checkbox>
                 </div>
-            </div>
-          </v-window-item>
-        </v-window>
 
-        <div class="pt-3 border-t flex-shrink-0 bg-white">
-          <v-btn block color="success" size="large" prepend-icon="mdi-projector" @click="startProjection">
-            Iniciar Projeção
-          </v-btn>
+                <p class="text-caption font-weight-bold mb-2 mt-2">Fundo Personalizado</p>
+                <div class="d-flex gap-2 pb-4">
+                    <v-card width="60" height="40" color="black" class="d-flex align-center justify-center cursor-pointer border" @click="projectionSettings.bgType = 'color'; projectionSettings.bgColor = '#000000'; projectionSettings.bgMedia = ''">
+                        <v-icon color="white" size="small">mdi-format-color-fill</v-icon>
+                    </v-card>
+                    <v-card width="60" height="40" color="surface-variant" class="d-flex align-center justify-center cursor-pointer border" @click="fileInput.click()">
+                        <v-icon size="small">mdi-image-plus</v-icon>
+                        <input type="file" ref="fileInput" class="d-none" accept="image/*,video/*" @change="handleFileUpload">
+                    </v-card>
+                    <div v-if="projectionSettings.bgType === 'upload'" class="text-caption text-success d-flex align-center ml-2">
+                      <v-icon size="small" class="mr-1">mdi-check-circle</v-icon> Mídia Carregada
+                    </div>
+                </div>
+              </v-window-item>
+            </v-window>
+          </div>
+
+          <div class="flex-shrink-0 pa-4 border-t bg-white">
+            <v-btn block color="success" size="large" prepend-icon="mdi-projector" @click="startProjection">
+              Iniciar Projeção
+            </v-btn>
+          </div>
+
         </div>
+
+        <div v-else-if="step === 'projecting'" class="d-flex flex-column h-100 pa-4">
+          
+          <v-card color="surface" variant="outlined" class="pa-3 mb-4 text-center border-primary border-opacity-100 flex-shrink-0" style="border-width: 2px !important;">
+            <div class="text-caption text-primary font-weight-bold text-uppercase mb-1">Slide {{ currentSlideIndex + 1 }} de {{ bibleSlides.length }}</div>
+            <div class="text-subtitle-1 font-weight-medium text-truncate">{{ bibleSlides[currentSlideIndex]?.reference }}</div>
+          </v-card>
+
+          <v-card class="flex-grow-1 overflow-y-auto pa-4 bg-grey-lighten-4 mb-4 d-flex align-center justify-center text-center">
+            <span v-html="bibleSlides[currentSlideIndex]?.htmlContent"></span>
+          </v-card>
+
+          <div class="flex-shrink-0 mb-4">
+            <v-row density="comfortable">
+              <v-col cols="6">
+                <v-btn block height="60" variant="tonal" color="primary" @click="prevSlide" :disabled="currentSlideIndex === 0">
+                  <v-icon size="large" class="mr-2">mdi-chevron-left</v-icon> Anterior
+                </v-btn>
+              </v-col>
+              <v-col cols="6">
+                <v-btn block height="60" color="primary" @click="nextSlide" :disabled="currentSlideIndex === bibleSlides.length - 1">
+                  Próximo <v-icon size="large" class="ml-2">mdi-chevron-right</v-icon>
+                </v-btn>
+              </v-col>
+            </v-row>
+          </div>
+
+          <div class="pt-3 border-t flex-shrink-0 bg-white text-center">
+            <v-btn block color="error" variant="flat" prepend-icon="mdi-stop" @click="stopProjection">
+              Parar Apresentação
+            </v-btn>
+            <span class="text-caption text-grey mt-2 d-inline-block">(Use ← e → para navegar, Esc para sair)</span>
+          </div>
+        </div>
+
       </div>
-
-      <div v-else-if="step === 'projecting'" class="d-flex flex-column h-100">
-        
-        <v-card color="surface" variant="outlined" class="pa-3 mb-4 text-center border-primary border-opacity-100" style="border-width: 2px !important;">
-          <div class="text-caption text-primary font-weight-bold text-uppercase mb-1">Slide {{ currentSlideIndex + 1 }} de {{ bibleSlides.length }}</div>
-          <div class="text-subtitle-1 font-weight-medium text-truncate">{{ bibleSlides[currentSlideIndex]?.reference }}</div>
-        </v-card>
-
-        <v-card class="flex-grow-1 overflow-y-auto pa-4 bg-grey-lighten-4 mb-4 d-flex align-center justify-center text-center">
-          <span v-html="bibleSlides[currentSlideIndex]?.htmlContent"></span>
-        </v-card>
-
-        <div class="flex-shrink-0 mb-4">
-          <v-row dense>
-            <v-col cols="6">
-              <v-btn block height="60" variant="tonal" color="primary" @click="prevSlide" :disabled="currentSlideIndex === 0">
-                <v-icon size="large" class="mr-2">mdi-chevron-left</v-icon> Anterior
-              </v-btn>
-            </v-col>
-            <v-col cols="6">
-              <v-btn block height="60" color="primary" @click="nextSlide" :disabled="currentSlideIndex === bibleSlides.length - 1">
-                Próximo <v-icon size="large" class="ml-2">mdi-chevron-right</v-icon>
-              </v-btn>
-            </v-col>
-          </v-row>
-        </div>
-
-        <div class="pt-3 border-t flex-shrink-0 bg-white text-center">
-          <v-btn block color="error" variant="flat" prepend-icon="mdi-stop" @click="stopProjection">
-            Parar Apresentação
-          </v-btn>
-          <span class="text-caption text-grey mt-2 d-inline-block">(Use ← e → para navegar, Esc para sair)</span>
-        </div>
-      </div>
-
-    </v-container>
+    </div>
   </v-navigation-drawer>
 </template>
 

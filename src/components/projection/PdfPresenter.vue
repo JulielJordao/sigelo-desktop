@@ -3,7 +3,7 @@ import { ref, shallowRef, computed, nextTick, watch } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
-import { emitTo } from '@tauri-apps/api/event';
+import { emit } from '@tauri-apps/api/event';
 import * as pdfjsLib from 'pdfjs-dist';
 import { useConfigStore } from '../../stores/useConfigStore';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
@@ -160,7 +160,7 @@ const handleScroll = async (e: Event) => {
   const scrollX = target.scrollLeft / Math.max(1, target.scrollWidth - target.clientWidth);
   
   // Emite o evento global para o Tauri
-  await emitTo('projection', 'sync-pdf-scroll', { y: scrollY, x: scrollX });
+  await emit('sync-pdf-scroll', { y: scrollY, x: scrollX });
 };
 
 const handleKeydown = (e: KeyboardEvent) => {

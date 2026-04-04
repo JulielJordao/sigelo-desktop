@@ -296,7 +296,7 @@ defineExpose({ openDialog })
             <p class="text-body-2 text-medium-emphasis mb-4">Evite projetar em bordas cortadas de painéis de LED limitando a área de texto.</p>
             
             <v-card variant="outlined" class="pa-4 mb-8 bg-grey-lighten-5">
-              <v-row dense>
+              <v-row density="comfortable">
                 <v-col cols="6" md="3"><v-text-field v-model="settings.marginTop" type="number" label="Topo (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
                 <v-col cols="6" md="3"><v-text-field v-model="settings.marginBottom" type="number" label="Rodapé (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
                 <v-col cols="6" md="3"><v-text-field v-model="settings.marginLeft" type="number" label="Esquerda (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>

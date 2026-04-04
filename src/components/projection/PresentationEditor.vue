@@ -257,7 +257,7 @@ interface SlideProj {
 
 function convertToSlideFmt(label: SlideProj[]): Slide[] {
     const props = ['título', 'verso', 'refrão', 'geral'];
-    return label.map(slide => ({ text: slide.text, type: removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral'}));
+    return label.map(slide => ({ text: slide.text, type: (removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral') as Slide['type'] }));
 }
 
 function removeAccents(str: string | undefined) : string | null{
@@ -272,85 +272,58 @@ function removeAccents(str: string | undefined) : string | null{
 const projectCurrentSlide = async () => {
     if (!props.activeSong) return;
 
-    // isProjecting.value = true;
- 
-    exportToPPTX(convertToSlideFmt(songSlides.value as SlideProj[]), props.activeSong.fullName).catch(e => {
-        console.error("Erro ao exportar para PPTX:", e);
-    });
- 
     const style = currentActiveStyle.value;
     const conf = configStore.settings;
     const text = currentSlideText.value;
     const currentDesign = design.value;
 
-    // 1. Resolve o Fundo (Cor, Imagem ou Vídeo)
-    let bgHtml = '';
-    if (currentDesign.bgType === 'color') {
-        bgHtml = `<div style="position: absolute; inset: 0; background-color: ${currentDesign.bgColor}; z-index: -1;"></div>`;
-    } else if (currentDesign.bgIsVideo && currentDesign.bgMedia) {
-        bgHtml = `<video src="${currentDesign.bgMedia}" autoplay loop muted style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${currentDesign.bgFit}; z-index: -1;"></video>`;
-    } else if (currentDesign.bgMedia) {
-        bgHtml = `<img src="${currentDesign.bgMedia}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${currentDesign.bgFit}; z-index: -1;" />`;
+    // Resolve o tipo de fundo de forma limpa
+    let resolvedBgType = 'color';
+    if (currentDesign.bgType !== 'color' && currentDesign.bgMedia) {
+        resolvedBgType = currentDesign.bgIsVideo ? 'video' : 'image';
     }
 
-    // 2. Monta o Payload HTML combinando o layout do Editor com a SafeArea do ConfigStore
-    const htmlPayload = `
-        <div id="projection-root" class="theme-${conf.activeTheme.toLowerCase()}" style="
-            width: 100vw;
-            height: 100vh;
-            position: relative;
-            overflow: hidden;
-            background-color: ${conf.chromaKey !== 'none' ? conf.chromaKey : 'transparent'};
-            opacity: ${conf.bgOpacity / 100};
-            transition: opacity 0.3s ${conf.transitionType === 'fade' ? 'ease-in-out' : 'none'};
-            box-sizing: border-box;
-            padding: ${conf.marginTop}px ${conf.marginRight}px ${conf.marginBottom}px ${conf.marginLeft}px;
-        ">
-            ${bgHtml}
+    // Cria um objeto estruturado de dados (JSON) em vez de uma string HTML
+    const slidePayload = {
+        type: 'slide', // Identificador para o telão saber que não é um PDF
+        background: {
+            type: resolvedBgType,
+            color: currentDesign.bgColor,
+            media: currentDesign.bgMedia,
+            fit: currentDesign.bgFit
+        },
+        layout: {
+            theme: conf.activeTheme.toLowerCase(),
+            chromaKey: conf.chromaKey !== 'none' ? conf.chromaKey : 'transparent',
+            opacity: conf.bgOpacity / 100,
+            transition: conf.transitionType === 'fade' ? 'ease-in-out' : 'none',
+            padding: `${conf.marginTop}px ${conf.marginRight}px ${conf.marginBottom}px ${conf.marginLeft}px`
+        },
+        text: {
+            content: text, // O texto muda aqui!
+            posX: currentDesign.posX,
+            posY: currentDesign.posY,
+            width: currentDesign.width,
+            height: currentDesign.height,
+            fontFamily: style.fontFamily,
+            fontSize: style.fontSize,
+            color: style.color,
+            align: style.align,
+            bold: style.bold,
+            italic: style.italic
+        }
+    };
 
-            <div style="position: relative; width: 100%; height: 100%;">
-                
-                <div style="
-                    position: absolute;
-                    left: ${currentDesign.posX}%;
-                    top: ${currentDesign.posY}%;
-                    width: ${currentDesign.width}%;
-                    height: ${currentDesign.height}%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    container-type: inline-size; /* ESSENCIAL para o cqi funcionar */
-                ">
-                    <div style="
-                        font-family: '${style.fontFamily}', sans-serif;
-                        font-size: ${style.fontSize}cqi; 
-                        color: ${style.color};
-                        text-align: ${style.align};
-                        font-weight: ${style.bold ? 'bold' : 'normal'};
-                        font-style: ${style.italic ? 'italic' : 'normal'};
-                        white-space: pre-wrap;
-                        width: 100%;
-                        max-height: 100%;
-                        overflow: hidden;
-                        pointer-events: none;
-                    ">${text}</div>
-                </div>
-
-            </div>
-        </div>
-    `;
-
-    // 3. Envia para o Tauri
     try {
-        /*
+        // Converte o objeto para string e envia no campo 'html' (o Rust não liga para o conteúdo)
         await invoke('update_projection', { 
-            html: htmlPayload, 
+            html: JSON.stringify(slidePayload), 
             targetMonitor: conf.selectedMonitor || null
-        });*/
+        });
+        isProjecting.value = true;
     } catch (error) { 
         console.error("Erro ao projetar o slide:", error);
     }
-        
 };
 
 const stopProjection = async () => {
