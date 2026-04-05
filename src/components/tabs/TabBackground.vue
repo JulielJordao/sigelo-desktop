@@ -9,7 +9,7 @@ const mediaStore = useMediaStore();
 const fileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
-    if (mediaStore.mediaFiles.length === 0) {
+    if (mediaStore.themeFiles?.length === 0) {
         mediaStore.loadMedia();
     }
 });
@@ -139,7 +139,7 @@ const isCustomColor = computed(() => {
                 </v-card>
 
                 <v-card 
-                    v-for="file in mediaStore.mediaFiles" 
+                    v-for="file in mediaStore.themeFiles" 
                     :key="file.id" 
                     width="100" height="70" 
                     class="cursor-pointer position-relative overflow-hidden transition-all" 

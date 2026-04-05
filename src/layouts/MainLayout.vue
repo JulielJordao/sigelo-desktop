@@ -1,61 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import SettingsModal from '../components/config/SettingsModal.vue';
-import { emit } from '@tauri-apps/api/event';
 import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o novo componente
 // import { useConfigStore } from '../stores/useConfigStore';
 import MediaSidebar from '../components/media/MediaSidebar.vue';
 
-// Interface igual à do componente filho para manter a tipagem correta
-interface MediaFile {
-  name: string;
-  path: string;
-  url: string;
-  isVideo: boolean;
-}
+import { useMenuStore } from '../stores/menuStore';
 
-// Estados locais para a interface de controle saber o que está ativo (opcional)
-const currentPlaying = ref<MediaFile | null>(null);
-const currentBackground = ref<MediaFile | null>(null);
-
-// 1. Ação: Projetar Imediatamente
-const handleProject = async (file: MediaFile) => {
-  currentPlaying.value = file;
-  
-  try {
-    // Dispara um evento global que a sua Janela de Projeção vai escutar
-    await emit('update-projection', {
-      action: 'play_media',
-      payload: {
-        url: file.url,
-        isVideo: file.isVideo
-      }
-    });
-    console.log("Comando de projeção enviado:", file.name);
-  } catch (error) {
-    console.error("Erro ao emitir projeção:", error);
-  }
-};
-
-// 2. Ação: Fixar como Fundo
-const handleSetFixedBackground = async (file: MediaFile) => {
-  currentBackground.value = file;
-  
-  try {
-    // Dispara um evento para a Janela de Projeção alterar o fundo base
-    await emit('update-projection', {
-      action: 'set_background',
-      payload: {
-        url: file.url,
-        isVideo: file.isVideo
-      }
-    });
-    console.log("Comando de fundo fixo enviado:", file.name);
-  } catch (error) {
-    console.error("Erro ao emitir fundo:", error);
-  }
-};
+const menuStore = useMenuStore();
 
 const router = useRouter();
 
@@ -74,7 +27,7 @@ const toggleBible = () => {
 };
 
 const toogleMediaSidebar = () => {
-  mediaSidebarRef.value?.open();
+  menuStore.toggleMenu('Media');
 };
 
 const handleProjection = (bibleData: any) => {
@@ -90,6 +43,16 @@ const logout = () => {
   localStorage.removeItem('userToken');
   router.push('/');
 };
+
+const toogleSongsSidebar = () => {
+  menuStore.toggleMenu('Songs');
+};
+
+onMounted(() => {
+  menuStore.toggleMenu('Songs')
+});
+
+
 </script>
 
 <template>
@@ -108,6 +71,7 @@ const logout = () => {
           title="Músicas" 
           value="musicas" 
           to="/app/musicas"
+          @click="toogleSongsSidebar"
           color="primary"
         ></v-list-item>
         
@@ -161,8 +125,6 @@ const logout = () => {
     <SettingsModal ref="settingsModalRef" />
     <MediaSidebar 
         ref="mediaSidebarRef"
-        @project="(file) => handleProject(file)" 
-        @setFixed="(file) => handleSetFixedBackground(file)" 
       />
     
   </v-layout>

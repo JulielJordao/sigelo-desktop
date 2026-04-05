@@ -18,6 +18,7 @@
     "http:default",
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
+    "fs:allow-remove",
     {
       "identifier": "shell:allow-open",
       "allow": [
@@ -28,6 +29,7 @@
         }
       ]
     },
+    
     {
       "identifier": "http:default",
       "allow": [
@@ -48,14 +50,20 @@
       "identifier": "core:event:allow-emit",
       "allow": [
         { "event": "sync-pdf-scroll" },
-        { "event": "update-projection" }
+        { "event": "update-projection" },
+        { "event": "set-fixed-media" },
+        { "event": "project-media" },
+        { "event": "clear-projection" }
       ]
     },
     {
       "identifier": "core:event:allow-listen",
       "allow": [
         { "event": "sync-pdf-scroll" },
-        { "event": "update-projection" }
+        { "event": "update-projection" },
+        { "event": "set-fixed-media" },
+        { "event": "project-media" },
+        { "event": "clear-projection" }
       ]
     }
   ]

@@ -6,6 +6,10 @@ import PresentationEditor from '../components/projection/PresentationEditor.vue'
 import routes from '../routes/index' 
 import { getLinkFiles } from '../utils/convertData';
 
+import { useMenuStore } from '../stores/menuStore';
+
+const menuStore = useMenuStore();
+
 interface Song {
   _id: string
 
@@ -142,8 +146,7 @@ onMounted(async() => {
 <template>
   <v-container fluid class="fill-height pa-0 bg-grey-lighten-4" style="user-select: none;">
     <v-row density="compact" class="fill-height">
-      
-      <template v-if="showSidebarLists">
+      <template v-if="showSidebarLists && menuStore.menuOpened === 'Songs'">
         <v-col cols="2" class="border-e bg-white transition-all d-flex flex-column h-100">
           <RepertoireSidebar 
             :groups="rawGroups" 
@@ -161,7 +164,8 @@ onMounted(async() => {
         </v-col>
       </template>
 
-      <v-col :cols="showSidebarLists ? 7 : 12" class="d-flex flex-column fill-height bg-grey-lighten-5 transition-all">
+
+      <v-col :cols="showSidebarLists && menuStore.menuOpened === 'Songs' ? 7 : 12" class="d-flex flex-column fill-height bg-grey-lighten-5 transition-all">
         <PresentationEditor 
           ref="refPresentationEditor"
           :active-song="activeSong"

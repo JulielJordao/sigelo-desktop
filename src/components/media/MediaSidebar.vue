@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-// Importamos o Store e o Tipo
-import { useMediaStore, type MediaFile } from '../../stores/mediaStore'; 
+import { emit } from '@tauri-apps/api/event';
+import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore'; 
+
+import { useMenuStore } from '../../stores/menuStore';
+
+const menuStore = useMenuStore();
 
 const mediaStore = useMediaStore();
 
-const isOpen = ref(false);
+const isOpen = computed(() => menuStore.menuOpened === 'Media');
+const currentContext = ref<MediaContext>('Media');
+const isDragging = ref(false);
 
-// Controles de Visualização (Específicos deste componente)
 const viewMode = ref<'list' | 'grid'>('grid');
 const expandedId = ref<string | null>(null);
 
@@ -19,14 +24,30 @@ const sortDesc = ref(false);
 const previewDialog = ref(false);
 const previewFile = ref<MediaFile | null>(null);
 
-const emit = defineEmits<{
-  (e: 'project', file: MediaFile): void;
-  (e: 'setFixed', file: MediaFile): void;
-}>();
+// Estados para o Modal de Deletar
+const deleteDialog = ref(false);
+const fileToDelete = ref<MediaFile | null>(null);
 
-// Agora a computada observa o mediaStore em vez de uma ref local
+  // Quando receber o evento @projectFile da MediaSidebar:
+const handleProjectFile = async (file: MediaFile) => {
+  console.log("Projetando arquivo:", file);
+    await emit('project-media', file);
+};
+
+// Quando receber o evento @setFixed da MediaSidebar:
+const handleSetFixed = async (file: MediaFile) => {
+    await emit('set-fixed-media', file);
+};
+
+// Crie um botão "Limpar Tela" na sua interface e dispare isso para terminar a apresentação:
+const clearPresentationScreen = async () => {
+    await emit('clear-projection'); // Isso vai acionar o Fundo Fixo na outra janela
+};
+
 const filteredAndSortedFiles = computed(() => {
-  let result = mediaStore.mediaFiles;
+  let result = currentContext.value === 'Media' 
+    ? mediaStore.reproductionFiles 
+    : mediaStore.themeFiles;
 
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase();
@@ -37,7 +58,7 @@ const filteredAndSortedFiles = computed(() => {
   if (activeFilter.value === 'videos') result = result.filter(f => f.isVideo);
   if (activeFilter.value === 'favorites') result = result.filter(f => f.isFavorite);
 
-  result = [...result].sort((a, b) => { // Importante: criar uma cópia com [...result] antes do sort
+  result = [...result].sort((a, b) => { 
     let comparison = 0;
     if (sortBy.value === 'name') comparison = a.name.localeCompare(b.name);
     if (sortBy.value === 'date') comparison = b.modifiedAt - a.modifiedAt;
@@ -48,10 +69,16 @@ const filteredAndSortedFiles = computed(() => {
   return result;
 });
 
-// Ações agora chamam o store
-const toggleFavorite = (file: MediaFile) => {
-  mediaStore.toggleFavorite(file.id);
+const handleDrop = async (event: DragEvent) => {
+  isDragging.value = false;
+  const files = event.dataTransfer?.files;
+  console.log(files)
+  if (files && files.length > 0) {
+    await mediaStore.addDroppedFiles(files, currentContext.value);
+  }
 };
+
+const toggleFavorite = (file: MediaFile) => { mediaStore.toggleFavorite(file.id); };
 
 const openPreview = (file: MediaFile) => {
   previewFile.value = file;
@@ -62,7 +89,20 @@ const toggleExpand = (id: string) => {
   expandedId.value = expandedId.value === id ? null : id;
 };
 
-// Salva a duração no store para que outros componentes também saibam o tamanho do vídeo!
+// Funções de Deletar
+const confirmDeletePrompt = (file: MediaFile) => {
+  fileToDelete.value = file;
+  deleteDialog.value = true;
+};
+
+const executeDelete = async (completely: boolean) => {
+  if (fileToDelete.value) {
+    await mediaStore.deleteFile(fileToDelete.value.id, completely);
+  }
+  deleteDialog.value = false;
+  fileToDelete.value = null;
+};
+
 const onVideoLoaded = (event: Event, file: MediaFile) => {
   const target = event.target as HTMLVideoElement;
   if (target.duration && !isNaN(target.duration)) {
@@ -77,11 +117,11 @@ const formatDuration = (seconds?: number) => {
   return `${m}:${s}`;
 };
 
-defineExpose({open : () => { isOpen.value = true}});
+const closeMenu = () => {
+  menuStore.toggleMenu(menuStore.oldMenuOpened);
+};
 
 onMounted(() => {
-  // Pede para o store carregar os dados. 
-  // Se você já tiver carregado no editor de slides, ele puxará os dados instantaneamente
   if (mediaStore.mediaFiles.length === 0) {
     mediaStore.loadMedia();
   }
@@ -89,9 +129,29 @@ onMounted(() => {
 </script>
 
 <template>
-   <v-navigation-drawer v-model="isOpen" width="400">
-    <div class="d-flex flex-column fill-height bg-grey-lighten-4">
+
+  <v-navigation-drawer v-model="isOpen" width="500" >
+  <div 
+        class="d-flex flex-column fill-height bg-grey-lighten-4 position-relative"
+        @dragenter.prevent="isDragging = true"
+      >
       
+      <div 
+        v-if="isDragging"
+        class="position-absolute top-0 left-0 w-100 h-100 d-flex flex-column align-center justify-center text-white"
+        style="background-color: rgba(var(--v-theme-primary), 0.95); z-index: 9999; cursor: copy;"
+        @dragover.prevent
+        @dragleave.prevent="isDragging = false"
+        @drop.prevent="handleDrop"
+        @click="isDragging = false"
+      >
+        <div class="d-flex flex-column align-center" style="pointer-events: none;">
+          <v-icon size="80" class="mb-4">mdi-cloud-upload-outline</v-icon>
+          <h2 class="text-h5 font-weight-bold text-center">Solte os arquivos aqui</h2>
+          <p class="text-body-1">Eles serão salvos em "{{ currentContext === 'Media' ? 'Reprodução' : 'Temas' }}"</p>
+        </div>
+      </div>
+
       <div class="bg-white elevation-1 z-10" style="position: sticky; top: 0; z-index: 10;">
         <v-toolbar density="compact" color="transparent" elevation="0">
           <v-toolbar-title class="text-subtitle-1 font-weight-bold">
@@ -105,8 +165,17 @@ onMounted(() => {
           </v-btn-toggle>
 
           <v-btn icon="mdi-refresh" size="small" variant="text" @click="mediaStore.loadMedia" :loading="mediaStore.isLoading"></v-btn>
-          <v-btn icon="mdi-close" size="small" variant="text" @click="isOpen = false"></v-btn>
+          <v-btn icon="mdi-close" size="small" variant="text" @click="closeMenu()"></v-btn>
         </v-toolbar>
+
+        <v-tabs v-model="currentContext" color="primary" grow density="compact" class="mb-2">
+          <v-tab value="Media" class="text-caption font-weight-bold">
+            <v-icon start size="small">mdi-play-circle-outline</v-icon> Reprodução
+          </v-tab>
+          <v-tab value="Theme" class="text-caption font-weight-bold">
+            <v-icon start size="small">mdi-image-multiple</v-icon> Temas (Slides)
+          </v-tab>
+        </v-tabs>
 
         <div class="px-3 pb-3">
           <v-text-field v-model="searchQuery" density="compact" variant="solo-filled" flat hide-details placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2"></v-text-field>
@@ -155,8 +224,9 @@ onMounted(() => {
                   </div>
                   <v-spacer></v-spacer>
                   <div class="d-flex gap-2 mt-3">
-                    <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-projector" class="flex-grow-1" @click.stop="emit('project', file)">Projetar</v-btn>
-                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="emit('setFixed', file)"></v-btn>
+                    <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-projector" class="flex-grow-1" @click="handleProjectFile(file)">Projetar</v-btn>
+                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="handleSetFixed(file)"></v-btn>
+                    <v-btn size="small" color="error" variant="text" icon="mdi-delete" @click.stop="confirmDeletePrompt(file)"></v-btn>
                   </div>
                 </div>
               </div>
@@ -187,8 +257,9 @@ onMounted(() => {
                 <div class="flex-grow-1 overflow-hidden d-flex flex-column pr-4">
                   <span class="text-subtitle-2 font-weight-bold text-truncate d-block" :title="file.name">{{ file.name }}</span>
                   <div class="d-flex gap-2 mt-auto">
-                    <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-projector" class="flex-grow-1 px-0" @click.stop="emit('project', file)">Projetar</v-btn>
-                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="emit('setFixed', file)"></v-btn>
+                  <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-projector" class="flex-grow-1 px-0" @click.stop="handleProjectFile(file)">Projetar</v-btn>
+                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="handleSetFixed(file)"></v-btn>
+                    <v-btn size="small" color="error" variant="text" icon="mdi-delete" @click.stop="confirmDeletePrompt(file)"></v-btn>
                   </div>
                 </div>
               </div>
@@ -216,7 +287,7 @@ onMounted(() => {
       </div>
     </div>
   </v-navigation-drawer>
-
+ 
   <v-dialog v-model="previewDialog" max-width="800">
     <v-card class="bg-black">
       <v-toolbar color="transparent" theme="dark" density="compact">
@@ -230,14 +301,43 @@ onMounted(() => {
       </div>
       <v-card-actions class="pa-4 bg-grey-darken-4 justify-end">
         <v-btn color="grey" variant="text" @click="previewDialog = false">Fechar</v-btn>
-        <v-btn color="secondary" prepend-icon="mdi-pin" @click="emit('setFixed', previewFile!); previewDialog = false">Fundo</v-btn>
-        <v-btn color="primary" variant="flat" prepend-icon="mdi-projector" @click="emit('project', previewFile!); previewDialog = false">Projetar Agora</v-btn>
+        <v-btn color="secondary" prepend-icon="mdi-pin" @click="handleSetFixed(previewFile!); previewDialog = false">Fundo</v-btn>
+        <v-btn color="primary" variant="flat" prepend-icon="mdi-projector" @click="handleProjectFile(previewFile!); previewDialog = false">Projetar Agora</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
+
+  <v-dialog v-model="deleteDialog" max-width="450">
+    <v-card>
+      <v-card-title class="text-h6 d-flex align-center">
+        <v-icon color="warning" start>mdi-alert</v-icon>
+        Excluir Arquivo
+      </v-card-title>
+      <v-card-text>
+        O que você deseja fazer com o arquivo <strong>{{ fileToDelete?.name }}</strong>?
+      </v-card-text>
+      
+      <v-divider></v-divider>
+      
+      <v-card-actions class="d-flex flex-wrap gap-2 pa-3">
+        <v-btn color="grey-darken-1" variant="text" @click="deleteDialog = false">
+          Cancelar
+        </v-btn>
+        <v-spacer></v-spacer>
+        <v-btn color="warning" variant="tonal" @click="executeDelete(false)" title="Apenas remove da lista visualmente até o próximo reload">
+          Deletar (Ocultar)
+        </v-btn>
+        <v-btn color="error" variant="flat" prepend-icon="mdi-delete-forever" @click="executeDelete(true)" title="Apaga permanentemente do seu computador">
+          Deletar Completamente
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
+
 </template>
 
 <style scoped>
+.position-relative { position: relative; }
 .gap-2 { gap: 8px; }
 .object-cover { object-fit: cover; }
 .text-shadow { text-shadow: 0px 1px 3px rgba(0,0,0,0.8); }
@@ -274,11 +374,11 @@ onMounted(() => {
     gap: 12px;
 }
 .grid-item-expanded {
-    grid-column: 1 / -1; /* Ocupa as duas colunas */
+    grid-column: 1 / -1;
     cursor: default;
 }
 .square-preview {
-    aspect-ratio: 1; /* Garante que seja um quadrado perfeito */
+    aspect-ratio: 1;
     width: 100%;
 }
 .transition-all {
