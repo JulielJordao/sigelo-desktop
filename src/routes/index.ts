@@ -183,7 +183,7 @@ export const api = {
         const response = await deleteData(`${url}delete/${id}`, getToken());
         return response.json();
       },
-      getListBySongId: (songId: string) => getData(`${url}getListBySongId`, getToken(), {songId}),
+      getListBySongId: (songId: string[]) => getData(`${url}getListBySongId`, getToken(), {songId}),
       showFile: (fileName: string) => ({ sendUrl: getLinkFiles(fileName) }),
       generate: async (data: any) => {
         const response = await fetch(`${url}generate`, {
@@ -267,8 +267,12 @@ export const api = {
 
     const list = async(songGroupId: string) => getData(`${url}listBySongGroup`, getToken(), {songGroupId})
 
+    const getByListId = async(listId: string | string[]) => getData(`${url}getSongById`, getToken(), listId)  
+    
+
     return {
-        list
+        list,
+        getByListId
     }
   },
 
@@ -313,6 +317,16 @@ export const api = {
       ...withAuth("")
     });
     return response.json();
+  },
+
+  event: () => {
+    const url = baseUrl + "event/";
+
+    const list = async() => getData(`${url}list`, getToken())
+
+    return {
+        list
+    }
   }
 };
 

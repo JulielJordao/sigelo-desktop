@@ -8,8 +8,8 @@ export const useMenuStore = defineStore('menu', () => {
     const oldMenuOpened = ref<MenuOptions>('Media');
 
     const toggleMenu = (option: MenuOptions) => {
-        oldMenuOpened.value = menuOpened.value;
-        menuOpened.value = option;
+       oldMenuOpened.value = menuOpened.value;
+       menuOpened.value = option;
     };
 
     return { 

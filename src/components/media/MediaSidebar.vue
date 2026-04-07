@@ -153,10 +153,6 @@ const formatDuration = (seconds?: number) => {
   return `${m}:${s}`;
 };
 
-const closeMenu = () => {
-  menuStore.toggleMenu(menuStore.oldMenuOpened);
-};
-
 let unlistenHover: UnlistenFn;
 let unlistenDrop: UnlistenFn;
 let unlistenCancel: UnlistenFn;
@@ -199,8 +195,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <v-navigation-drawer v-model="isOpen" width="500">
-    <div class="d-flex flex-column fill-height bg-grey-lighten-4 position-relative">
+  <div class="d-flex flex-column fill-height">
+    <div class="fill-height bg-grey-lighten-4 position-relative">
 
       <div v-show="isDragging" @click="isDragging = false"
         class="position-absolute top-0 left-0 w-100 h-100 d-flex flex-column align-center justify-center text-white cursor-pointer"
@@ -227,7 +223,6 @@ onUnmounted(() => {
 
           <v-btn icon="mdi-refresh" size="small" variant="text" @click="mediaStore.loadMedia"
             :loading="mediaStore.isLoading"></v-btn>
-          <v-btn icon="mdi-close" size="small" variant="text" @click="closeMenu()"></v-btn>
         </v-toolbar>
 
         <v-tabs v-model="currentContext" color="primary" grow density="compact" class="mb-2">
@@ -433,7 +428,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-  </v-navigation-drawer>
+  </div>
   <v-dialog v-model="previewDialog" max-width="800">
     <v-card class="bg-black">
       <v-toolbar color="transparent" theme="dark" density="compact">

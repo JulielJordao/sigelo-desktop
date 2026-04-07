@@ -2,10 +2,9 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import SettingsModal from '../components/config/SettingsModal.vue';
-import EventSidebar from '../components/event/EventSidebar.vue';
+
 import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o novo componente
 // import { useConfigStore } from '../stores/useConfigStore';
-import MediaSidebar from '../components/media/MediaSidebar.vue';
 
 import { useMenuStore } from '../stores/menuStore';
 
@@ -15,8 +14,6 @@ const router = useRouter();
 
 const settingsModalRef = ref<any>(null);
 const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filho
-const mediaSidebarRef = ref<any>(null); 
-const eventSidebarRef = ref<any>(null);
 
 // const configStore = useConfigStore();
 
@@ -75,9 +72,9 @@ onMounted(() => {
         <v-list-item 
           prepend-icon="mdi-music-box-multiple" 
           title="Músicas" 
-          value="musicas" 
-          to="/app/musicas"
+          value="musicas"
           @click="toogleSongsSidebar"
+          :active="menuStore.menuOpened === 'Songs'"
           color="primary"
         ></v-list-item>
         <v-list-item 
@@ -85,6 +82,7 @@ onMounted(() => {
           title="Eventos" 
           value="event" 
           @click="toggleEventsSidebar"
+          :active="menuStore.menuOpened === 'Events'"
           color="primary"
         ></v-list-item>
         
@@ -100,6 +98,7 @@ onMounted(() => {
           prepend-icon="mdi-image-multiple" 
           title="Mídia / Imagens" 
           @click="toogleMediaSidebar"
+          :active="menuStore.menuOpened === 'Media'"
           value="midia"
         ></v-list-item>
       </v-list>
@@ -135,14 +134,7 @@ onMounted(() => {
       </router-view>
     </v-main>
     
-    <SettingsModal ref="settingsModalRef" />
-    <MediaSidebar 
-        ref="mediaSidebarRef"
-      />
-    <EventSidebar 
-        ref="eventSidebarRef"
-      />
-    
+    <SettingsModal ref="settingsModalRef" />    
   </v-layout>
 </template>
 

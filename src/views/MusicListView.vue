@@ -5,8 +5,11 @@ import SongSidebar from '../components/projection/SongSidebar.vue';
 import PresentationEditor from '../components/projection/PresentationEditor.vue';
 import routes from '../routes/index' 
 import { getLinkFiles } from '../utils/convertData';
+import EventSidebar from '../components/event/EventSidebar.vue';
 
 import { useMenuStore } from '../stores/menuStore';
+
+import MediaSidebar from '../components/media/MediaSidebar.vue';
 
 const menuStore = useMenuStore();
 
@@ -88,7 +91,8 @@ const onSelectSong = (id: string) => {
 };
 
 const getLyric = async() => {
-  const files = await filesRoutes.getListBySongId(selectedSongId.value)
+  const songId: string[] = [selectedSongId.value]
+  const files = await filesRoutes.getListBySongId(songId)
   
   if(Array.isArray(files?.response)){
     const list = files.response
@@ -146,6 +150,7 @@ onMounted(async() => {
 <template>
   <v-container fluid class="fill-height pa-0 bg-grey-lighten-4" style="user-select: none;">
     <v-row density="compact" class="fill-height">
+      
       <template v-if="showSidebarLists && menuStore.menuOpened === 'Songs'">
         <v-col cols="2" class="border-e bg-white transition-all d-flex flex-column h-100">
           <RepertoireSidebar 
@@ -164,8 +169,19 @@ onMounted(async() => {
         </v-col>
       </template>
 
+      <template v-else-if="showSidebarLists && menuStore.menuOpened === 'Events'">
+        <v-col cols="5" class="border-e bg-white transition-all d-flex flex-column h-100">
+          <EventSidebar ref="eventSidebarRef" />
+        </v-col>
+      </template>
 
-      <v-col :cols="showSidebarLists && menuStore.menuOpened === 'Songs' ? 7 : 12" class="d-flex flex-column fill-height bg-grey-lighten-5 transition-all">
+      <template v-else-if="showSidebarLists && menuStore.menuOpened === 'Media'">
+        <v-col cols="5" class="border-e bg-white transition-all d-flex flex-column h-100">
+          <MediaSidebar ref="mediaSidebarRef" />
+        </v-col>
+      </template>
+
+      <v-col :cols="showSidebarLists ? 7 : 12" class="d-flex flex-column fill-height bg-grey-lighten-5 transition-all">
         <PresentationEditor 
           ref="refPresentationEditor"
           :active-song="activeSong"
@@ -177,9 +193,3 @@ onMounted(async() => {
     </v-row>
   </v-container>
 </template>
-
-<style scoped>
-.transition-all {
-  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-}
-</style>

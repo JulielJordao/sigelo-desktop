@@ -1,109 +1,122 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useMenuStore } from '../../stores/menuStore';
+import { useEventStore } from '../../stores/eventStore';
 
-// Tipagens Mockadas (Depois você moverá para o seu eventStore)
-interface Song {
-  id: string;
-  title: string;
-  artist: string;
-  key?: string; // Tom da música
-}
+import type { Event } from '../../types/event'; 
+import type { Song } from '../../types/song';   
 
-interface AppEvent {
-  id: string;
-  title: string;
-  date: Date;
-  description?: string;
-  songs: Song[];
-}
-
+const eventStore = useEventStore();
 const menuStore = useMenuStore();
-const isOpen = computed(() => menuStore.menuOpened === 'Events'); // Ajuste o nome conforme o seu menu
+
+const isOpen = computed(() => menuStore.menuOpened === 'Events'); 
 
 const selectedDate = ref<Date | null>(null);
-const selectedEvent = ref<AppEvent | null>(null);
+const selectedEvent = ref<Event | null>(null);
+const showEventPopup = ref(false); 
 
-const closeMenu = () => {
-  menuStore.toggleMenu(menuStore.oldMenuOpened);
+// ==========================================
+// LÓGICA DE DATAS E EVENTOS
+// ==========================================
+
+const resetTime = (d: Date | string) => {
+  const dateObj = new Date(d);
+  return new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()).getTime();
 };
 
-// ==========================================
-// DADOS DE TESTE (Substitua pelo seu Store)
-// ==========================================
-const today = new Date();
-const mockEvents = ref<AppEvent[]>([
-  {
-    id: '1',
-    title: 'Culto de Domingo',
-    date: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2),
-    description: 'Culto da Família - 19h',
-    songs: [
-      { id: 'm1', title: 'Oceanos (Oceans)', artist: 'Ana Nóbrega', key: 'D' },
-      { id: 'm2', title: 'Ruja o Leão', artist: 'Talita', key: 'G' },
-      { id: 'm3', title: 'Agnus Dei', artist: 'Michael W. Smith', key: 'A' }
-    ]
-  },
-  {
-    id: '2',
-    title: 'Ensaio Geral',
-    date: new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1),
-    songs: [
-      { id: 'm4', title: 'Lindo És', artist: 'Livres', key: 'E' }
-    ]
-  },
-  {
-    id: '3',
-    title: 'Culto de Jovens',
-    date: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 5),
-    songs: []
-  }
-]);
-
-// ==========================================
-// LÓGICA DE FILTRAGEM DE DATAS
-// ==========================================
-const resetTime = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-
-const filteredEvents = computed(() => {
-  // 1. Se o usuário clicou em uma data no calendário:
-  if (selectedDate.value) {
-    const targetTime = resetTime(selectedDate.value);
-    return mockEvents.value.filter(e => resetTime(e.date) === targetTime);
-  }
-
-  // 2. Se nenhuma data selecionada: Mostrar os últimos 2 dias e os próximos 7 dias
-  const now = resetTime(today);
-  const minDate = now - (2 * 24 * 60 * 60 * 1000); // -2 dias
-  const maxDate = now + (7 * 24 * 60 * 60 * 1000); // +7 dias
-
-  return mockEvents.value
-    .filter(e => {
-      const eventTime = resetTime(e.date);
-      return eventTime >= minDate && eventTime <= maxDate;
-    })
-    .sort((a, b) => a.date.getTime() - b.date.getTime()); // Ordena cronologicamente
+const eventDates = computed(() => {
+  return (eventStore.events || []).map(e => new Date(e.date));
 });
 
-// Ao clicar em um evento na lista superior
-const handleSelectEvent = (event: AppEvent) => {
-  selectedEvent.value = selectedEvent.value?.id === event.id ? null : event;
+// 1. TRAVA DO CALENDÁRIO: Habilita apenas os dias que possuem culto/evento
+const allowedDates = (val: unknown) => {
+  const targetTime = resetTime(val as Date);
+  return eventDates.value.some(d => resetTime(d) === targetTime);
 };
 
-// Função auxiliar para formatar a data na lista
-const formatDate = (date: Date) => {
-  return date.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace('.', '');
+const eventsOnSelectedDate = computed(() => {
+  if (!selectedDate.value) return [];
+  const targetTime = resetTime(selectedDate.value);
+  return (eventStore.events || []).filter(e => resetTime(e.date) === targetTime);
+});
+
+// ==========================================
+// 2. MÁGICA DOS PONTINHOS AZUIS (CSS DINÂMICO)
+// ==========================================
+// Como o Vuetify 3 não tem mais a prop 'events', injetamos o ponto via CSS na data correta.
+const eventCssClasses = computed(() => {
+  const events = eventStore.events || [];
+  if (events.length === 0) return '';
+  
+  const uniqueDates = new Set(events.map(e => {
+    const d = new Date(e.date);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    // Gera as variações de datas que o Vuetify pode renderizar na sua versão
+    return { padded: `${y}-${m}-${day}`, unpadded: `${y}-${d.getMonth() + 1}-${d.getDate()}` };
+  }));
+
+  let selectors: string[] = [];
+  uniqueDates.forEach(date => {
+    selectors.push(`[data-v-date^="${date.padded}"] .v-btn::after`);
+    selectors.push(`[data-v-date^="${date.unpadded}"] .v-btn::after`);
+  });
+
+  return `
+    ${selectors.join(',\n')} {
+      content: '';
+      position: absolute;
+      bottom: 2px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 6px;
+      height: 6px;
+      background-color: rgb(var(--v-theme-primary));
+      border-radius: 50%;
+    }
+  `;
+});
+
+// ==========================================
+// AÇÕES E VIGILANTES (WATCHERS)
+// ==========================================
+
+watch(selectedDate, (newDate) => {
+  if (newDate && eventsOnSelectedDate.value.length > 0) {
+    showEventPopup.value = true;
+  } else {
+    showEventPopup.value = false;
+  }
+});
+
+const handleSelectEvent = async (event: Event) => {
+  selectedEvent.value = event;
+  showEventPopup.value = false; // Fecha o popup assim que escolhe o evento
+  
+  // Chama o back-end/store para carregar o repertório!
+  await eventStore.getSongsForEvent(event);
 };
 
-// Limpa o filtro de data do calendário
-const clearDateFilter = () => {
+const formatDate = (dateString: string | Date) => {
+  const dateObj = new Date(dateString);
+  return dateObj.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+};
+
+const clearSelection = () => {
   selectedDate.value = null;
   selectedEvent.value = null;
 };
+
+onMounted(async () => {
+  await eventStore.loadEvents();
+}); 
 </script>
 
 <template>
-  <v-navigation-drawer v-model="isOpen" width="500">
+  <component :is="'style'">{{ eventCssClasses }}</component>
+  
+  <div class="d-flex flex-column fill-height">
     <div class="d-flex flex-column fill-height bg-grey-lighten-4 position-relative">
       
       <div class="bg-white elevation-1 z-10" style="position: sticky; top: 0; z-index: 10;">
@@ -113,95 +126,56 @@ const clearDateFilter = () => {
           </v-toolbar-title>
           <v-spacer></v-spacer>
           
-          <v-btn v-if="selectedDate" size="small" variant="text" color="primary" @click="clearDateFilter" class="mr-2 text-none">
-            Ver Próximos
+          <v-btn v-if="selectedEvent" size="small" variant="tonal" color="primary" @click="clearSelection" prepend-icon="mdi-arrow-left" class="mr-2 text-none">
+            Voltar ao Calendário
           </v-btn>
-          <v-btn icon="mdi-close" size="small" variant="text" @click="closeMenu"></v-btn>
         </v-toolbar>
       </div>
 
-      <div class="d-flex bg-white border-b px-2 py-3" style="min-height: 280px;">
-        
-        <div class="flex-shrink-0 mr-3" style="width: 250px;">
-          <v-date-picker 
-            v-model="selectedDate" 
-            color="primary" 
-            density="compact" 
-            hide-header
-            elevation="0"
-            class="border rounded-lg"
-          ></v-date-picker>
-        </div>
-
-        <div class="flex-grow-1 d-flex flex-column overflow-hidden">
-          <div class="text-caption font-weight-bold text-grey-darken-1 mb-2 text-uppercase d-flex align-center">
-            <v-icon size="small" class="mr-1">mdi-format-list-bulleted</v-icon>
-            {{ selectedDate ? 'Eventos da Data' : 'Últimos e Próximos' }}
-          </div>
-          
-          <div class="overflow-y-auto flex-grow-1 pr-1 custom-scrollbar">
-            <v-slide-y-transition group>
-              <v-card 
-                v-for="ev in filteredEvents" 
-                :key="ev.id"
-                :color="selectedEvent?.id === ev.id ? 'primary' : 'grey-lighten-4'"
-                :variant="selectedEvent?.id === ev.id ? 'flat' : 'flat'"
-                class="mb-2 border-sm cursor-pointer transition-all"
-                hover
-                @click="handleSelectEvent(ev)"
-              >
-                <div class="pa-2 d-flex flex-column">
-                  <div class="d-flex justify-space-between align-center mb-1">
-                    <span class="text-caption font-weight-bold text-uppercase" :class="selectedEvent?.id === ev.id ? 'text-white' : 'text-primary'">
-                      {{ formatDate(ev.date) }}
-                    </span>
-                  </div>
-                  <span class="text-subtitle-2 font-weight-bold line-clamp-1" :class="selectedEvent?.id === ev.id ? 'text-white' : 'text-grey-darken-4'">
-                    {{ ev.title }}
-                  </span>
-                  <span v-if="ev.description" class="text-caption line-clamp-1" :class="selectedEvent?.id === ev.id ? 'text-white text-opacity-80' : 'text-grey'">
-                    {{ ev.description }}
-                  </span>
-                </div>
-              </v-card>
-            </v-slide-y-transition>
-
-            <div v-if="filteredEvents.length === 0" class="h-100 d-flex flex-column align-center justify-center text-center pa-2">
-              <v-icon size="large" color="grey-lighten-1" class="mb-1">mdi-calendar-blank</v-icon>
-              <span class="text-caption text-grey">Nenhum evento aqui.</span>
-            </div>
-          </div>
-        </div>
+      <div class="bg-white border-b px-4 py-3 d-flex justify-center" style="min-height: 350px;">
+        <v-date-picker 
+          v-model="selectedDate" 
+          :allowed-dates="allowedDates"
+          color="primary" 
+          hide-header
+          elevation="0"
+          width="100%"
+          class="w-100 border rounded-lg"
+        ></v-date-picker>
       </div>
 
       <div class="flex-grow-1 overflow-y-auto pa-3">
-        
         <v-slide-y-transition mode="out-in">
-          <div v-if="selectedEvent" :key="'content-' + selectedEvent.id">
+          
+          <div v-if="selectedEvent" :key="'content-' + selectedEvent._id">
             <div class="d-flex align-center justify-space-between mb-3 bg-white pa-3 rounded-lg border-sm elevation-1">
-              <div>
-                <h3 class="text-subtitle-1 font-weight-bold">{{ selectedEvent.title }}</h3>
-                <span class="text-caption text-grey-darken-1"><v-icon size="x-small" start>mdi-music-clef-treble</v-icon> Repertório de Músicas</span>
+              <div class="overflow-hidden mr-2">
+                <h3 class="text-subtitle-1 font-weight-bold text-truncate" :title="selectedEvent.name">{{ selectedEvent.name }}</h3>
+                <span class="text-caption text-grey-darken-1 d-block text-truncate">
+                  <v-icon size="x-small" start>mdi-music-clef-treble</v-icon> Repertório de Músicas
+                </span>
               </div>
-              <v-chip size="small" color="primary" variant="tonal">{{ selectedEvent.songs.length }} Músicas</v-chip>
+              <v-chip size="small" color="primary" variant="tonal" class="flex-shrink-0">
+                {{ eventStore.songsByEvent.length }} Músicas
+              </v-chip>
             </div>
 
-            <v-card v-if="selectedEvent.songs.length > 0" class="border-sm rounded-lg" elevation="0">
+            <v-card v-if="eventStore.songsByEvent.length > 0" class="border-sm rounded-lg" elevation="0">
               <v-list density="compact" class="bg-transparent pa-0">
                 <v-list-item 
-                  v-for="(song, index) in selectedEvent.songs" 
-                  :key="song.id"
+                  v-for="(song, index) in eventStore.songsByEvent" 
+                  :key="song._id"
                   class="border-b"
                 >
                   <template v-slot:prepend>
                     <div class="text-caption text-grey font-weight-bold mr-3" style="width: 20px;">{{ index + 1 }}</div>
                   </template>
                   
-                  <v-list-item-title class="font-weight-bold text-subtitle-2">{{ song.title }}</v-list-item-title>
-                  <v-list-item-subtitle class="text-caption">{{ song.artist }}</v-list-item-subtitle>
+                  <v-list-item-title class="font-weight-bold text-subtitle-2">{{ song.fullName  }}</v-list-item-title>
+                  <v-list-item-subtitle class="text-caption">{{ song.writerBy }}</v-list-item-subtitle>
                   
                   <template v-slot:append>
-                    <v-chip v-if="song.key" size="x-small" color="secondary" variant="flat" class="font-weight-bold mr-2">{{ song.key }}</v-chip>
+                    <v-chip v-if="song.tone" size="x-small" color="secondary" variant="flat" class="font-weight-bold mr-2">{{ song.tone }}</v-chip>
                     <v-btn icon="mdi-play-circle-outline" size="small" color="primary" variant="text"></v-btn>
                   </template>
                 </v-list-item>
@@ -216,43 +190,70 @@ const clearDateFilter = () => {
           </div>
 
           <div v-else :key="'no-selection'" class="h-100 d-flex flex-column align-center justify-center text-center mt-10">
-            <v-icon size="64" color="grey-lighten-2" class="mb-4">mdi-playlist-star</v-icon>
-            <h3 class="text-h6 font-weight-bold text-grey-darken-2">Repertório</h3>
-            <p class="text-body-2 text-grey px-6">
-              Selecione um evento na lista superior para visualizar e gerenciar as músicas que serão reproduzidas.
+            <v-icon size="64" color="grey-lighten-2" class="mb-4">mdi-gesture-tap</v-icon>
+            <h3 class="text-h6 font-weight-bold text-grey-darken-2">Selecione uma Data</h3>
+            <p class="text-body-2 text-grey px-6 mt-2">
+              Clique em um dia no calendário marcado com um <strong>ponto azul</strong> para visualizar os eventos e carregar o repertório.
             </p>
           </div>
         </v-slide-y-transition>
-        
       </div>
+
     </div>
-  </v-navigation-drawer>
+
+    <v-dialog v-model="showEventPopup" max-width="400">
+      <v-card class="rounded-lg">
+        <v-toolbar color="primary" density="compact">
+          <v-toolbar-title class="text-subtitle-1 font-weight-bold">
+            Eventos do Dia
+          </v-toolbar-title>
+          <v-spacer></v-spacer>
+          <v-btn icon="mdi-close" variant="text" @click="showEventPopup = false"></v-btn>
+        </v-toolbar>
+
+        <div class="bg-grey-lighten-4 px-4 py-2 text-caption text-center font-weight-medium text-grey-darken-2 text-uppercase">
+          {{ selectedDate ? formatDate(selectedDate) : '' }}
+        </div>
+
+        <v-card-text class="pa-3 bg-grey-lighten-4">
+          <v-slide-y-transition group>
+            <v-card 
+              v-for="ev in eventsOnSelectedDate" 
+              :key="ev._id"
+              color="white"
+              class="mb-3 border-sm cursor-pointer transition-all elevation-1"
+              hover
+              @click="handleSelectEvent(ev)"
+            >
+              <div class="pa-3 d-flex align-center">
+                <v-avatar color="primary" size="40" variant="tonal" class="mr-3">
+                  <v-icon>mdi-calendar-check</v-icon>
+                </v-avatar>
+                <div class="flex-grow-1 overflow-hidden">
+                  <div class="text-subtitle-2 font-weight-bold text-truncate">{{ ev.name }}</div>
+                  <div v-if="ev.description" class="text-caption text-grey text-truncate">{{ ev.description }}</div>
+                </div>
+                <v-icon color="grey-lighten-1">mdi-chevron-right</v-icon>
+              </div>
+            </v-card>
+          </v-slide-y-transition>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
+
+  </div>
 </template>
 
 <style scoped>
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;  
-  overflow: hidden;
-}
-
 .transition-all {
   transition: all 0.3s ease;
 }
+.w-100 {
+  width: 100% !important;
+}
 
-/* Scrollbar mais fina para a lista pequena não ficar feia */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 4px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(0,0,0,0.1);
-  border-radius: 10px;
-}
-.custom-scrollbar:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(0,0,0,0.2);
+/* Garante que o botão permita que a bolinha apareça */
+:deep(.v-date-picker-month__day .v-btn) {
+  position: relative !important;
 }
 </style>
