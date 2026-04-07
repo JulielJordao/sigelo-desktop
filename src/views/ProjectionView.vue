@@ -2,13 +2,16 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useMediaStore } from '../stores/mediaStore';
+import type { MediaFile } from '../stores/mediaStore';
 
-interface MediaFile {
-  id: string;
-  name: string;
-  path: string;
-  url: string;
-  isVideo: boolean;
+const mediaStore = useMediaStore();
+
+const { setFixedMedia } = mediaStore;
+
+interface MediaControlPayload {
+    action: 'play' | 'pause' | 'mute' | 'unmute' | 'restart';
 }
 
 interface ScrollPayload { x: number; y: number; }
@@ -19,7 +22,6 @@ const htmlContent = ref<string>('<div style="color: white; display: flex; height
 const slideData = ref<any>(null);
 
 const currentMedia = ref<MediaFile | null>(null);
-const fixedMedia = ref<MediaFile | null>(null);
 
 const debugLog = ref<string>("Iniciando...");
 
@@ -32,6 +34,9 @@ let unlistenMedia: UnlistenFn | null = null;
 let unlistenFixed: UnlistenFn | null = null;
 let unlistenClear: UnlistenFn | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
+let unlistenMediaControl: UnlistenFn | null = null;
+
+const videoRef = ref<HTMLVideoElement | null>(null);
 
 // Agora aceita um 'force'. Se for o setInterval, force = false. Se for o clique do botão, force = true.
 const processIncomingData = (data: string, force: boolean = false) => {
@@ -87,24 +92,74 @@ onMounted(async () => {
         wrapper.scrollLeft = x * (wrapper.scrollWidth - wrapper.clientWidth);
     });
 
-    unlistenMedia = await listen<MediaFile>('project-media', (event) => {
+    unlistenMedia = await listen<MediaFile>('project-media', async (event) => {
         currentMedia.value = event.payload;
         projectionType.value = 'media';
         debugLog.value = `Projetando mídia: ${event.payload.name}`;
-    });
 
-    unlistenFixed = await listen<MediaFile>('set-fixed-media', (event) => {
-        fixedMedia.value = event.payload;
-        debugLog.value = `Mídia fixa definida: ${event.payload.name}`;
-        
-        if (projectionType.value === 'none') {
-            projectionType.value = 'fixed';
+        // NOVO: Faz a janela oculta aparecer na tela e ganhar foco
+        try {
+            const appWindow = getCurrentWindow();
+            await appWindow.show();
+        } catch (err) {
+            console.error("Erro ao exibir janela de projeção:", err);
         }
     });
 
+    unlistenFixed = await listen<MediaFile>('set-fixed-media', async (event) => {
+        const oldFixedMedia = {...mediaStore.fixedMedia}
+
+        debugLog.value = `Mídia fixa definida: ${event.payload.isVideo}`;
+        await setFixedMedia(event.payload);
+
+        if ((projectionType.value === 'none' || projectionType.value === 'fixed') && oldFixedMedia.id != event.payload.id) {
+            projectionType.value = 'fixed';
+
+             try {
+                const appWindow = getCurrentWindow();
+                await appWindow.show();
+                
+            } catch (err) {
+                console.error("Erro ao exibir janela de projeção:", err);
+            }
+        }
+      
+    });
+
     unlistenClear = await listen('clear-projection', () => {
-        projectionType.value = fixedMedia.value ? 'fixed' : 'none';
-        debugLog.value = "Projeção limpa. " + (fixedMedia.value ? "Exibindo fundo." : "Tela preta.");
+
+        projectionType.value = mediaStore.fixedMedia ? 'fixed' : 'none';
+        debugLog.value = mediaStore.fixedMedia + "";
+    });
+
+    unlistenMediaControl = await listen<MediaControlPayload>('media-control', (event) => {
+        if (!videoRef.value) return;
+
+        const action = event.payload.action;
+        debugLog.value = `Comando recebido: ${action}`;
+
+        try {
+            switch (action) {
+                case 'play':
+                    videoRef.value.play();
+                    break;
+                case 'pause':
+                    videoRef.value.pause();
+                    break;
+                case 'mute':
+                    videoRef.value.muted = true;
+                    break;
+                case 'unmute':
+                    videoRef.value.muted = false;
+                    break;
+                case 'restart': 
+                    videoRef.value.currentTime = 0;
+                    //videoRef.value.play();
+                    break;
+            }
+        } catch (e) {
+            console.error("Erro ao controlar vídeo:", e);
+        }
     });
 });
 
@@ -157,13 +212,19 @@ onUnmounted(() => {
         </div>
 
         <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-            <video v-if="currentMedia.isVideo" :src="currentMedia.url" autoplay class="w-100 h-100 object-fit-contain"></video>
+            <video 
+                v-if="currentMedia.isVideo" 
+                ref="videoRef" 
+                :src="currentMedia.url" 
+                autoplay 
+                class="w-100 h-100 object-fit-contain"
+            ></video>
             <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
         </div>
 
-        <div v-else-if="projectionType === 'fixed' && fixedMedia" class="media-fullscreen-container bg-black">
-            <video v-if="fixedMedia.isVideo" :src="fixedMedia.url" autoplay loop muted class="w-100 h-100 object-fit-cover"></video>
-            <img v-else :src="fixedMedia.url" class="w-100 h-100 object-fit-cover" />
+        <div v-else-if="projectionType === 'fixed' && mediaStore.fixedMedia" class="media-fullscreen-container bg-black">
+            <video v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted class="w-100 h-100 object-fit-cover"></video>
+            <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
         </div>
 
         <div v-else class="w-100 h-100 bg-black"></div>

@@ -1,12 +1,46 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type } from '@tauri-apps/plugin-os';
-import { listen } from '@tauri-apps/api/event';
+import { listen, emit as tauriEmit } from '@tauri-apps/api/event';
+import { useMediaStore } from '../stores/mediaStore';
+
+import { useMenuStore } from '../stores/menuStore';
+
+const menuStore = useMenuStore();
+
+const mediaStore = useMediaStore();
 
 const osType = type();
 const isMac = osType === 'macos';
 const appWindow = getCurrentWindow();
+
+const isFixedActive = ref(true);
+
+watch(() => mediaStore.fixedMedia, (newVal) => {
+  if (newVal) isFixedActive.value = true;
+});
+
+const toggleFixedMedia = async () => {
+  isFixedActive.value = !isFixedActive.value;
+  
+  if (isFixedActive.value) {
+    // Reativa enviando a mídia salva novamente
+    await tauriEmit('set-fixed-media', mediaStore.fixedMedia);
+  } else {
+    // Oculta enviando null e limpando a projeção
+    await tauriEmit('set-fixed-media', null);
+    await tauriEmit('clear-projection');
+  }
+};
+
+// AÇÃO 2: Remove definitivamente
+const removeFixedMedia = async () => {
+  mediaStore.fixedMedia = null; // Tira do header
+  isFixedActive.value = true;   // Reseta o estado
+  await tauriEmit('set-fixed-media', null);
+  await tauriEmit('clear-projection');
+};
 
 const emit = defineEmits<{
   (e: 'import'): void;
@@ -35,68 +69,81 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <v-app-bar 
-    height="48" 
-    elevation="0" 
-    class="app-header px-4" 
-  >
+  <v-app-bar height="48" elevation="0" class="app-header px-4" v-if="menuStore.menuOpened !== 'PdfPresenter'">
     <div data-tauri-drag-region class="drag-layer"></div>
-    
+ 
     <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
 
     <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 
-    <div class="z-10" :class="isMac ? '' : 'mr-4'">
-      <v-btn-group 
-        color="surface-variant" 
-        variant="outlined" 
-        density="comfortable" 
-        divided 
-        class="rounded-pill overflow-hidden bg-white"
-      >
+    <div class="z-10 d-flex align-center" :class="isMac ? '' : 'mr-4'">
+      
+      <v-btn-group v-if="mediaStore.fixedMedia" :color="isFixedActive ? 'success' : 'grey-darken-2'" class="overflow-hidden rounded mr-2" density="comfortable" variant="flat">
+        <v-menu location="bottom end" :close-on-content-click="false" transition="slide-y-transition">
+          
+          <template v-slot:activator="{ props }">
+            <v-btn v-bind="props" :icon="isFixedActive ? 'mdi-pin' : 'mdi-pin-off'" title="Gerenciar Fundo Fixo"></v-btn>
+          </template>
+
+          <v-card min-width="240" max-width="280" class="mt-2 rounded-lg elevation-8 border">
+            <div :class="isFixedActive ? 'bg-success' : 'bg-grey-darken-2'" class="px-3 py-1 text-caption font-weight-bold d-flex align-center text-white transition-all">
+              <v-icon start size="small">mdi-monitor-dashboard</v-icon> 
+              {{ isFixedActive ? 'FUNDO FIXO ATIVO' : 'FUNDO FIXO PAUSADO' }}
+            </div>
+            
+            <div class="pa-3">
+              <div class="rounded overflow-hidden bg-black position-relative elevation-2 mb-2" style="aspect-ratio: 16/9;">
+                <video v-if="mediaStore.fixedMedia.isVideo" :src="`${mediaStore.fixedMedia.url}#t=0.5`" class="w-100 h-100 object-cover" muted></video>
+                <v-img v-else :src="mediaStore.fixedMedia.url" cover class="w-100 h-100"></v-img>
+                
+                <div v-if="!isFixedActive" class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center" style="background: rgba(0,0,0,0.6)">
+                  <v-icon color="white" size="large">mdi-eye-off</v-icon>
+                </div>
+              </div>
+              
+              <div class="text-caption text-truncate mb-3 text-center font-weight-medium" :title="mediaStore.fixedMedia.name">
+                {{ mediaStore.fixedMedia.name }}
+              </div>
+
+              <v-divider class="mb-3"></v-divider>
+
+              <div class="d-flex gap-2">
+                <v-btn 
+                  :color="isFixedActive ? 'warning' : 'success'" 
+                  variant="tonal" size="small" class="flex-grow-1"
+                  :prepend-icon="isFixedActive ? 'mdi-eye-off' : 'mdi-eye'" 
+                  @click="toggleFixedMedia"
+                >
+                  {{ isFixedActive ? 'Ocultar' : 'Exibir' }}
+                </v-btn>
+                
+                <v-btn color="error" variant="tonal" size="small" icon="mdi-delete" @click="removeFixedMedia" title="Remover"></v-btn>
+              </div>
+            </div>
+          </v-card>
+        </v-menu>
+      </v-btn-group>
+
+      <v-btn-group color="surface-variant" variant="outlined" density="comfortable" divided
+        class="rounded-pill overflow-hidden bg-white">
         <v-tooltip text="Importar Arquivo" location="bottom">
           <template v-slot:activator="{ props }">
-            <v-btn 
-              v-bind="props" 
-              icon="mdi-import" 
-              @click="handleImport"
-            ></v-btn>
+            <v-btn v-bind="props" icon="mdi-import" @click="handleImport"></v-btn>
           </template>
         </v-tooltip>
 
         <v-tooltip text="Exportar Arquivo" location="bottom">
           <template v-slot:activator="{ props }">
-            <v-btn 
-              v-bind="props" 
-              icon="mdi-export" 
-              @click="handleExport"
-            ></v-btn>
+            <v-btn v-bind="props" icon="mdi-export" @click="handleExport"></v-btn>
           </template>
         </v-tooltip>
       </v-btn-group>
     </div>
 
     <div v-if="!isMac" class="window-controls z-10 d-flex align-center">
-      <v-btn 
-        icon="mdi-window-minimize" 
-        variant="text" 
-        class="window-btn" 
-        @click="minimize"
-      ></v-btn>
-      
-      <v-btn 
-        icon="mdi-window-maximize" 
-        variant="text" 
-        class="window-btn" 
-        @click="toggleMaximize"
-      ></v-btn>
-      
-      <v-btn 
-        icon="mdi-close" 
-        variant="text" 
-        class="window-btn btn-close" 
-        @click="close"
-      ></v-btn>
+      <v-btn icon="mdi-window-minimize" variant="text" class="window-btn" @click="minimize"></v-btn>
+      <v-btn icon="mdi-window-maximize" variant="text" class="window-btn" @click="toggleMaximize"></v-btn>
+      <v-btn icon="mdi-close" variant="text" class="window-btn btn-close" @click="close"></v-btn>
     </div>
   </v-app-bar>
 </template>
@@ -107,11 +154,12 @@ onUnmounted(() => {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
-  
+
   /* MÁGICA 2: Mata qualquer comportamento de seleção de texto nativo */
   user-select: none !important;
   -webkit-user-select: none !important;
-  cursor: default !important; /* Trava o cursor como setinha */
+  cursor: default !important;
+  /* Trava o cursor como setinha */
   z-index: 50;
 }
 
@@ -122,13 +170,15 @@ onUnmounted(() => {
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 1; /* Fica atrás de tudo no header */
+  z-index: 1;
+  /* Fica atrás de tudo no header */
   cursor: default !important;
 }
 
 .z-10 {
   z-index: 10;
-  position: relative; /* Necessário para que o z-index funcione e fique sobre a drag-layer */
+  position: relative;
+  /* Necessário para que o z-index funcione e fique sobre a drag-layer */
 }
 
 /* Container flexível para os controles nativos */
@@ -145,7 +195,7 @@ onUnmounted(() => {
   color: #666;
   font-size: 0.8rem;
   /* Garante que botões não deixem arrastar a tela acidentalmente */
-  -webkit-app-region: no-drag; 
+  -webkit-app-region: no-drag;
 }
 
 .window-btn:hover {

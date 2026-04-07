@@ -1,8 +1,8 @@
 // src/stores/mediaStore.ts
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { readDir, stat, writeFile, remove } from '@tauri-apps/plugin-fs';
-import { appDataDir, join } from '@tauri-apps/api/path';
+import { readDir, stat, copyFile, remove } from '@tauri-apps/plugin-fs';
+import { appDataDir, join, basename, extname } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 export type MediaContext = 'Media' | 'Theme';
@@ -22,6 +22,9 @@ export interface MediaFile {
 
 export const useMediaStore = defineStore('media', () => {
   const mediaFiles = ref<MediaFile[]>([]);
+
+  const fixedMedia = ref<MediaFile | null>(null);
+
   const isLoading = ref(false);
 
   const themeFiles = computed(() => mediaFiles.value.filter(m => m.type === 'Theme'));
@@ -33,9 +36,9 @@ export const useMediaStore = defineStore('media', () => {
       const baseDir = await appDataDir();
       const repFolder = await join(baseDir, 'media', 'reproducao');
       const themeFolder = await join(baseDir, 'media', 'slides');
-      
+
       const files: MediaFile[] = [];
-      
+
       try {
         const entries = await readDir(repFolder);
         const mediaFilesFromRep = await getJsonFiles('Media', entries, repFolder);
@@ -47,7 +50,7 @@ export const useMediaStore = defineStore('media', () => {
         const mediaFilesFromTheme = await getJsonFiles('Theme', themeEntries, themeFolder);
         files.push(...mediaFilesFromTheme);
       } catch (e) { console.warn("Pasta slides ausente", e) }
-      
+
       mediaFiles.value = files;
     } catch (error) {
       console.error("Erro ao carregar mídias do Pinia:", error);
@@ -57,57 +60,73 @@ export const useMediaStore = defineStore('media', () => {
   };
 
   const getJsonFiles = async (type: MediaContext, entries: any[], folder: string) => {
-    const files : MediaFile[] = []
+    const files: MediaFile[] = []
     for (const entry of entries) {
-        if (entry.isFile) {
-          const ext = entry.name.split('.').pop()?.toLowerCase();
-          const isVideo = ['mp4', 'webm', 'mov'].includes(ext || '');
-          const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '');
-          
-          if (isImage || isVideo) {
-            const fullPath = await join(folder, entry.name);
-            const fileStat = await stat(fullPath);
-            
-            const existingFile = mediaFiles.value.find(f => f.id === `${entry.name}-${type}`);
-            
-            files.push({
-              id: `${entry.name}-${type}`, 
-              name: entry.name,
-              path: fullPath,
-              url: convertFileSrc(fullPath),
-              isVideo,
-              modifiedAt: fileStat.mtime?.getTime() || 0,
-              category: existingFile ? existingFile.category : 'Geral',
-              isFavorite: existingFile ? existingFile.isFavorite : false,
-              type: type,
-              duration: existingFile?.duration
-            });
-          }
+      if (entry.isFile) {
+        const ext = entry.name.split('.').pop()?.toLowerCase();
+        const isVideo = ['mp4', 'webm', 'mov'].includes(ext || '');
+        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '');
+
+        if (isImage || isVideo) {
+          const fullPath = await join(folder, entry.name);
+          const fileStat = await stat(fullPath);
+
+          const existingFile = mediaFiles.value.find(f => f.id === `${entry.name}-${type}`);
+
+          files.push({
+            id: `${entry.name}-${type}`,
+            name: entry.name,
+            path: fullPath,
+            url: convertFileSrc(fullPath),
+            isVideo,
+            modifiedAt: fileStat.mtime?.getTime() || 0,
+            category: existingFile ? existingFile.category : 'Geral',
+            isFavorite: existingFile ? existingFile.isFavorite : false,
+            type: type,
+            duration: existingFile?.duration
+          });
         }
       }
-      return files;
+    }
+    return files;
   }
 
-  const addDroppedFiles = async (filesList: FileList | File[], context: MediaContext) => {
+  const addDroppedFiles = async (filePaths: string[], context: MediaContext) => {
     isLoading.value = true;
     try {
       const baseDir = await appDataDir();
-      const targetFolder = context === 'Media' 
-        ? await join(baseDir, 'media', 'reproducao') 
+      const targetFolder = context === 'Media'
+        ? await join(baseDir, 'media', 'reproducao')
         : await join(baseDir, 'media', 'slides');
 
-      for (let i = 0; i < filesList.length; i++) {
-        const file = filesList[i];
-        
-        if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) continue;
+      for (const sourcePath of filePaths) {
+        // 1. Extrair o nome e a extensão do caminho (ex: "video", "mp4")
+        const fileName = await basename(sourcePath);
 
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        const filePath = await join(targetFolder, file.name);
+        // Proteção para caso não haja extensão:
+        let extension = '';
+        try {
+          extension = (await extname(sourcePath)).toLowerCase();
+        } catch {
+          continue; // Pula se for uma pasta ou não tiver extensão
+        }
 
-        await writeFile(filePath, bytes);
+        // 2. Validar se é imagem ou vídeo (substituindo o file.type antigo)
+        const validImageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+        const validVideoExts = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'];
+
+        if (!validImageExts.includes(extension) && !validVideoExts.includes(extension)) {
+          console.warn(`Arquivo ignorado (formato não suportado): ${fileName}`);
+          continue;
+        }
+
+        // 3. Montar o caminho final de destino
+        const destPath = await join(targetFolder, fileName);
+
+        // 4. Copiar o arquivo nativamente
+        await copyFile(sourcePath, destPath);
       }
-      
+
       await loadMedia();
     } catch (e) {
       console.error("Erro ao salvar arquivos arrastados:", e);
@@ -116,7 +135,10 @@ export const useMediaStore = defineStore('media', () => {
     }
   };
 
-  // NOVA FUNÇÃO: Deletar arquivo
+  const setFixedMedia = async (media: MediaFile | null) => {
+    fixedMedia.value = media;
+  }
+
   const deleteFile = async (fileId: string, completely: boolean) => {
     const index = mediaFiles.value.findIndex(f => f.id === fileId);
     if (index === -1) return;
@@ -131,7 +153,7 @@ export const useMediaStore = defineStore('media', () => {
         return; // Retorna para não remover da interface caso o Tauri falhe
       }
     }
-    
+
     // Remove da interface Vue (tanto no soft delete quanto no hard delete)
     mediaFiles.value.splice(index, 1);
   };
@@ -150,12 +172,14 @@ export const useMediaStore = defineStore('media', () => {
     }
   };
 
-  return { 
+  return {
     mediaFiles,
+    fixedMedia,
     themeFiles,
     reproductionFiles,
-    isLoading, 
-    loadMedia, 
+    isLoading,
+    setFixedMedia,
+    loadMedia,
     toggleFavorite,
     updateDuration,
     addDroppedFiles,

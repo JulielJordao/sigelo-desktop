@@ -53,7 +53,8 @@
         { "event": "update-projection" },
         { "event": "set-fixed-media" },
         { "event": "project-media" },
-        { "event": "clear-projection" }
+        { "event": "clear-projection" },
+        { "event": "media-control" }
       ]
     },
     {
@@ -63,7 +64,8 @@
         { "event": "update-projection" },
         { "event": "set-fixed-media" },
         { "event": "project-media" },
-        { "event": "clear-projection" }
+        { "event": "clear-projection" },
+        { "event": "media-control" }
       ]
     }
   ]

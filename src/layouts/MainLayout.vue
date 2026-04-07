@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import SettingsModal from '../components/config/SettingsModal.vue';
+import EventSidebar from '../components/event/EventSidebar.vue';
 import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o novo componente
 // import { useConfigStore } from '../stores/useConfigStore';
 import MediaSidebar from '../components/media/MediaSidebar.vue';
@@ -15,6 +16,7 @@ const router = useRouter();
 const settingsModalRef = ref<any>(null);
 const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filho
 const mediaSidebarRef = ref<any>(null); 
+const eventSidebarRef = ref<any>(null);
 
 // const configStore = useConfigStore();
 
@@ -48,6 +50,10 @@ const toogleSongsSidebar = () => {
   menuStore.toggleMenu('Songs');
 };
 
+const toggleEventsSidebar = () => {
+  menuStore.toggleMenu('Events');
+};
+
 onMounted(() => {
   menuStore.toggleMenu('Songs')
 });
@@ -72,6 +78,13 @@ onMounted(() => {
           value="musicas" 
           to="/app/musicas"
           @click="toogleSongsSidebar"
+          color="primary"
+        ></v-list-item>
+        <v-list-item 
+          prepend-icon="mdi-calendar-multiselect" 
+          title="Eventos" 
+          value="event" 
+          @click="toggleEventsSidebar"
           color="primary"
         ></v-list-item>
         
@@ -125,6 +138,9 @@ onMounted(() => {
     <SettingsModal ref="settingsModalRef" />
     <MediaSidebar 
         ref="mediaSidebarRef"
+      />
+    <EventSidebar 
+        ref="eventSidebarRef"
       />
     
   </v-layout>

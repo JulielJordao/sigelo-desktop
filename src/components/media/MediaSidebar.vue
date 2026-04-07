@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { emit } from '@tauri-apps/api/event';
-import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore'; 
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore';
+import { invoke } from '@tauri-apps/api/core';
+import { useConfigStore } from '../../stores/useConfigStore';
+
+const configStore = useConfigStore();
+const conf = configStore.settings;
 
 import { useMenuStore } from '../../stores/menuStore';
 
@@ -23,30 +28,70 @@ const sortDesc = ref(false);
 
 const previewDialog = ref(false);
 const previewFile = ref<MediaFile | null>(null);
+const isProjecting = ref(false);
+const projectedFile = ref<MediaFile | null>(null);
+
+const isPlaying = ref(true);
+const isMuted = ref(false);
+const isReloaded = ref(false);
 
 // Estados para o Modal de Deletar
 const deleteDialog = ref(false);
 const fileToDelete = ref<MediaFile | null>(null);
 
-  // Quando receber o evento @projectFile da MediaSidebar:
+// Quando receber o evento @projectFile da MediaSidebar:
 const handleProjectFile = async (file: MediaFile) => {
   console.log("Projetando arquivo:", file);
-    await emit('project-media', file);
+
+  // CORREÇÃO 1: Força a janela a aparecer
+  try {
+    await invoke('prepare_projection_window', { targetMonitor: conf.selectedMonitor });
+  } catch (err) {
+    console.error("Erro ao preparar janela de projeção:", err);
+  }
+
+  await emit('project-media', file);
+  projectedFile.value = file;
+  isProjecting.value = true;
+  isPlaying.value = true; 
+};
+
+// CORREÇÃO 3: Lógica dos botões de controle de mídia
+const togglePlay = async () => {
+  isReloaded.value = false;
+  isPlaying.value = !isPlaying.value;
+  // Dispara o comando para a janela de projeção
+  await emit('media-control', { action: isPlaying.value ? 'play' : 'pause' });
+};
+
+const restartMedia = async () => {
+  isReloaded.value = !isPlaying.value;
+
+  await emit('media-control', { action: 'restart' });
+};
+
+const toggleVolume = async () => {
+  isMuted.value = !isMuted.value;
+  // Dispara o comando para a janela de projeção
+  await emit('media-control', { action: isMuted.value ? 'mute' : 'unmute' });
 };
 
 // Quando receber o evento @setFixed da MediaSidebar:
 const handleSetFixed = async (file: MediaFile) => {
-    await emit('set-fixed-media', file);
+  await emit('set-fixed-media', file);
+  mediaStore.setFixedMedia(file);
 };
 
 // Crie um botão "Limpar Tela" na sua interface e dispare isso para terminar a apresentação:
 const clearPresentationScreen = async () => {
-    await emit('clear-projection'); // Isso vai acionar o Fundo Fixo na outra janela
+  await emit('clear-projection'); // Isso vai acionar o Fundo Fixo na outra janela
+  isProjecting.value = false;
+  projectedFile.value = null
 };
 
 const filteredAndSortedFiles = computed(() => {
-  let result = currentContext.value === 'Media' 
-    ? mediaStore.reproductionFiles 
+  let result = currentContext.value === 'Media'
+    ? mediaStore.reproductionFiles
     : mediaStore.themeFiles;
 
   if (searchQuery.value) {
@@ -58,7 +103,7 @@ const filteredAndSortedFiles = computed(() => {
   if (activeFilter.value === 'videos') result = result.filter(f => f.isVideo);
   if (activeFilter.value === 'favorites') result = result.filter(f => f.isFavorite);
 
-  result = [...result].sort((a, b) => { 
+  result = [...result].sort((a, b) => {
     let comparison = 0;
     if (sortBy.value === 'name') comparison = a.name.localeCompare(b.name);
     if (sortBy.value === 'date') comparison = b.modifiedAt - a.modifiedAt;
@@ -68,15 +113,6 @@ const filteredAndSortedFiles = computed(() => {
 
   return result;
 });
-
-const handleDrop = async (event: DragEvent) => {
-  isDragging.value = false;
-  const files = event.dataTransfer?.files;
-  console.log(files)
-  if (files && files.length > 0) {
-    await mediaStore.addDroppedFiles(files, currentContext.value);
-  }
-};
 
 const toggleFavorite = (file: MediaFile) => { mediaStore.toggleFavorite(file.id); };
 
@@ -121,31 +157,55 @@ const closeMenu = () => {
   menuStore.toggleMenu(menuStore.oldMenuOpened);
 };
 
-onMounted(() => {
+let unlistenHover: UnlistenFn;
+let unlistenDrop: UnlistenFn;
+let unlistenCancel: UnlistenFn;
+
+onMounted(async () => {
   if (mediaStore.mediaFiles.length === 0) {
     mediaStore.loadMedia();
   }
+
+  // 1. Escuta quando o arquivo entra na janela do app (Tauri v2)
+  unlistenHover = await listen('tauri://drag-enter', () => {
+    isDragging.value = true;
+  });
+
+  // 2. Escuta quando o arquivo é efetivamente solto (Tauri v2)
+  unlistenDrop = await listen('tauri://drag-drop', async (event: any) => {
+    isDragging.value = false;
+
+    // ATENÇÃO: No Tauri v2, o payload é um objeto que contém 'paths' e 'position'
+    const filePaths = event.payload.paths as string[];
+    console.log("Arquivos recebidos pelo Tauri v2:", filePaths);
+
+    if (filePaths && filePaths.length > 0) {
+      await mediaStore.addDroppedFiles(filePaths, currentContext.value);
+    }
+  });
+
+  // 3. Escuta quando o usuário desiste e arrasta para fora da janela (Tauri v2)
+  unlistenCancel = await listen('tauri://drag-leave', () => {
+    isDragging.value = false;
+  });
+});
+
+// Limpa os ouvintes quando o componente for destruído para evitar memory leaks
+onUnmounted(() => {
+  if (unlistenHover) unlistenHover();
+  if (unlistenDrop) unlistenDrop();
+  if (unlistenCancel) unlistenCancel();
 });
 </script>
 
 <template>
+  <v-navigation-drawer v-model="isOpen" width="500">
+    <div class="d-flex flex-column fill-height bg-grey-lighten-4 position-relative">
 
-  <v-navigation-drawer v-model="isOpen" width="500" >
-  <div 
-        class="d-flex flex-column fill-height bg-grey-lighten-4 position-relative"
-        @dragenter.prevent="isDragging = true"
-      >
-      
-      <div 
-        v-if="isDragging"
-        class="position-absolute top-0 left-0 w-100 h-100 d-flex flex-column align-center justify-center text-white"
-        style="background-color: rgba(var(--v-theme-primary), 0.95); z-index: 9999; cursor: copy;"
-        @dragover.prevent
-        @dragleave.prevent="isDragging = false"
-        @drop.prevent="handleDrop"
-        @click="isDragging = false"
-      >
-        <div class="d-flex flex-column align-center" style="pointer-events: none;">
+      <div v-show="isDragging" @click="isDragging = false"
+        class="position-absolute top-0 left-0 w-100 h-100 d-flex flex-column align-center justify-center text-white cursor-pointer"
+        style="background-color: rgba(var(--v-theme-primary), 0.95); z-index: 9999;">
+        <div class="d-flex flex-column align-center">
           <v-icon size="80" class="mb-4">mdi-cloud-upload-outline</v-icon>
           <h2 class="text-h5 font-weight-bold text-center">Solte os arquivos aqui</h2>
           <p class="text-body-1">Eles serão salvos em "{{ currentContext === 'Media' ? 'Reprodução' : 'Temas' }}"</p>
@@ -158,13 +218,15 @@ onMounted(() => {
             <v-icon start color="primary">mdi-multimedia</v-icon> Gerenciador
           </v-toolbar-title>
           <v-spacer></v-spacer>
-          
-          <v-btn-toggle v-model="viewMode" color="primary" mandatory density="compact" class="mr-2 border" variant="text">
+
+          <v-btn-toggle v-model="viewMode" color="primary" mandatory density="compact" class="mr-2 border"
+            variant="text">
             <v-btn value="grid" size="small" icon="mdi-view-grid-outline"></v-btn>
             <v-btn value="list" size="small" icon="mdi-view-list-outline"></v-btn>
           </v-btn-toggle>
 
-          <v-btn icon="mdi-refresh" size="small" variant="text" @click="mediaStore.loadMedia" :loading="mediaStore.isLoading"></v-btn>
+          <v-btn icon="mdi-refresh" size="small" variant="text" @click="mediaStore.loadMedia"
+            :loading="mediaStore.isLoading"></v-btn>
           <v-btn icon="mdi-close" size="small" variant="text" @click="closeMenu()"></v-btn>
         </v-toolbar>
 
@@ -178,9 +240,11 @@ onMounted(() => {
         </v-tabs>
 
         <div class="px-3 pb-3">
-          <v-text-field v-model="searchQuery" density="compact" variant="solo-filled" flat hide-details placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2"></v-text-field>
+          <v-text-field v-model="searchQuery" density="compact" variant="solo-filled" flat hide-details
+            placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2"></v-text-field>
           <div class="d-flex align-center gap-2">
-            <v-btn-toggle v-model="activeFilter" color="primary" mandatory density="compact" variant="outlined" class="flex-grow-1">
+            <v-btn-toggle v-model="activeFilter" color="primary" mandatory density="compact" variant="outlined"
+              class="flex-grow-1">
               <v-btn value="all" size="small">Tudo</v-btn>
               <v-btn value="images" size="small" icon="mdi-image"></v-btn>
               <v-btn value="videos" size="small" icon="mdi-video"></v-btn>
@@ -199,34 +263,94 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      
+
       <div class="flex-grow-1 overflow-y-auto bg-transparent px-2 pb-4">
-        
+
+        <v-slide-y-transition>
+          <v-card v-if="isProjecting && projectedFile" class="mb-4 border-md"
+            style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
+            <div class="bg-error px-3 py-1 text-caption font-weight-bold d-flex align-center text-white">
+              <v-icon start size="small">mdi-record-circle-outline</v-icon> AO VIVO NO TELÃO
+              <v-spacer></v-spacer>
+              <span class="text-uppercase" style="font-size: 0.65rem;">Controles de Apresentação</span>
+            </div>
+            <div class="pa-3 d-flex align-center bg-grey-darken-4 text-white">
+              <div class="preview-container mr-3 rounded overflow-hidden flex-shrink-0"
+                style="width: 80px; height: 60px;">
+                <video v-if="projectedFile.isVideo" :src="`${projectedFile.url}#t=0.5`" class="w-100 h-100 object-cover"
+                  muted></video>
+                <v-img v-else :src="projectedFile.url" cover class="w-100 h-100"></v-img>
+              </div>
+              <div class="flex-grow-1 overflow-hidden">
+                <div class="text-subtitle-2 font-weight-bold text-truncate mb-2">{{ projectedFile.name }}</div>
+                <div class="d-flex gap-2">
+                  <v-btn v-if="projectedFile.isVideo" :icon="isPlaying ? 'mdi-pause' : 'mdi-play'" size="small"
+                    variant="tonal" color="white" @click="togglePlay">
+                  </v-btn>
+                  <v-btn v-if="projectedFile.isVideo" 
+                      icon="mdi-replay" 
+                      size="small" variant="tonal" color="white" 
+                      v-show="!isReloaded"
+                      @click="restartMedia"
+                      title="Reiniciar vídeo">
+                </v-btn>
+
+                  <v-btn v-if="projectedFile.isVideo" :icon="isMuted ? 'mdi-volume-off' : 'mdi-volume-high'"
+                    size="small" variant="tonal" color="white" @click="toggleVolume">
+                  </v-btn>
+
+                  <v-spacer></v-spacer>
+                  <v-btn size="small" color="error" variant="flat" prepend-icon="mdi-stop"
+                    @click="clearPresentationScreen">
+                    Parar Apresentação
+                  </v-btn>
+                </div>
+              </div>
+            </div>
+          </v-card>
+        </v-slide-y-transition>
+
         <div v-if="viewMode === 'list'" class="pt-2">
           <v-slide-y-transition group>
-            <v-card v-for="file in filteredAndSortedFiles" :key="file.id" class="mb-3 border-sm rounded-lg" elevation="0" hover>
+            <v-card v-for="file in filteredAndSortedFiles" :key="file.id" class="mb-3 border-sm rounded-lg"
+              elevation="0" hover>
               <div class="d-flex pa-2">
-                <div class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0" @click="openPreview(file)">
-                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
+                <div
+                  class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
+                  @click="openPreview(file)">
+                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
+                    preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
                   <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
-                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{ formatDuration(file.duration) }}</div>
-                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white" size="large">mdi-play-circle-outline</v-icon></div>
+                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{
+                    formatDuration(file.duration) }}</div>
+                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white"
+                      size="large">mdi-play-circle-outline</v-icon></div>
                 </div>
-                
+
                 <div class="flex-grow-1 overflow-hidden d-flex flex-column">
                   <div class="d-flex justify-space-between align-start">
-                    <span class="text-subtitle-2 font-weight-bold text-truncate d-block flex-grow-1" :title="file.name">{{ file.name }}</span>
-                    <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'" :color="file.isFavorite ? 'error' : 'grey'" @click="toggleFavorite(file)" density="compact" class="flex-shrink-0 ml-1"></v-btn>
+                    <span class="text-subtitle-2 font-weight-bold text-truncate d-block flex-grow-1"
+                      :title="file.name">{{
+                        file.name }}</span>
+                    <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
+                      :color="file.isFavorite ? 'error' : 'grey'" @click="toggleFavorite(file)" density="compact"
+                      class="flex-shrink-0 ml-1"></v-btn>
                   </div>
                   <div class="d-flex align-center mt-1">
                     <v-chip size="x-small" color="primary" variant="flat" class="mr-1">{{ file.category }}</v-chip>
-                    <v-icon size="x-small" :icon="file.isVideo ? 'mdi-video' : 'mdi-image'" class="mr-1 text-grey"></v-icon>
+                    <v-icon size="x-small" :icon="file.isVideo ? 'mdi-video' : 'mdi-image'"
+                      class="mr-1 text-grey"></v-icon>
                   </div>
                   <v-spacer></v-spacer>
                   <div class="d-flex gap-2 mt-3">
-                    <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-projector" class="flex-grow-1" @click="handleProjectFile(file)">Projetar</v-btn>
+                    <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
+                      :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
+                      class="flex-grow-1" @click="handleProjectFile(file)">
+                      {{ projectedFile?.id === file.id ? 'Projetando...' : 'Projetar' }}
+                    </v-btn>
                     <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="handleSetFixed(file)"></v-btn>
-                    <v-btn size="small" color="error" variant="text" icon="mdi-delete" @click.stop="confirmDeletePrompt(file)"></v-btn>
+                    <v-btn size="small" color="error" variant="text" icon="mdi-delete"
+                      @click.stop="confirmDeletePrompt(file)"></v-btn>
                   </div>
                 </div>
               </div>
@@ -236,41 +360,64 @@ onMounted(() => {
 
         <div v-else class="media-grid pt-2">
           <v-slide-y-transition group>
-            <v-card 
-              v-for="file in filteredAndSortedFiles" 
-              :key="`grid-${file.id}`"
+            <v-card v-for="file in filteredAndSortedFiles" :key="`grid-${file.id}`"
               :class="['border-sm rounded-lg overflow-hidden transition-all', expandedId === file.id ? 'grid-item-expanded' : 'cursor-pointer']"
-              elevation="0" 
-              hover
-              @click="expandedId !== file.id && toggleExpand(file.id)"
-            >
+              elevation="0" hover @click="expandedId !== file.id && toggleExpand(file.id)">
               <div v-if="expandedId === file.id" class="d-flex pa-2 position-relative bg-blue-grey-lighten-5">
-                <v-btn icon="mdi-chevron-up" size="x-small" variant="text" class="position-absolute top-0 right-0 ma-1 z-10" @click.stop="toggleExpand(file.id)"></v-btn>
-                
-                <div class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0" @click.stop="openPreview(file)">
-                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
+                <v-btn icon="mdi-chevron-up" size="x-small" variant="text"
+                  class="position-absolute top-0 right-0 ma-1 z-10" @click.stop="toggleExpand(file.id)"></v-btn>
+
+                <div
+                  class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
+                  @click.stop="openPreview(file)">
+                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
+                    preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
                   <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
-                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{ formatDuration(file.duration) }}</div>
-                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white" size="large">mdi-play-circle-outline</v-icon></div>
+                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{
+                    formatDuration(file.duration) }}</div>
+                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white"
+                      size="large">mdi-play-circle-outline</v-icon></div>
                 </div>
-                
+
                 <div class="flex-grow-1 overflow-hidden d-flex flex-column pr-4">
-                  <span class="text-subtitle-2 font-weight-bold text-truncate d-block" :title="file.name">{{ file.name }}</span>
+                  <span class="text-subtitle-2 font-weight-bold text-truncate d-block" :title="file.name">{{ file.name
+                  }}</span>
                   <div class="d-flex gap-2 mt-auto">
-                  <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-projector" class="flex-grow-1 px-0" @click.stop="handleProjectFile(file)">Projetar</v-btn>
-                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="handleSetFixed(file)"></v-btn>
-                    <v-btn size="small" color="error" variant="text" icon="mdi-delete" @click.stop="confirmDeletePrompt(file)"></v-btn>
+                    <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
+                      :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
+                      class="flex-grow-1 px-0" @click.stop="handleProjectFile(file)">
+                      {{ projectedFile?.id === file.id ? 'Projetando...' : 'Projetar' }}
+                    </v-btn>
+                    <v-btn 
+                      size="small" 
+                      :icon="mediaStore.fixedMedia?.id === file.id ? 'mdi-pin-off' : 'mdi-pin'"
+                      :color="mediaStore.fixedMedia?.id === file.id ? 'success' : 'secondary'"
+                      :variant="mediaStore.fixedMedia?.id === file.id ? 'flat' : 'outlined'"
+                      :elevation="mediaStore.fixedMedia?.id === file.id ? 4 : 0"
+                      @click.stop="handleSetFixed(file)"
+                    ></v-btn>
+                    <v-btn size="small" color="error" variant="text" icon="mdi-delete"
+                      @click.stop="confirmDeletePrompt(file)"></v-btn>
                   </div>
                 </div>
               </div>
 
-              <div v-else class="d-flex flex-column h-100">
+              <div v-else class="d-flex flex-column h-100 position-relative">
+                <div v-if="projectedFile?.id === file.id"
+                  class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center bg-black opacity-70 z-10"
+                  style="background: rgba(0,0,0,0.6)">
+                  <v-icon color="success" size="large">mdi-projector-screen</v-icon>
+                </div>
+
                 <div class="square-preview position-relative bg-grey-lighten-3">
-                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted preload="metadata"></video>
+                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
+                    preload="metadata"></video>
                   <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
-                  
-                  <v-icon v-if="file.isVideo" color="white" size="small" class="position-absolute bottom-0 left-0 ma-1 text-shadow">mdi-video</v-icon>
-                  <v-icon v-if="file.isFavorite" color="error" size="small" class="position-absolute top-0 right-0 ma-1">mdi-heart</v-icon>
+
+                  <v-icon v-if="file.isVideo" color="white" size="small"
+                    class="position-absolute bottom-0 left-0 ma-1 text-shadow">mdi-video</v-icon>
+                  <v-icon v-if="file.isFavorite" color="error" size="small"
+                    class="position-absolute top-0 right-0 ma-1">mdi-heart</v-icon>
                 </div>
                 <div class="pa-2 bg-white text-center">
                   <div class="text-caption font-weight-medium text-truncate" :title="file.name">{{ file.name }}</div>
@@ -287,7 +434,6 @@ onMounted(() => {
       </div>
     </div>
   </v-navigation-drawer>
- 
   <v-dialog v-model="previewDialog" max-width="800">
     <v-card class="bg-black">
       <v-toolbar color="transparent" theme="dark" density="compact">
@@ -296,13 +442,17 @@ onMounted(() => {
         <v-btn icon="mdi-close" @click="previewDialog = false"></v-btn>
       </v-toolbar>
       <div class="pa-2 d-flex justify-center align-center" style="min-height: 400px;">
-        <video v-if="previewFile?.isVideo" :src="previewFile.url" controls autoplay class="w-100 rounded" style="max-height: 60vh;"></video>
-        <v-img v-else-if="previewFile" :src="previewFile.url" contain class="w-100 rounded" style="max-height: 60vh;"></v-img>
+        <video v-if="previewFile?.isVideo" :src="previewFile.url" controls autoplay class="w-100 rounded"
+          style="max-height: 60vh;"></video>
+        <v-img v-else-if="previewFile" :src="previewFile.url" contain class="w-100 rounded"
+          style="max-height: 60vh;"></v-img>
       </div>
       <v-card-actions class="pa-4 bg-grey-darken-4 justify-end">
         <v-btn color="grey" variant="text" @click="previewDialog = false">Fechar</v-btn>
-        <v-btn color="secondary" prepend-icon="mdi-pin" @click="handleSetFixed(previewFile!); previewDialog = false">Fundo</v-btn>
-        <v-btn color="primary" variant="flat" prepend-icon="mdi-projector" @click="handleProjectFile(previewFile!); previewDialog = false">Projetar Agora</v-btn>
+        <v-btn color="secondary" prepend-icon="mdi-pin"
+          @click="handleSetFixed(previewFile!); previewDialog = false">Fundo</v-btn>
+        <v-btn color="primary" variant="flat" prepend-icon="mdi-projector"
+          @click="handleProjectFile(previewFile!); previewDialog = false">Projetar Agora</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -316,72 +466,89 @@ onMounted(() => {
       <v-card-text>
         O que você deseja fazer com o arquivo <strong>{{ fileToDelete?.name }}</strong>?
       </v-card-text>
-      
+
       <v-divider></v-divider>
-      
+
       <v-card-actions class="d-flex flex-wrap gap-2 pa-3">
         <v-btn color="grey-darken-1" variant="text" @click="deleteDialog = false">
           Cancelar
         </v-btn>
         <v-spacer></v-spacer>
-        <v-btn color="warning" variant="tonal" @click="executeDelete(false)" title="Apenas remove da lista visualmente até o próximo reload">
+        <v-btn color="warning" variant="tonal" @click="executeDelete(false)"
+          title="Apenas remove da lista visualmente até o próximo reload">
           Deletar (Ocultar)
         </v-btn>
-        <v-btn color="error" variant="flat" prepend-icon="mdi-delete-forever" @click="executeDelete(true)" title="Apaga permanentemente do seu computador">
+        <v-btn color="error" variant="flat" prepend-icon="mdi-delete-forever" @click="executeDelete(true)"
+          title="Apaga permanentemente do seu computador">
           Deletar Completamente
         </v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
-
 </template>
 
 <style scoped>
-.position-relative { position: relative; }
-.gap-2 { gap: 8px; }
-.object-cover { object-fit: cover; }
-.text-shadow { text-shadow: 0px 1px 3px rgba(0,0,0,0.8); }
+.position-relative {
+  position: relative;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+.object-cover {
+  object-fit: cover;
+}
+
+.text-shadow {
+  text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.8);
+}
 
 /* LISTA / EXPANDIDO */
 .preview-container {
-    width: 120px;
-    height: 90px;
-    background-color: #000;
+  width: 120px;
+  height: 90px;
+  background-color: #000;
 }
+
 .duration-badge {
-    position: absolute;
-    bottom: 4px;
-    right: 4px;
-    background: rgba(0,0,0,0.7) !important;
-    font-size: 0.65rem !important;
-    z-index: 2;
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.7) !important;
+  font-size: 0.65rem !important;
+  z-index: 2;
 }
+
 .play-overlay {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0,0,0,0.4);
-    border-radius: 50%;
-    padding: 2px;
-    z-index: 1;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 50%;
+  padding: 2px;
+  z-index: 1;
 }
 
 /* NOVA GRADE (GRID) */
 .media-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
 }
+
 .grid-item-expanded {
-    grid-column: 1 / -1;
-    cursor: default;
+  grid-column: 1 / -1;
+  cursor: default;
 }
+
 .square-preview {
-    aspect-ratio: 1;
-    width: 100%;
+  aspect-ratio: 1;
+  width: 100%;
 }
+
 .transition-all {
-    transition: all 0.3s ease;
+  transition: all 0.3s ease;
 }
 </style>

@@ -32,6 +32,7 @@ pub fn run() {
             crate::commands::projection::update_projection,
             crate::commands::projection::stop_projection,
             crate::commands::projection::get_current_projection,
+            crate::commands::projection::prepare_projection_window,
             crate::directory::directory::get_dir_size,
             crate::directory::directory::open_folder_native,
             crate::directory::directory::clear_directory
