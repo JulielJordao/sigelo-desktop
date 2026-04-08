@@ -75,7 +75,7 @@ onMounted(async () => {
       rail 
       expand-on-hover 
       elevation="2"
-      class="bg-grey-darken-4 text-white"
+      class="bg-grey-darken-3 text-white"
     >
       <v-list density="compact" nav>
         <v-list-item 

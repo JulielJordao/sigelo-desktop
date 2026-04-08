@@ -35,7 +35,7 @@ const toggleSearch = () => {
 </script>
 
 <template>
-  <div class="d-flex flex-column h-100 overflow-hidden">
+  <div class="d-flex flex-column h-100 overflow-hidden bg-surface-light">
     
     <v-toolbar 
       density="compact" 

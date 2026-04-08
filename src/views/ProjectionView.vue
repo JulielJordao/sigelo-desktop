@@ -6,6 +6,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useMediaStore } from '../stores/mediaStore';
 import type { MediaFile } from '../stores/mediaStore';
 
+import { useConfigStore } from '../stores/useConfigStore';
+
+const configStore = useConfigStore();
+
 const mediaStore = useMediaStore();
 
 const { setFixedMedia } = mediaStore;
@@ -55,7 +59,7 @@ const processIncomingData = (data: string, force: boolean = false) => {
         if (parsed && parsed.type === 'slide') {
             projectionType.value = 'slide';
             slideData.value = parsed;
-            debugLog.value = "Slide estruturado atualizado";
+            // debugLog.value = "Slide estruturado atualizado";
             return;
         }
     } catch (e) {
@@ -64,7 +68,7 @@ const processIncomingData = (data: string, force: boolean = false) => {
 
     projectionType.value = 'html';
     htmlContent.value = data;
-    debugLog.value = "HTML de PDF recebido";
+    //debugLog.value = "HTML de PDF recebido";
 };
 
 const loadCurrentHtml = async () => {
@@ -80,8 +84,12 @@ onMounted(async () => {
     await loadCurrentHtml();
     syncInterval = setInterval(loadCurrentHtml, 1000);
 
-    unlistenUpdate = await listen<string>('update-projection', (event) => {
+    unlistenUpdate = await listen<string>('update-projection', async (event) => {
+        await configStore.loadSettings()
+        debugLog.value = `Opacidade: ${configStore.settings.bgOpacity}`;
+
         processIncomingData(event.payload, true); // force = true (ação do usuário)
+        
     });
 
     unlistenScroll = await listen<ScrollPayload>('sync-pdf-scroll', (event) => {
@@ -183,7 +191,6 @@ onUnmounted(() => {
              :class="`theme-${slideData.layout.theme}`"
              :style="{
                  backgroundColor: slideData.layout.chromaKey,
-                 opacity: slideData.layout.opacity,
                  transition: `opacity 0.3s ${slideData.layout.transition}`
              }">
             <div class="background-layer">
@@ -191,6 +198,10 @@ onUnmounted(() => {
                 <video v-else-if="slideData.background.type === 'video'" :src="slideData.background.media" autoplay loop muted :style="{ objectFit: slideData.background.fit }"></video>
                 <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media" :style="{ objectFit: slideData.background.fit }" />
             </div>
+            <div 
+            class="dark-overlay" 
+            :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"
+            ></div>
             <div class="content-layer" :style="{ padding: slideData.layout.padding }">
                 <div class="relative-box">
                     <div class="text-layer"
@@ -237,24 +248,9 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Adicionado estilos para o modo de tela cheia das mídias */
-.media-fullscreen-container {
-    width: 100vw;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
+/* Reset global essencial para janela de projeção secundária */
+:global(body) { margin: 0; overflow: hidden; background-color: black; }
 
-.object-fit-contain {
-    object-fit: contain; /* Mostra a mídia inteira sem cortar, bom para projeção principal */
-}
-
-.object-fit-cover {
-    object-fit: cover; /* Preenche a tela toda cortando bordas, ideal para imagens/loops de fundo */
-}
-
-/* Restante do seu CSS original... */
 .projection-window-container {
     position: fixed;
     top: 0;
@@ -267,11 +263,77 @@ onUnmounted(() => {
     z-index: 9999;
     overflow: hidden;
 }
-.slide-root-container { width: 100%; height: 100%; position: relative; }
-.background-layer { position: absolute; inset: 0; z-index: 0; }
-.background-layer video, .background-layer img { width: 100%; height: 100%; display: block; }
-.content-layer { position: absolute; inset: 0; z-index: 10; box-sizing: border-box; }
-.relative-box { position: relative; width: 100%; height: 100%; }
-.text-layer { position: absolute; display: flex; align-items: center; justify-content: center; container-type: inline-size; pointer-events: none; }
-:global(body) { margin: 0; overflow: hidden; background-color: black; }
+
+/* --------------------------------- */
+/* ESTRUTURA DOS SLIDES (COM TEXTO)  */
+/* --------------------------------- */
+.slide-root-container { 
+    width: 100vw; 
+    height: 100vh; 
+    position: relative; 
+}
+
+/* CAMADA 1: O Fundo */
+.background-layer { 
+    position: absolute; 
+    inset: 0; 
+    z-index: 1; /* Nível 1 */
+}
+.background-layer video, .background-layer img { 
+    width: 100%; 
+    height: 100%; 
+    display: block; 
+}
+
+/* CAMADA 2: A Película Escura */
+.dark-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2; /* Nível 2 - Acima do fundo */
+    pointer-events: none; 
+    transition: background-color 0.3s ease; 
+}
+
+/* CAMADA 3: O Container de Textos */
+.content-layer { 
+    position: absolute; 
+    inset: 0; 
+    z-index: 3; /* Nível 3 - Acima de tudo */
+    box-sizing: border-box; 
+    pointer-events: none; /* Deixe 'none' para não bugar nada caso clique na tela de projeção */
+}
+.relative-box { 
+    position: relative; 
+    width: 100%; 
+    height: 100%; 
+}
+.text-layer { 
+    position: absolute; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    container-type: inline-size; 
+}
+
+/* --------------------------------- */
+/* MÍDIAS AVULSAS E FUNDO FIXO       */
+/* --------------------------------- */
+.media-fullscreen-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.object-fit-contain {
+    object-fit: contain; 
+}
+
+.object-fit-cover {
+    object-fit: cover; 
+}
 </style>

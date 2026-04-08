@@ -16,7 +16,7 @@ export const useConfigStore = defineStore('config', () => {
     // Telas e Mídia
     selectedMonitor: "",
     aspectRatio: '16:9',
-    bgOpacity: 80,
+    bgOpacity: 70,
     transitionType: 'fade',
     
     // Palco e Transmissão
