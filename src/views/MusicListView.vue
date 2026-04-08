@@ -18,7 +18,7 @@ onMounted(async () => {
 </script>
  
 <template>
-  <v-container fluid class="fill-height pa-0 bg-grey-lighten-4" style="user-select: none;">
+  <v-container fluid class="fill-height pa-0 bg-surface-light" style="user-select: none;">
     <v-row density="compact" class="fill-height">
       
       <template v-if="presentationStore.showSidebarLists && menuStore.menuOpened === 'Songs'">

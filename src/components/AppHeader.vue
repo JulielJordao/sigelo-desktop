@@ -69,7 +69,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <v-app-bar height="48" elevation="0" class="app-header px-4" v-if="menuStore.menuOpened !== 'PdfPresenter'">
+  <v-app-bar height="48" elevation="0" color="surface-light" class="app-header px-4 border-b" v-if="menuStore.menuOpened !== 'PdfPresenter'">
     <div data-tauri-drag-region class="drag-layer"></div>
  
     <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
@@ -78,15 +78,15 @@ onUnmounted(() => {
 
     <div class="z-10 d-flex align-center" :class="isMac ? '' : 'mr-4'">
       
-      <v-btn-group v-if="mediaStore.fixedMedia" :color="isFixedActive ? 'success' : 'grey-darken-2'" class="overflow-hidden rounded mr-2" density="comfortable" variant="flat">
+      <v-btn-group v-if="mediaStore.fixedMedia" :color="isFixedActive ? 'success' : 'grey-darken-2'" class="overflow-hidden rounded mr-3" density="comfortable" variant="flat">
         <v-menu location="bottom end" :close-on-content-click="false" transition="slide-y-transition">
           
           <template v-slot:activator="{ props }">
             <v-btn v-bind="props" :icon="isFixedActive ? 'mdi-pin' : 'mdi-pin-off'" title="Gerenciar Fundo Fixo"></v-btn>
           </template>
 
-          <v-card min-width="240" max-width="280" class="mt-2 rounded-lg elevation-8 border">
-            <div :class="isFixedActive ? 'bg-success' : 'bg-grey-darken-2'" class="px-3 py-1 text-caption font-weight-bold d-flex align-center text-white transition-all">
+          <v-card min-width="240" max-width="280" class="mt-2 rounded-lg elevation-8 border bg-surface">
+            <div :class="isFixedActive ? 'bg-success' : 'bg-surface-variant'" class="px-3 py-1 text-caption font-weight-bold d-flex align-center transition-all">
               <v-icon start size="small">mdi-monitor-dashboard</v-icon> 
               {{ isFixedActive ? 'FUNDO FIXO ATIVO' : 'FUNDO FIXO PAUSADO' }}
             </div>
@@ -124,8 +124,8 @@ onUnmounted(() => {
         </v-menu>
       </v-btn-group>
 
-      <v-btn-group color="surface-variant" variant="outlined" density="comfortable" divided
-        class="rounded-pill overflow-hidden bg-white">
+      <v-btn-group color="primary" variant="outlined" density="comfortable" divided
+        class="rounded-pill overflow-hidden bg-surface-light">
         <v-tooltip text="Importar Arquivo" location="bottom">
           <template v-slot:activator="{ props }">
             <v-btn v-bind="props" icon="mdi-import" @click="handleImport"></v-btn>
@@ -150,7 +150,6 @@ onUnmounted(() => {
 
 <style scoped>
 .app-header {
-  background: rgba(255, 255, 255, 0.85) !important;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
@@ -189,17 +188,17 @@ onUnmounted(() => {
 
 /* Força as dimensões do botão para garantir o alinhamento perfeito */
 .window-btn {
+  border-radius: 0 !important;
   width: 32px !important;
   height: 32px !important;
-  border-radius: 6px !important;
-  color: #666;
-  font-size: 0.8rem;
+  color: inherit;
   /* Garante que botões não deixem arrastar a tela acidentalmente */
   -webkit-app-region: no-drag;
 }
 
 .window-btn:hover {
-  background-color: rgba(0, 0, 0, 0.06);
+  background-color: rgb(var(--v-theme-error)) !important;
+  color: white !important;
 }
 
 .btn-close:hover {

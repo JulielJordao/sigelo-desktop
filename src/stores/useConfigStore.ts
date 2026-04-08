@@ -12,6 +12,7 @@ export const useConfigStore = defineStore('config', () => {
   let tauriStore: Store | null = null;
 
   const defaultSettings = {
+    isDarkMode: false,
     // Telas e Mídia
     selectedMonitor: "",
     aspectRatio: '16:9',
@@ -83,12 +84,17 @@ export const useConfigStore = defineStore('config', () => {
     }
   };
 
+  const getTheme = () => {
+    return  settings.value.isDarkMode ? 'light': 'dark'
+  }
+
   return { 
     isDialogOpen, 
     settings, 
     openDialog, 
     closeDialog, 
     loadSettings,
-    resetToDefaults 
+    resetToDefaults,
+    getTheme
   };
 });

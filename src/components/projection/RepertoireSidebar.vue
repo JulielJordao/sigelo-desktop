@@ -11,7 +11,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="d-flex flex-column fill-height">
-    <v-toolbar density="compact" color="white" elevation="0" class="border-b">
+    <v-toolbar density="compact" color="surface" elevation="0" class="border-b">
       <v-toolbar-title class="text-subtitle-2 font-weight-bold">Repertórios</v-toolbar-title>
     </v-toolbar>
     

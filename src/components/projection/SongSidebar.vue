@@ -39,7 +39,7 @@ const toggleSearch = () => {
     
     <v-toolbar 
       density="compact" 
-      color="white" 
+      color="surface" 
       elevation="0" 
       class="border-b flex-grow-0 flex-shrink-0"
     >

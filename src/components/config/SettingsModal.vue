@@ -5,9 +5,18 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
+import { useTheme } from 'vuetify';
+
+const theme = useTheme();
 
 const configStore = useConfigStore();
 const { isDialogOpen, settings } = storeToRefs(configStore);
+
+const toggleTheme = () => {
+  localSettings.value.isDarkMode = !localSettings.value.isDarkMode
+  configStore.settings.isDarkMode = localSettings.value.isDarkMode
+  theme.change(configStore.getTheme())
+};
 
 // --- ESTADO LOCAL (SNAPSHOT) ---
 // Inicializa com uma cópia vazia ou com os dados atuais para evitar erros de renderização
@@ -209,10 +218,23 @@ defineExpose({ openDialog })
       <v-toolbar color="surface" density="compact" class="border-b flex-shrink-0" elevation="0">
         <v-icon class="ml-4" color="primary">mdi-cog-outline</v-icon>
         <v-toolbar-title class="text-subtitle-1 font-weight-bold ml-2">Configurações do Sistema</v-toolbar-title>
+        
         <v-spacer></v-spacer>
+
+        <v-btn icon variant="text" @click="toggleTheme" class="mr-1" title="Alternar Tema">
+          <v-scale-transition mode="out-in">
+            <v-icon 
+              :key="localSettings.isDarkMode" 
+              :color="!localSettings.isDarkMode ? 'amber-lighten-1' : 'amber-darken-4'"
+            >
+              {{ localSettings.isDarkMode ? 'mdi-weather-night' : 'mdi-white-balance-sunny' }}
+            </v-icon>
+          </v-scale-transition>
+        </v-btn>
+
         <v-btn icon="mdi-close" variant="text" @click="configStore.closeDialog"></v-btn>
       </v-toolbar>
-
+      
       <v-tabs v-model="activeTab" color="primary" class="border-b bg-surface-light flex-shrink-0" show-arrows>
         <v-tab value="midia"><v-icon start>mdi-monitor-dashboard</v-icon> Telas</v-tab>
         <v-tab value="transmissao"><v-icon start>mdi-broadcast</v-icon> Palco e Transmissão</v-tab>
@@ -228,7 +250,7 @@ defineExpose({ openDialog })
           <v-window-item value="midia" class="pa-6">
             <p class="text-body-2 text-medium-emphasis mb-6">Configure os monitores de saída e o comportamento da tela de projeção.</p>
             
-            <v-card variant="outlined" class="pa-4 rounded-lg mb-6 bg-grey-lighten-5">
+            <v-card variant="outlined" color="surface-variant" class="pa-4 rounded-lg mb-6">
               <h3 class="text-subtitle-1 font-weight-bold mb-2 d-flex align-center">
                 <v-icon size="20" class="mr-2 text-primary">mdi-projector</v-icon> Saída de Projeção
               </h3>
@@ -251,7 +273,7 @@ defineExpose({ openDialog })
               </v-col>
             </v-row>
             
-            <v-card variant="tonal" color="grey-darken-3" class="pa-4 rounded-lg mt-2">
+            <v-card variant="tonal" class="pa-4 rounded-lg mt-2">
               <p class="text-subtitle-2 font-weight-bold mb-2">Filtro Escurecedor de Fundo</p>
               <p class="text-caption mb-2">Ajuda a destacar o texto escurecendo imagens/vídeos de fundo.</p>
               <v-slider v-model="localSettings.bgOpacity" min="0" max="100" step="5" thumb-label color="primary" prepend-icon="mdi-brightness-6" hide-details>
@@ -308,7 +330,7 @@ defineExpose({ openDialog })
             <h3 class="text-h6 font-weight-bold mb-2 text-primary"><v-icon start>mdi-border-inside</v-icon> Margens de Segurança (Safe Area)</h3>
             <p class="text-body-2 text-medium-emphasis mb-4">Evite projetar em bordas cortadas de painéis de LED limitando a área de texto.</p>
             
-            <v-card variant="outlined" class="pa-4 mb-8 bg-grey-lighten-5">
+            <v-card variant="outlined" class="pa-4 mb-8 bg-surface">
               <v-row density="comfortable">
                 <v-col cols="6" md="3"><v-text-field v-model="localSettings.marginTop" type="number" label="Topo (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
                 <v-col cols="6" md="3"><v-text-field v-model="localSettings.marginBottom" type="number" label="Rodapé (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
@@ -345,7 +367,7 @@ defineExpose({ openDialog })
 
             <v-row>
               <v-col cols="12" md="6">
-                <v-card variant="outlined" class="pa-5 rounded-lg h-100 d-flex flex-column bg-grey-lighten-5">
+                <v-card variant="tonal" class="pa-5 rounded-lg h-100 d-flex flex-column">
                   <div class="d-flex align-center mb-1">
                     <v-icon color="primary" class="mr-2">mdi-folder-multiple-image</v-icon>
                     <span class="text-subtitle-1 font-weight-bold">Mídia Local</span>
@@ -371,7 +393,7 @@ defineExpose({ openDialog })
               </v-col>
 
               <v-col cols="12" md="6">
-                <v-card variant="outlined" class="pa-5 rounded-lg h-100 d-flex flex-column bg-grey-lighten-5">
+                <v-card variant="tonal" class="pa-5 rounded-lg h-100 d-flex flex-column">
                   <div class="d-flex align-center mb-1">
                     <v-icon color="secondary" class="mr-2">mdi-cloud-download</v-icon>
                     <span class="text-subtitle-1 font-weight-bold">Dados da Internet</span>

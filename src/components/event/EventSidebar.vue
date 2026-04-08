@@ -120,7 +120,7 @@ onMounted(async () => {
   <div class="d-flex flex-column fill-height">
     <div class="d-flex flex-column fill-height bg-grey-lighten-4 position-relative">
       
-      <div class="bg-white elevation-1 z-10" style="position: sticky; top: 0; z-index: 10;">
+      <div class="bg-surface elevation-1 z-10" style="position: sticky; top: 0; z-index: 10;">
         <v-toolbar density="compact" color="transparent" elevation="0">
           <v-toolbar-title class="text-subtitle-1 font-weight-bold">
             <v-icon start color="primary">mdi-calendar-star</v-icon> Eventos
@@ -133,7 +133,7 @@ onMounted(async () => {
         </v-toolbar>
       </div>
 
-      <div class="bg-white border-b px-4 py-3 d-flex justify-center" style="min-height: 350px;">
+      <div class="bg-surface-light border-b px-4 py-3 d-flex justify-center" style="min-height: 350px;">
         <v-date-picker 
           v-model="selectedDate" 
           :allowed-dates="allowedDates"
@@ -145,11 +145,11 @@ onMounted(async () => {
         ></v-date-picker>
       </div>
 
-      <div class="flex-grow-1 overflow-y-auto pa-3">
+      <div class=" bg-surface-light flex-grow-1 overflow-y-auto pa-3">
         <v-slide-y-transition mode="out-in">
           
           <div v-if="selectedEvent" :key="'content-' + selectedEvent._id">
-            <div class="d-flex align-center justify-space-between mb-3 bg-white pl-2 pr-2 rounded-lg border-sm elevation-1">
+            <div class="bg-surface d-flex align-center justify-space-between mb-3 bg-white pl-2 pr-2 rounded-lg border-sm elevation-1">
               <div class="overflow-hidden mr-2">
                 <h3 class="text-subtitle-1 font-weight-bold text-truncate" :title="selectedEvent.name">{{ selectedEvent.name }}</h3>
                  <!-- <span class="text-caption text-grey-darken-1 d-block text-truncate">
@@ -203,7 +203,7 @@ onMounted(async () => {
     </div>
 
     <v-dialog v-model="showEventPopup" max-width="400">
-      <v-card class="rounded-lg">
+      <v-card  class="rounded-lg">
         <v-toolbar color="primary" density="compact">
           <v-toolbar-title class="text-subtitle-1 font-weight-bold">
             Eventos do Dia
@@ -212,16 +212,16 @@ onMounted(async () => {
           <v-btn icon="mdi-close" variant="text" @click="showEventPopup = false"></v-btn>
         </v-toolbar>
 
-        <div class="bg-grey-lighten-4 px-4 py-2 text-caption text-center font-weight-medium text-grey-darken-2 text-uppercase">
+        <div class="bg-variant-light px-4 py-2 text-caption text-center font-weight-medium text-grey-darken-2 text-uppercase">
           {{ selectedDate ? formatDate(selectedDate) : '' }}
         </div>
 
-        <v-card-text class="pa-3 bg-grey-lighten-4">
+        <v-card-text class="pa-3 bg-variant-light">
           <v-slide-y-transition group>
             <v-card 
               v-for="ev in eventsOnSelectedDate" 
               :key="ev._id"
-              color="white"
+              color="surface"
               class="mb-3 border-sm cursor-pointer transition-all elevation-1"
               hover
               @click="handleSelectEvent(ev)"

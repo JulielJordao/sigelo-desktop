@@ -9,6 +9,11 @@ import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o 
 import { useMenuStore } from '../stores/menuStore';
 import { useConfigStore } from '../stores/useConfigStore';
 
+
+import { useTheme } from 'vuetify';
+
+const theme = useTheme();
+
 const menuStore = useMenuStore();
 const configStore = useConfigStore();
 
@@ -53,9 +58,10 @@ const toggleEventsSidebar = () => {
   menuStore.toggleMenu('Events');
 };
 
-onMounted(() => {
+onMounted(async () => {
   menuStore.toggleMenu('Songs')
-  configStore.loadSettings();
+  await configStore.loadSettings();
+  theme.change(configStore.getTheme())
 });
 
 
