@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useMusicPresentationStore } from '../../stores/presentationStore';
 
 const props = defineProps<{
   songs: Array<{ _id: string, fullName: string }>;
   selectedId: string | null;
 }>();
+
+const musicStore = useMusicPresentationStore()
 
 const emit = defineEmits<{
   (e: 'select', id: string): void
@@ -75,7 +78,7 @@ const toggleSearch = () => {
           color="primary" 
           rounded="lg" 
           class="mb-1 border"
-          @click="emit('select', song._id)"
+          @click="musicStore.selectSong(song._id)"
         >
           <v-list-item-title class="text-body-2 font-weight-medium">
             {{ song.fullName }}

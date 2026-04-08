@@ -5,7 +5,11 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
 import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
 import { exportToPPTX } from '../../utils/pptxGen';
-import { Slide } from '../../utils/pptxGen'; // Importando a interface Slide para tipagem
+import { Slide as SlideExp } from '../../utils/pptxGen'; // Importando a interface Slide para tipagem
+
+
+import { useMusicPresentationStore }  from '../../stores/presentationStore';
+import type { Slide } from '../../stores/presentationStore';
 
 // Importação das Abas Separadas
 import TabSlides from '../tabs/TabSlides.vue';
@@ -14,16 +18,11 @@ import TabText from '../tabs/TabText.vue';
 import TabPosition from '../tabs/TabPosition.vue';
 
 const configStore = useConfigStore();
-const presentationStore = usePresentationStore(); // INSTANCIANDO O STORE
+const infoPresentationStore = usePresentationStore(); // INSTANCIANDO O STORE
 
-const props = defineProps<{
-    activeSong: { _id: string, fullName: string} | null;
-    showSidebar: boolean;
-}>();
+const songInfo = useMusicPresentationStore();
 
-const emit = defineEmits<{ (e: 'toggle-sidebar'): void }>();
-
-const lyric = ref("");
+const lyric = ref<string>(''); 
 const currentTab = ref('slides');
 const isProjecting = ref(false);
 const currentSlideIndex = ref<number>(0);
@@ -39,11 +38,11 @@ const startBox = { x: 0, y: 0, w: 0, h: 0 };
 let startFontSize = 0; 
 
 // AQUI ESTÁ O SEGREDO: Atalhos para os valores do Store para facilitar a leitura no componente principal
-const design = computed(() => presentationStore.design);
-const textStyles = computed(() => presentationStore.textStyles);
+const design = computed(() => infoPresentationStore.design);
+const textStyles = computed(() => infoPresentationStore.textStyles);
 
 // --- PROCESSAMENTO DOS SLIDES (MANTIDO) ---
-watch(() => props.activeSong, () => { currentSlideIndex.value = 0; });
+watch(() => songInfo.activeSong, () => { currentSlideIndex.value = 0; });
 
 const parseSlides = function(rawText: string) {
   const lines = rawText.split('\n')
@@ -136,7 +135,7 @@ const parseSlides = function(rawText: string) {
 const infoSlides = ref(parseSlides("")); // (Sua função parseSlides permanece inalterada)
 
 const songSlides = computed(() => {
-    if (!props.activeSong) return [];
+    if (!songInfo.activeSong) return [];
     return infoSlides.value.slides.map((block, index) => {
         let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
         return { label, text: block };
@@ -166,10 +165,10 @@ const startAction = (e: MouseEvent, type: string) => {
     startMouse.y = e.clientY;
 
     // Lendo do Store diretamente
-    startBox.x = presentationStore.design.posX;
-    startBox.y = presentationStore.design.posY;
-    startBox.w = presentationStore.design.width;
-    startBox.h = presentationStore.design.height;
+    startBox.x = infoPresentationStore.design.posX;
+    startBox.y = infoPresentationStore.design.posY;
+    startBox.w = infoPresentationStore.design.width;
+    startBox.h = infoPresentationStore.design.height;
 
     startFontSize = currentActiveStyle.value.fontSize;
 
@@ -205,16 +204,16 @@ const onMove = (e: MouseEvent) => {
     newX = Math.max(0, Math.min(100 - newW, newX));
     newY = Math.max(0, Math.min(100 - newH, newY));
 
-    if (presentationStore.autoFontSize && interactionType.value !== 'move') {
+    if (infoPresentationStore.autoFontSize && interactionType.value !== 'move') {
         const scaleRatio = newH / startBox.h;
-        presentationStore.textStyles[currentSlideType.value].fontSize = Math.max(2, Math.min(30, startFontSize * scaleRatio));
+        infoPresentationStore.textStyles[currentSlideType.value].fontSize = Math.max(2, Math.min(30, startFontSize * scaleRatio));
     }
 
     // Salvando no Store DIRETAMENTE
-    presentationStore.design.posX = Math.round(newX);
-    presentationStore.design.posY = Math.round(newY);
-    presentationStore.design.width = Math.round(newW);
-    presentationStore.design.height = Math.round(newH);
+    infoPresentationStore.design.posX = Math.round(newX);
+    infoPresentationStore.design.posY = Math.round(newY);
+    infoPresentationStore.design.width = Math.round(newW);
+    infoPresentationStore.design.height = Math.round(newH);
 };
 
 const stopAction = () => {
@@ -255,9 +254,9 @@ interface SlideProj {
     text: string;
 }
 
-function convertToSlideFmt(label: SlideProj[]): Slide[] {
+function convertToSlideFmt(label: SlideProj[]): SlideExp[] {
     const props = ['título', 'verso', 'refrão', 'geral'];
-    return label.map(slide => ({ text: slide.text, type: (removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral') as Slide['type'] }));
+    return label.map(slide => ({ text: slide.text, type: (removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral') as SlideExp['type'] }));
 }
 
 function removeAccents(str: string | undefined) : string | null{
@@ -270,7 +269,7 @@ function removeAccents(str: string | undefined) : string | null{
 }
 
 const projectCurrentSlide = async () => {
-    if (!props.activeSong) return;
+    if (!songInfo.activeSong) return;
 
     const style = currentActiveStyle.value;
     const conf = configStore.settings;
@@ -372,17 +371,19 @@ onUnmounted(() => {
 });
 
 watch(currentSlideIndex, () => {
+    
+    songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide); // Log para verificar o slide atual
     if (isProjecting.value) { // Só envia se estiver no modo apresentação
         projectCurrentSlide();
     }
 });
 
-defineExpose({
-    updateLyric: (newLyric: string) => {
-        lyric.value = newLyric
-        infoSlides.value = parseSlides(newLyric)
-    }
-})
+watch(() => songInfo.rawLyric, (newValue) => {
+    lyric.value = newValue;
+    infoSlides.value = parseSlides(newValue);
+    songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide); 
+});
+
 
 
 </script>
@@ -390,11 +391,11 @@ defineExpose({
 <template>
     <div class="d-flex flex-column fill-height bg-background">
         <v-toolbar density="compact" color="surface" elevation="0" class="border-b px-2 flex-shrink-0">
-            <v-btn icon variant="text" size="small" class="mr-2" @click="emit('toggle-sidebar')">
-                <v-icon>{{ showSidebar ? 'mdi-arrow-collapse-left' : 'mdi-arrow-expand-right' }}</v-icon>
+            <v-btn icon variant="text" size="small" class="mr-2" @click="songInfo.toggleSidebar">
+                <v-icon>{{ songInfo.showSidebarLists ? 'mdi-arrow-collapse-left' : 'mdi-arrow-expand-right' }}</v-icon>
             </v-btn>
             <v-toolbar-title class="text-subtitle-1 font-weight-bold">
-                {{ activeSong ? activeSong.fullName : 'Modo de Apresentação' }}
+                {{ songInfo.activeSong ? songInfo.activeSong.fullName : 'Modo de Apresentação' }}
             </v-toolbar-title>
             
             <v-spacer></v-spacer>
@@ -403,16 +404,16 @@ defineExpose({
                 (Use ← → para navegar, Esc para sair)
             </span>
 
-            <v-btn v-if="activeSong && !isProjecting" color="primary" variant="flat" size="small"
+            <v-btn v-if="songInfo.activeSong && !isProjecting" color="primary" variant="flat" size="small"
                 prepend-icon="mdi-play"
                 @click="projectCurrentSlide">Projetar</v-btn>
                 
-            <v-btn v-if="activeSong && isProjecting" color="error" variant="flat" size="small"
+            <v-btn v-if="songInfo.activeSong && isProjecting" color="error" variant="flat" size="small"
                 prepend-icon="mdi-stop"
                 @click="stopProjection">Parar Apresentação</v-btn>
         </v-toolbar>
 
-        <div v-if="activeSong" class="d-flex flex-column flex-grow-1 overflow-hidden">
+        <div v-if="songInfo.activeSong?._id" class="d-flex flex-column flex-grow-1 overflow-hidden">
 
             <div class="bg-black d-flex align-center justify-center relative flex-shrink-0 preview-wrapper">
                 <div ref="previewContainer" class="preview-screen"

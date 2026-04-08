@@ -7,8 +7,10 @@ import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o 
 // import { useConfigStore } from '../stores/useConfigStore';
 
 import { useMenuStore } from '../stores/menuStore';
+import { useConfigStore } from '../stores/useConfigStore';
 
 const menuStore = useMenuStore();
+const configStore = useConfigStore();
 
 const router = useRouter();
 
@@ -53,6 +55,7 @@ const toggleEventsSidebar = () => {
 
 onMounted(() => {
   menuStore.toggleMenu('Songs')
+  configStore.loadSettings();
 });
 
 

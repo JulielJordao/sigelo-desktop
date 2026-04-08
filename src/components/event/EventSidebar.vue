@@ -4,10 +4,11 @@ import { useMenuStore } from '../../stores/menuStore';
 import { useEventStore } from '../../stores/eventStore';
 
 import type { Event } from '../../types/event'; 
-import type { Song } from '../../types/song';   
+import { useMusicPresentationStore } from '../../stores/presentationStore';
 
 const eventStore = useEventStore();
 const menuStore = useMenuStore();
+const musicStore = useMusicPresentationStore();
 
 const isOpen = computed(() => menuStore.menuOpened === 'Events'); 
 
@@ -148,12 +149,12 @@ onMounted(async () => {
         <v-slide-y-transition mode="out-in">
           
           <div v-if="selectedEvent" :key="'content-' + selectedEvent._id">
-            <div class="d-flex align-center justify-space-between mb-3 bg-white pa-3 rounded-lg border-sm elevation-1">
+            <div class="d-flex align-center justify-space-between mb-3 bg-white pl-2 pr-2 rounded-lg border-sm elevation-1">
               <div class="overflow-hidden mr-2">
                 <h3 class="text-subtitle-1 font-weight-bold text-truncate" :title="selectedEvent.name">{{ selectedEvent.name }}</h3>
-                <span class="text-caption text-grey-darken-1 d-block text-truncate">
+                 <!-- <span class="text-caption text-grey-darken-1 d-block text-truncate">
                   <v-icon size="x-small" start>mdi-music-clef-treble</v-icon> Repertório de Músicas
-                </span>
+                </span> -->
               </div>
               <v-chip size="small" color="primary" variant="tonal" class="flex-shrink-0">
                 {{ eventStore.songsByEvent.length }} Músicas
@@ -176,7 +177,7 @@ onMounted(async () => {
                   
                   <template v-slot:append>
                     <v-chip v-if="song.tone" size="x-small" color="secondary" variant="flat" class="font-weight-bold mr-2">{{ song.tone }}</v-chip>
-                    <v-btn icon="mdi-play-circle-outline" size="small" color="primary" variant="text"></v-btn>
+                    <v-btn icon="mdi-play-circle-outline" size="small" color="primary" variant="text" @click="musicStore.setCustomSong(song)"></v-btn>
                   </template>
                 </v-list-item>
               </v-list>

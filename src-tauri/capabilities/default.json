@@ -29,7 +29,6 @@
         }
       ]
     },
-    
     {
       "identifier": "http:default",
       "allow": [
@@ -49,24 +48,49 @@
     {
       "identifier": "core:event:allow-emit",
       "allow": [
-        { "event": "sync-pdf-scroll" },
-        { "event": "update-projection" },
-        { "event": "set-fixed-media" },
-        { "event": "project-media" },
-        { "event": "clear-projection" },
-        { "event": "media-control" }
+        {
+          "event": "sync-pdf-scroll"
+        },
+        {
+          "event": "update-projection"
+        },
+        {
+          "event": "set-fixed-media"
+        },
+        {
+          "event": "project-media"
+        },
+        {
+          "event": "clear-projection"
+        },
+        {
+          "event": "media-control"
+        }
       ]
     },
     {
       "identifier": "core:event:allow-listen",
       "allow": [
-        { "event": "sync-pdf-scroll" },
-        { "event": "update-projection" },
-        { "event": "set-fixed-media" },
-        { "event": "project-media" },
-        { "event": "clear-projection" },
-        { "event": "media-control" }
+        {
+          "event": "sync-pdf-scroll"
+        },
+        {
+          "event": "update-projection"
+        },
+        {
+          "event": "set-fixed-media"
+        },
+        {
+          "event": "project-media"
+        },
+        {
+          "event": "clear-projection"
+        },
+        {
+          "event": "media-control"
+        }
       ]
-    }
+    },
+    "store:default"
   ]
 }

@@ -9,6 +9,10 @@ import { mkdir, exists } from '@tauri-apps/plugin-fs';
 const configStore = useConfigStore();
 const { isDialogOpen, settings } = storeToRefs(configStore);
 
+// --- ESTADO LOCAL (SNAPSHOT) ---
+// Inicializa com uma cópia vazia ou com os dados atuais para evitar erros de renderização
+const localSettings = ref(JSON.parse(JSON.stringify(configStore.settings)));
+
 // --- ESTADOS DO MODAL ---
 const activeTab = ref('midia');
 const isLoadingMonitors = ref(false);
@@ -75,7 +79,7 @@ const autoDetectProjector = async () => {
     try {
         const bestMonitor = await invoke<MonitorInfo | null>('detect_projector_cmd');
         if (bestMonitor) {
-            settings.value.selectedMonitor = bestMonitor.name;
+            localSettings.value.selectedMonitor = bestMonitor.name;
         } else {
             alert("Nenhum projetor ou tela secundária foi identificado.");
         }
@@ -181,9 +185,18 @@ const setupFolders = async () => {
 };
 
 const openDialog = () => {
+    localSettings.value = JSON.parse(JSON.stringify(configStore.settings));
     setupFolders();
     isDialogOpen.value = true;
     fetchMonitors();
+}
+
+const saveAndClose = () => {
+    // 2. Transfere os dados locais para a Store Global (O que vai ativar o watch e salvar no Tauri)
+    Object.assign(configStore.settings, localSettings.value);
+    
+    // 3. Fecha o modal
+    configStore.closeDialog();
 }
 
 defineExpose({ openDialog })
@@ -221,7 +234,7 @@ defineExpose({ openDialog })
               </h3>
               <v-row class="mt-1 align-center">
                 <v-col cols="12" sm="8">
-                  <v-select v-model="settings.selectedMonitor" :items="availableMonitors" :loading="isLoadingMonitors" label="Selecione o Projetor/Tela" variant="outlined" density="comfortable" prepend-inner-icon="mdi-monitor" hide-details></v-select>
+                  <v-select v-model="localSettings.selectedMonitor" :items="availableMonitors" :loading="isLoadingMonitors" label="Selecione o Projetor/Tela" variant="outlined" density="comfortable" prepend-inner-icon="mdi-monitor" hide-details></v-select>
                 </v-col>
                 <v-col cols="12" sm="4">
                   <v-btn color="primary" variant="tonal" class="w-100 h-100" style="min-height: 48px;" @click="autoDetectProjector">Auto Detectar</v-btn>
@@ -231,17 +244,17 @@ defineExpose({ openDialog })
 
             <v-row>
               <v-col cols="12" md="6">
-                <v-select v-model="settings.aspectRatio" :items="aspectOptions" label="Proporção do Telão (Aspect Ratio)" variant="outlined" density="comfortable" prepend-inner-icon="mdi-aspect-ratio" hide-details class="mb-4"></v-select>
+                <v-select v-model="localSettings.aspectRatio" :items="aspectOptions" label="Proporção do Telão (Aspect Ratio)" variant="outlined" density="comfortable" prepend-inner-icon="mdi-aspect-ratio" hide-details class="mb-4"></v-select>
               </v-col>
               <v-col cols="12" md="6">
-                <v-select v-model="settings.transitionType" :items="transitionOptions" label="Transição entre Slides" variant="outlined" density="comfortable" prepend-inner-icon="mdi-transition" hide-details class="mb-4"></v-select>
+                <v-select v-model="localSettings.transitionType" :items="transitionOptions" label="Transição entre Slides" variant="outlined" density="comfortable" prepend-inner-icon="mdi-transition" hide-details class="mb-4"></v-select>
               </v-col>
             </v-row>
             
             <v-card variant="tonal" color="grey-darken-3" class="pa-4 rounded-lg mt-2">
               <p class="text-subtitle-2 font-weight-bold mb-2">Filtro Escurecedor de Fundo</p>
               <p class="text-caption mb-2">Ajuda a destacar o texto escurecendo imagens/vídeos de fundo.</p>
-              <v-slider v-model="settings.bgOpacity" min="0" max="100" step="5" thumb-label color="primary" prepend-icon="mdi-brightness-6" hide-details>
+              <v-slider v-model="localSettings.bgOpacity" min="0" max="100" step="5" thumb-label color="primary" prepend-icon="mdi-brightness-6" hide-details>
                 <template v-slot:append><span class="text-caption font-weight-bold" style="width: 40px">{{ settings.bgOpacity }}%</span></template>
               </v-slider>
             </v-card>
@@ -251,25 +264,25 @@ defineExpose({ openDialog })
             <h3 class="text-h6 font-weight-bold mb-4 text-primary"><v-icon start>mdi-account-voice</v-icon> Monitor de Palco (Retorno)</h3>
             <v-row class="mb-4">
               <v-col cols="12" md="6">
-                <v-select v-model="settings.stageMonitor" :items="availableMonitors" label="Tela do Retorno" variant="outlined" density="comfortable" hide-details></v-select>
+                <v-select v-model="localSettings.stageMonitor" :items="availableMonitors" label="Tela do Retorno" variant="outlined" density="comfortable" hide-details></v-select>
               </v-col>
               <v-col cols="12" md="6">
-                <v-select v-model="settings.stageLayout" :items="stageLayouts" label="Layout do Retorno" variant="outlined" density="comfortable" hide-details></v-select>
+                <v-select v-model="localSettings.stageLayout" :items="stageLayouts" label="Layout do Retorno" variant="outlined" density="comfortable" hide-details></v-select>
               </v-col>
             </v-row>
-            <v-switch v-model="settings.stageHighContrast" color="primary" label="Forçar Alto Contraste (Fundo Preto, Letras Amarelas)" density="compact" hide-details class="mb-6"></v-switch>
+            <v-switch v-model="localSettings.stageHighContrast" color="primary" label="Forçar Alto Contraste (Fundo Preto, Letras Amarelas)" density="compact" hide-details class="mb-6"></v-switch>
 
             <v-divider class="mb-6"></v-divider>
 
             <h3 class="text-h6 font-weight-bold mb-4 text-primary"><v-icon start>mdi-video-wireless</v-icon> Integração OBS / vMix</h3>
             <v-row>
               <v-col cols="12" md="6">
-                <v-switch v-model="settings.lowerThirds" color="primary" label="Modo Transmissão (Lower Thirds)" density="compact" hide-details></v-switch>
+                <v-switch v-model="localSettings.lowerThirds" color="primary" label="Modo Transmissão (Lower Thirds)" density="compact" hide-details></v-switch>
                 <p class="text-caption text-medium-emphasis ml-10">Empurra o texto para a parte inferior da tela, em no máximo 2 linhas.</p>
               </v-col>
               <v-col cols="12" md="6">
                 <p class="text-caption font-weight-bold mb-2">Fundo Chroma Key</p>
-                <v-btn-toggle v-model="settings.chromaKey" color="primary" variant="outlined" divided density="compact">
+                <v-btn-toggle v-model="localSettings.chromaKey" color="primary" variant="outlined" divided density="compact">
                   <v-btn value="none">Desativado</v-btn>
                   <v-btn value="#00FF00" color="green">Fundo Verde</v-btn>
                   <v-btn value="#0000FF" color="blue">Fundo Azul</v-btn>
@@ -282,13 +295,13 @@ defineExpose({ openDialog })
             <h3 class="text-h6 font-weight-bold mb-4 text-primary"><v-icon start>mdi-book-cross</v-icon> Projeção da Bíblia Sagrada</h3>
             <v-row>
               <v-col cols="12" md="6">
-                <v-select v-model="settings.bibleVersion" :items="bibleVersions" label="Versão Padrão" variant="outlined" density="comfortable" hide-details class="mb-4"></v-select>
+                <v-select v-model="localSettings.bibleVersion" :items="bibleVersions" label="Versão Padrão" variant="outlined" density="comfortable" hide-details class="mb-4"></v-select>
               </v-col>
               <v-col cols="12" md="6">
-                <v-select v-model="settings.bibleLayout" :items="bibleLayouts" label="Layout da Referência" variant="outlined" density="comfortable" hide-details class="mb-4"></v-select>
+                <v-select v-model="localSettings.bibleLayout" :items="bibleLayouts" label="Layout da Referência" variant="outlined" density="comfortable" hide-details class="mb-4"></v-select>
               </v-col>
             </v-row>
-            <v-switch v-model="settings.showVerseNumbers" color="primary" label="Exibir números dos versículos no texto projetado" density="compact" hide-details></v-switch>
+            <v-switch v-model="localSettings.showVerseNumbers" color="primary" label="Exibir números dos versículos no texto projetado" density="compact" hide-details></v-switch>
           </v-window-item>
 
           <v-window-item value="avancado" class="pa-6">
@@ -297,10 +310,10 @@ defineExpose({ openDialog })
             
             <v-card variant="outlined" class="pa-4 mb-8 bg-grey-lighten-5">
               <v-row density="comfortable">
-                <v-col cols="6" md="3"><v-text-field v-model="settings.marginTop" type="number" label="Topo (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
-                <v-col cols="6" md="3"><v-text-field v-model="settings.marginBottom" type="number" label="Rodapé (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
-                <v-col cols="6" md="3"><v-text-field v-model="settings.marginLeft" type="number" label="Esquerda (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
-                <v-col cols="6" md="3"><v-text-field v-model="settings.marginRight" type="number" label="Direita (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
+                <v-col cols="6" md="3"><v-text-field v-model="localSettings.marginTop" type="number" label="Topo (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
+                <v-col cols="6" md="3"><v-text-field v-model="localSettings.marginBottom" type="number" label="Rodapé (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
+                <v-col cols="6" md="3"><v-text-field v-model="localSettings.marginLeft" type="number" label="Esquerda (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
+                <v-col cols="6" md="3"><v-text-field v-model="localSettings.marginRight" type="number" label="Direita (%)" variant="outlined" density="compact" suffix="%" hide-details></v-text-field></v-col>
               </v-row>
             </v-card>
 
@@ -398,7 +411,7 @@ defineExpose({ openDialog })
 
             <v-row class="mb-4">
               <v-col cols="12" md="8">
-                <v-select v-model="settings.activeTheme" :items="themeOptions" label="Tema de Projeção Ativo" variant="outlined" density="comfortable" prepend-inner-icon="mdi-palette-swatch" hide-details></v-select>
+                <v-select v-model="localSettings.activeTheme" :items="themeOptions" label="Tema de Projeção Ativo" variant="outlined" density="comfortable" prepend-inner-icon="mdi-palette-swatch" hide-details></v-select>
               </v-col>
               <v-col cols="12" md="4" class="d-flex align-center">
                 <v-btn prepend-icon="mdi-content-save" color="primary" variant="flat" class="w-100 h-100" style="min-height: 48px;">Salvar Tema</v-btn>
@@ -430,7 +443,7 @@ defineExpose({ openDialog })
       <v-card-actions class="pa-4 flex-shrink-0">
         <v-spacer></v-spacer>
         <v-btn color="grey-darken-1" variant="text" @click="configStore.closeDialog">Cancelar</v-btn>
-        <v-btn color="primary" variant="flat" class="px-6" @click="configStore.closeDialog">Concluir</v-btn>
+        <v-btn color="primary" variant="flat" class="px-6" @click="saveAndClose">Concluir</v-btn>
       </v-card-actions>
       
     </v-card>
