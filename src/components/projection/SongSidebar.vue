@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick} from 'vue';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
+import { useSongCacheStore } from '../../stores/songCacheStore';
 
 const props = defineProps<{
   songs: Array<{ _id: string, fullName: string }>;
@@ -8,6 +9,7 @@ const props = defineProps<{
 }>();
 
 const musicStore = useMusicPresentationStore()
+const songCacheStore = useSongCacheStore()
 
 const emit = defineEmits<{
   (e: 'select', id: string): void
@@ -16,6 +18,51 @@ const emit = defineEmits<{
 // --- Lógica de Busca ---
 const isSearchActive = ref(false);
 const searchQuery = ref('');
+
+const currentGroupId = ref('')
+const hasToScrool = ref(false)
+
+const scrollToElement = async (id: string)  => {
+  await nextTick();
+      
+  const element = document.getElementById(`song-item-${id}`);
+  
+  if (element) {
+    element.scrollIntoView({ 
+      behavior: 'smooth',
+      block: 'center'    
+    });
+  }
+
+  hasToScrool.value = false
+}
+
+watch(() => songCacheStore.selectedSong, async (newValue) => {
+  
+  if(currentGroupId.value != newValue.songGroupId) {
+
+      await nextTick();
+      
+      const element = document.getElementById(`song-item-${newValue.songId}`);
+      
+      if (element) {
+        element.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'center'    
+        });
+      }
+  } else {
+    hasToScrool.value = true
+  } 
+},
+  { deep: true }) 
+
+watch(() => musicStore.filteredSongs, () => {
+  if(hasToScrool) {
+    scrollToElement(musicStore.selectedSongId)
+  }
+},
+  { deep: true })
 
 const filteredSongs = computed(() => {
   if (!searchQuery.value) return props.songs;
@@ -72,6 +119,7 @@ const toggleSearch = () => {
       <v-list density="compact" class="pa-2" nav>
         <v-list-item
           v-for="song in filteredSongs" 
+          :id="'song-item-' + song._id"
           :key="song._id" 
           :value="song._id"
           :active="selectedId === song._id" 

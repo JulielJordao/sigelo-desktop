@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, watch } from 'vue';
 import RepertoireSidebar from '../components/projection/RepertoireSidebar.vue';
 import SongSidebar from '../components/projection/SongSidebar.vue';
 import PresentationEditor from '../components/projection/PresentationEditor.vue';
@@ -8,12 +8,25 @@ import MediaSidebar from '../components/media/MediaSidebar.vue';
 
 import { useMenuStore } from '../stores/menuStore';
 import { useMusicPresentationStore } from '../stores/presentationStore';
+import { useSongCacheStore } from '../stores/songCacheStore' 
 
 const menuStore = useMenuStore();
 const presentationStore = useMusicPresentationStore();
+const songCacheStore = useSongCacheStore()
+
+watch(() => songCacheStore.selectedSong, (newValue) => {
+  if(newValue.songGroupId !== presentationStore.selectedGroupId){
+    presentationStore.selectGroup(newValue.songGroupId)
+    presentationStore.selectSong(newValue.songId)
+  } else if(newValue.songId !== presentationStore.selectedSongId) {
+    presentationStore.selectSong(newValue.songId)
+  }
+},
+  { deep: true })
 
 onMounted(async () => {
   await presentationStore.fetchGroups();
+  await songCacheStore.loadData()
 }); 
 </script>
  

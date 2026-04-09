@@ -4,6 +4,7 @@ import routes from '../routes/index';
 import { getLinkFiles } from '../utils/convertData';
 import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
+import { useSongCacheStore, type SongGroupCache } from './songCacheStore';
 
 export interface Slide {
   label: string;
@@ -12,15 +13,16 @@ export interface Slide {
 
 export const useMusicPresentationStore = defineStore('musicPresentation', () => {
   // --- ESTADOS ---
+  const songCacheStore = useSongCacheStore()
   const showSidebarLists = ref(true);
   const isLoading = ref(false);
   const selectedGroupId = ref<string>("68f8be456569689b456edd83");
   const selectedSongId = ref<string>("");
-  
+
   const rawGroups = ref<any[]>([]);
   const songs = ref<Song[]>([]);
   const rawLyric = ref<string>(""); // Substitui a chamada da ref updateLyric
-  const customSong = ref<Song | null>(null); 
+  const customSong = ref<Song | null>(null);
 
   // --- COMPUTED ---
   const filteredSongs = computed(() => songs.value);
@@ -33,7 +35,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
 
   const currentSlide = ref<Slide>({ label: '', text: '' });
 
-  const setCurrentSlide = (slide: Slide ) => {
+  const setCurrentSlide = (slide: Slide) => {
     if (!slide || !slide.label) { return }
     currentSlide.value = slide;
   }
@@ -41,17 +43,17 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   const getCurrentSlideType = computed(() => {
     const label = currentSlide.value.label.toLowerCase();
     if (label.includes('refrão')) {
-        return 'refrao';
+      return 'refrao';
     } else if (label.includes('verso')) {
-        return 'verso';
+      return 'verso';
     } else if (label.includes('título') || label.includes('titulo')) {
-        return 'titulo';
+      return 'titulo';
     } else if (label.includes('geral')) {
-        return 'geral';
+      return 'geral';
     } else {
-        return 'geral';
+      return 'geral';
     }
-  }) 
+  })
 
   // --- AÇÕES ---
   const toggleSidebar = () => {
@@ -67,10 +69,9 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   };
 
   const selectGroup = async (id: string) => {
-    if (!isLoading.value) { // Corrigido o bug da condicional
+    if (!isLoading.value) { 
       isLoading.value = true;
       selectedGroupId.value = id;
-      selectedSongId.value = ''; 
       rawLyric.value = '';
       await fetchSongs();
       isLoading.value = false;
@@ -79,15 +80,24 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
 
   const fetchSongs = async () => {
     const response = await routes.song().list(selectedGroupId.value);
-    
+
     if (Array.isArray(response?.search)) {
       const list = response.search as Song[];
-      
+
       const sortedSongs = [...list].sort((a, b) => {
         return a.fullName.localeCompare(b.fullName, 'pt-BR', { sensitivity: 'base' });
       });
 
       songs.value = sortedSongs
+      const fullName = rawGroups.value.find(it => it._id == selectedGroupId.value)?.name ?? ''
+      songCacheStore.changeCacheInfo({
+        id: selectedGroupId.value, label: fullName, songs: sortedSongs.map(it => {
+          return {
+            id: it._id,
+            fullName: it.fullName
+          }
+        })
+      })
     }
   };
 
@@ -95,10 +105,9 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
     customSong.value = null
     selectedSongId.value = id;
     await fetchLyric();
-    console.log("Música selecionada:", activeSong.value);
   };
 
-  const setCustomSong = async(song: Song) => {
+  const setCustomSong = async (song: Song) => {
     customSong.value = song;
     if (Array.isArray(song.files)) {
       const list: SongFile[] = song.files;
@@ -119,7 +128,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   const fetchLyric = async () => {
     const songId = [selectedSongId.value];
     const filesResponse = await routes.files().getListBySongId(songId);
-    
+
     if (Array.isArray(filesResponse?.response)) {
       const list: SongFile[] = filesResponse.response;
       const lyricFile = list.find(it => it.type == "Letra");
