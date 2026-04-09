@@ -5,7 +5,7 @@ import { readDir, stat, copyFile, remove } from '@tauri-apps/plugin-fs';
 import { appDataDir, join, basename, extname } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
-export type MediaContext = 'Media' | 'Theme';
+export type MediaContext = 'Media' | 'Theme' | 'YouTube';
 
 export interface MediaFile {
   id: string;
@@ -18,6 +18,7 @@ export interface MediaFile {
   isFavorite: boolean;
   type: MediaContext;
   duration?: number;
+  size_mb?: number;
 }
 
 export const useMediaStore = defineStore('media', () => {
@@ -36,6 +37,7 @@ export const useMediaStore = defineStore('media', () => {
       const baseDir = await appDataDir();
       const repFolder = await join(baseDir, 'media', 'reproducao');
       const themeFolder = await join(baseDir, 'media', 'slides');
+      const youtubeFolder = await join(baseDir, 'media', 'reproducao', 'YouTube');
 
       const files: MediaFile[] = [];
 
@@ -50,6 +52,34 @@ export const useMediaStore = defineStore('media', () => {
         const mediaFilesFromTheme = await getJsonFiles('Theme', themeEntries, themeFolder);
         files.push(...mediaFilesFromTheme);
       } catch (e) { console.warn("Pasta slides ausente", e) }
+
+      try {
+        const ytEntries = await readDir(youtubeFolder);
+        // Atenção: Certifique-se de que a sua função 'getJsonFiles' saiba lidar com 
+        // a leitura desses arquivos. Como o yt-dlp não gera o mesmo JSON que o seu app,
+        // você pode precisar criar uma lógica separada para montar o objeto MediaFile
+        // dos vídeos do YouTube, caso o getJsonFiles ignore vídeos sem JSON próprio.
+        
+        // Exemplo simplificado de como ler direto sem depender do getJsonFiles:
+        for (const entry of ytEntries) {
+            if (entry.isFile && entry.name.endsWith('.mp4')) {
+                const filePath = await join(youtubeFolder, entry.name);
+                const fileStat = await stat(filePath);
+                
+                files.push({
+                    id: entry.name,
+                    name: entry.name.replace('.mp4', ''),
+                    path: filePath,
+                    url: convertFileSrc(filePath),
+                    isVideo: true,
+                    modifiedAt: fileStat.mtime ? fileStat.mtime.getTime() : Date.now(),
+                    category: 'YouTube',
+                    isFavorite: false,
+                    type: 'Media'
+                });
+            }
+        }
+      } catch (e) { console.warn("Pasta YouTube ausente", e) }
 
       mediaFiles.value = files;
     } catch (error) {

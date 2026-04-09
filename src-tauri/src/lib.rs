@@ -5,6 +5,7 @@ mod directory;
 mod monitors;
 mod projection;
 mod state;
+mod youtube;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -36,7 +37,14 @@ pub fn run() {
             crate::commands::projection::prepare_projection_window,
             crate::directory::directory::get_dir_size,
             crate::directory::directory::open_folder_native,
-            crate::directory::directory::clear_directory
+            crate::directory::directory::clear_directory,
+            crate::youtube::youtube::update_binaries,
+            crate::youtube::youtube::get_youtube_info,
+            crate::youtube::youtube::cache_youtube_video,
+            crate::youtube::youtube::check_ytdlp_status,
+            crate::youtube::youtube::get_cached_videos,
+            crate::youtube::youtube::delete_cached_video,
+            crate::youtube::youtube::open_youtube_cache_folder
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

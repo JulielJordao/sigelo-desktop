@@ -66,7 +66,7 @@ export const usePresentationStore = defineStore('presentation', () => {
         bgFit: 'cover',
         maxLines: undefined,
         coverSlide: false,
-        authorCredits: false, 
+        authorCredits: false,
         posX: 5,
         posY: 5,
         width: 90,
@@ -103,7 +103,7 @@ export const usePresentationStore = defineStore('presentation', () => {
             design: JSON.parse(JSON.stringify(design.value)),
             textStyles: JSON.parse(JSON.stringify(textStyles.value))
         };
-        
+
         presets.value.push(newPreset);
         currentPresetId.value = newPreset.id;
     };
@@ -111,7 +111,7 @@ export const usePresentationStore = defineStore('presentation', () => {
     // 3. Aplica um preset selecionado ao design "ao vivo"
     const applyPreset = (presetId: string) => {
         const presetToApply = presets.value.find(p => p.id === presetId);
-        
+
         if (presetToApply) {
             // Novamente, usa clone profundo para que alterar o design ao vivo não altere o preset salvo
             design.value = JSON.parse(JSON.stringify(presetToApply.design));
@@ -120,18 +120,40 @@ export const usePresentationStore = defineStore('presentation', () => {
         }
     };
 
-    return { 
+    const renamePreset = (id: string, newName: string) => {
+        const preset = presets.value.find(p => p.id === id);
+        if (preset) {
+            preset.name = newName;
+        }
+    };
+
+    const updateActivePreset = () => {
+        if (!currentPresetId.value) return;
+
+        // Encontra o índice do preset atual na lista
+        const index = presets.value.findIndex(p => p.id === currentPresetId.value);
+        console.log(index)
+        if (index !== -1) {
+            // Usa o clone profundo para atualizar os dados desconectando da reatividade
+            presets.value[index].design = JSON.parse(JSON.stringify(design.value));
+            presets.value[index].textStyles = JSON.parse(JSON.stringify(textStyles.value));
+        }
+    };
+
+    return {
         // Variáveis
         presets,
         currentPresetId,
-        design, 
-        textStyles, 
+        design,
+        textStyles,
         autoFontSize,
         currentPreset,
 
         // Funções
         applyGeralToAll,
+        updateActivePreset,
         saveCurrentAsPreset,
-        applyPreset
+        applyPreset,
+        renamePreset
     };
 });

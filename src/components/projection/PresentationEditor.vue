@@ -6,6 +6,8 @@ import { usePresentationStore } from '../../stores/usePresentationStore'; // NOV
 import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
 import { exportToPPTX } from '../../utils/pptxGen';
 import SlidePreview from '../preview/SlidePreview.vue';
+import ModalSavePreset from '../presets/modalSavePreset.vue';
+import ModalSelectPreset from '../presets/modalSelectPreset.vue';
 import { Slide as SlideExp } from '../../utils/pptxGen'; // Importando a interface Slide para tipagem
 
 import { useMusicPresentationStore } from '../../stores/presentationStore';
@@ -31,6 +33,8 @@ const currentSlideIndex = ref<number>(0);
 
 const isPresetModalOpen = ref(false)
 
+
+// TO REMOVE
 const screenResolution = ref({ width: 1920, height: 1080 });
 const screenRatio = computed(() => screenResolution.value.width / screenResolution.value.height);
 
@@ -163,7 +167,7 @@ const songSlides = computed(() => {
     if (!songInfo.activeSong) return [];
     return infoSlides.value.slides.map((block, index) => {
         let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
-        if(infoSlides.value.typeSlides[index] == -1) {
+        if (infoSlides.value.typeSlides[index] == -1) {
             label = "título"
         }
         return { label, text: block };
@@ -336,19 +340,6 @@ const handleKeydown = (e: KeyboardEvent) => {
 };
 
 const isSavePresetOpen = ref(false)
-const newPresetName = ref('')
-
-const handleSavePreset = () => {
-    // Evita salvar nomes vazios
-    if (!newPresetName.value.trim()) return;
-
-    // Chama a ação da Store que criamos
-    infoPresentationStore.saveCurrentAsPreset(newPresetName.value.trim());
-
-    // Fecha a modal e limpa o campo
-    isSavePresetOpen.value = false;
-    newPresetName.value = '';
-}
 
 onMounted(() => {
     window.addEventListener('keydown', handleKeydown);
@@ -367,10 +358,10 @@ watch(currentSlideIndex, () => {
 });
 
 watch(() => songInfo.rawLyric, (newValue) => {
-    
+
     lyric.value = newValue;
     checkEstrutura()
-    
+
     songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide);
 });
 
@@ -401,6 +392,11 @@ watch(
     }
 );
 
+const updateCurrentPreset = ()=> {
+    if(infoPresentationStore.currentPresetId) {
+        infoPresentationStore.updateActivePreset();
+    }
+}
 
 </script>
 
@@ -417,18 +413,42 @@ watch(
 
             <v-spacer></v-spacer>
 
-            <v-tooltip text="Salvar design atual como um Tema" location="bottom">
-                <template v-slot:activator="{ props }">
-                    <v-btn v-bind="props" icon="mdi-content-save-outline" variant="text"
-                        class="mr-2 text-medium-emphasis" @click="isSavePresetOpen = true"></v-btn>
+            <v-menu location="bottom end" v-if="songInfo.rawLyric != ''">
+                <template v-slot:activator="{ props: menuProps }">
+                    <v-tooltip text="Opções de Salvamento" location="bottom">
+                        <template v-slot:activator="{ props: tooltipProps }">
+                            <v-btn v-bind="{ ...menuProps, ...tooltipProps }" icon="mdi-content-save-cog-outline"
+                                variant="text" class="mr-2 text-medium-emphasis"></v-btn>
+                        </template>
+                    </v-tooltip>
                 </template>
-            </v-tooltip>
+
+                <v-list density="compact" class="elevation-3" min-width="220">
+                    <v-list-item prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
+                        :disabled="!infoPresentationStore.currentPresetId" @click="updateCurrentPreset"></v-list-item>
+
+                    <v-list-item prepend-icon="mdi-content-save-plus" title="Salvar como Novo Tema"
+                        @click="isSavePresetOpen = true"></v-list-item>
+                </v-list>
+            </v-menu>
 
             <v-divider vertical class="mx-2 my-2"></v-divider>
 
-            <span v-if="isProjecting" class="text-caption text-medium-emphasis mr-4">
-                (Use ← → para navegar, Esc para sair)
-            </span>
+            <v-tooltip location="bottom" v-if="isProjecting">
+                <template v-slot:activator="{ props }">
+                    <v-icon v-bind="props" size="small"
+                        class="mr-4 text-medium-emphasis cursor-help transition-swing hover-opacity">
+                        mdi-keyboard-outline
+                    </v-icon>
+                </template>
+                <div class="text-center pa-1">
+                    <div class="text-caption font-weight-bold mb-1">Atalhos de Apresentação</div>
+                    <div><kbd class="bg-grey-darken-3 px-1 rounded">←</kbd> <kbd
+                            class="bg-grey-darken-3 px-1 rounded">→</kbd>
+                        Navegar</div>
+                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">Esc</kbd> Sair</div>
+                </div>
+            </v-tooltip>
 
             <v-btn v-if="songInfo.activeSong && !isProjecting" color="primary" variant="flat" size="small"
                 prepend-icon="mdi-play" @click="projectCurrentSlide">Projetar</v-btn>
@@ -505,57 +525,6 @@ watch(
             <h3 class="font-weight-medium">Selecione uma música no repertório</h3>
         </div>
     </div>
-    <v-dialog v-model="isPresetModalOpen" max-width="900">
-        <v-card rounded="lg">
-            <v-card-title class="d-flex align-center border-b bg-surface-light pa-4">
-                <v-icon icon="mdi-palette" class="mr-2" color="primary"></v-icon>
-                Galeria de Temas
-                <v-spacer></v-spacer>
-                <v-btn icon="mdi-close" variant="text" @click="isPresetModalOpen = false"></v-btn>
-            </v-card-title>
-
-            <v-card-text class="pa-6 bg-background">
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
-
-                    <v-card v-for="preset in infoPresentationStore.presets" :key="preset.id" hover
-                        class="d-flex flex-column rounded-lg overflow-hidden border"
-                        :class="{ 'border-primary border-md': infoPresentationStore.currentPresetId === preset.id }"
-                        @click="infoPresentationStore.applyPreset(preset.id); isPresetModalOpen = false;">
-                        <SlidePreview :design="preset.design" :textStyle="preset.textStyles[currentSlideType]"
-                            :text="songInfo.currentSlide.text" :screenRatio="screenRatio" :editable="false"
-                            style="height: 140px; border-radius: 0;" />
-
-                        <div class="pa-3 text-center bg-surface">
-                            <span class="text-subtitle-2 font-weight-bold">{{ preset.name }}</span>
-                        </div>
-                    </v-card>
-
-                </div>
-            </v-card-text>
-        </v-card>
-    </v-dialog>
-    <v-dialog v-model="isSavePresetOpen" max-width="400">
-        <v-card rounded="lg">
-            <v-card-title class="d-flex align-center border-b bg-surface-light pa-4 text-subtitle-1">
-                <v-icon icon="mdi-content-save-cog" class="mr-2" color="primary"></v-icon>
-                Salvar Novo Tema
-            </v-card-title>
-
-            <v-card-text class="pa-4 pt-6">
-                <v-text-field v-model="newPresetName" label="Nome do Tema"
-                    placeholder="Ex: Culto de Domingo, Acústico..." variant="outlined" density="comfortable" autofocus
-                    hide-details @keyup.enter="handleSavePreset"></v-text-field>
-            </v-card-text>
-
-            <v-card-actions class="pa-4 pt-0 border-t bg-surface-light">
-                <v-spacer></v-spacer>
-                <v-btn variant="text" color="medium-emphasis" @click="isSavePresetOpen = false">
-                    Cancelar
-                </v-btn>
-                <v-btn variant="flat" color="primary" @click="handleSavePreset" :disabled="!newPresetName.trim()">
-                    Salvar Tema
-                </v-btn>
-            </v-card-actions>
-        </v-card>
-    </v-dialog>
+    <ModalSelectPreset v-model="isPresetModalOpen"></ModalSelectPreset>
+    <ModalSavePreset v-model="isSavePresetOpen"></ModalSavePreset>
 </template>
