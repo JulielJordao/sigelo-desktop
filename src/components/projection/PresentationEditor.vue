@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
-import { invoke } from '@tauri-apps/api/core'; 
+import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
 import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
 import { exportToPPTX } from '../../utils/pptxGen';
+import SlidePreview from '../preview/SlidePreview.vue';
 import { Slide as SlideExp } from '../../utils/pptxGen'; // Importando a interface Slide para tipagem
 
-
-import { useMusicPresentationStore }  from '../../stores/presentationStore';
+import { useMusicPresentationStore } from '../../stores/presentationStore';
 import type { Slide } from '../../stores/presentationStore';
 
 // Importação das Abas Separadas
@@ -16,26 +16,23 @@ import TabSlides from '../tabs/TabSlides.vue';
 import TabBackground from '../tabs/TabBackground.vue';
 import TabText from '../tabs/TabText.vue';
 import TabPosition from '../tabs/TabPosition.vue';
+import TabEstrutura from '../tabs/TabEstrutura.vue';
 
 const configStore = useConfigStore();
 const infoPresentationStore = usePresentationStore(); // INSTANCIANDO O STORE
 
 const songInfo = useMusicPresentationStore();
 
-const lyric = ref<string>(''); 
+const lyric = ref<string>('');
 const currentTab = ref('slides');
 const isProjecting = ref(false);
 const currentSlideIndex = ref<number>(0);
-const previewContainer = ref<HTMLElement | null>(null);
+// const previewContainer = ref<HTMLElement | null>(null);
+
+const isPresetModalOpen = ref(false)
 
 const screenResolution = ref({ width: 1920, height: 1080 });
 const screenRatio = computed(() => screenResolution.value.width / screenResolution.value.height);
-
-// Drag & Drop (Mantido aqui pois interage diretamente com o DOM do Preview)
-const interactionType = ref<string | null>(null);
-const startMouse = { x: 0, y: 0 };
-const startBox = { x: 0, y: 0, w: 0, h: 0 };
-let startFontSize = 0; 
 
 // AQUI ESTÁ O SEGREDO: Atalhos para os valores do Store para facilitar a leitura no componente principal
 const design = computed(() => infoPresentationStore.design);
@@ -44,92 +41,120 @@ const textStyles = computed(() => infoPresentationStore.textStyles);
 // --- PROCESSAMENTO DOS SLIDES (MANTIDO) ---
 watch(() => songInfo.activeSong, () => { currentSlideIndex.value = 0; });
 
-const parseSlides = function(rawText: string) {
-  const lines = rawText.split('\n')
-  const estrofes = []
-  let chorusLines = []
-  let chorus = []
-  let buffer = []
-  const typeText = []
-  const typeSlides = []
+const parseSlides = function (rawText: string, targetLines: number = 4, maxLines: number = 5) {
+    const lines = rawText.split('\n')
+    const estrofes = []
+    let chorusLines = []
+    let chorus = []
+    let buffer = []
+    const typeText = []
+    const typeSlides = <any>[]
 
-  // Pré-define o que é refrão e o que é estrofe
-  for (let line of lines) {
-    // Quebra de linha
-    if (!line.trim()) {
-      if (buffer.length > 0) {
-        estrofes.push(buffer.join('\n'))
-        buffer = []
-        typeText.push(0) // Estrofe
-      }
+    // Pré-define o que é refrão e o que é estrofe
+    for (let line of lines) {
+        // Quebra de linha
+        if (!line.trim()) {
+            if (buffer.length > 0) {
+                estrofes.push(buffer.join('\n'))
+                buffer = []
+                typeText.push(0) // Estrofe
+            }
 
-      if (chorusLines.length > 0) {
-        if (chorus.length < 1) {
-          typeText.push(1)
+            if (chorusLines.length > 0) {
+                if (chorus.length < 1) {
+                    typeText.push(1)
+                } else {
+                    typeText.push(chorus.length + 1)
+                }
+                chorus.push(chorusLines.join('\n'))
+                chorusLines = []
+            }
+            // Refrão (linha com 5 espaços)
+        } else if (/^\s{5}/.test(line)) {
+            chorusLines.push(line.trim())
         } else {
-          typeText.push(chorus.length + 1)
+            buffer.push(line.trim())
         }
+    }
+
+    if (buffer.length > 0) {
+        estrofes.push(buffer.join('\n'))
+        typeText.push(0)
+    }
+
+    if (chorusLines.length > 0) {
+        typeText.push(chorus.length + 1)
         chorus.push(chorusLines.join('\n'))
-        chorusLines = []
-      }
-      // Refrão (linha com 5 espaços)
-    } else if (/^\s{5}/.test(line)) {
-      chorusLines.push(line.trim())
-    } else {
-      buffer.push(line.trim())
-    }
-  }
-
-  if (buffer.length > 0) {
-    estrofes.push(buffer.join('\n'))
-    typeText.push(0)
-  }
-
-  if (chorusLines.length > 0) {
-    typeText.push(chorus.length + 1)
-    chorus.push(chorusLines.join('\n'))
-  }
-
-  const slides = []
-  let countChorus = 0
-  let countVerse = 0
-  let afterChorus = false
-  let onVerse = false
-  let sType = 0
-
-  // Constroí os slides e adiciona o refrão onde é necessário
-  for (let i = 0; i < typeText.length; i++) {
-    sType = typeText[i]
-    if (sType == 0) {
-      slides.push(estrofes[countVerse])
-      countVerse++
-      typeSlides.push(0)
-      onVerse = true
-    } else if (sType == 1) {
-      slides.push(chorus[0])
-      onVerse = false
-      typeSlides.push(1)
-      afterChorus = true
-    } else {
-      countChorus++
-      slides.push(chorus[countChorus])
-      typeSlides.push(1)
-      onVerse = false
     }
 
-    if ((i + 1) < typeText.length) {
-      if (afterChorus && onVerse && typeText[i + 1] < 1) {
-        slides.push(chorus[countChorus])
-        typeSlides.push(1)
-      }
-    } else {
-      if (afterChorus && onVerse) {
-        slides.push(chorus[countChorus])
-        typeSlides.push(1)
-      }
+    const slides: string[] = [];
+    let countChorus = 0;
+    let countVerse = 0;
+    let afterChorus = false;
+    let onVerse = false;
+
+    // Função interna que corta o texto e joga nas arrays finais
+    const addBlock = (text: string, type: number) => {
+        const chunks = splitTextBlock(text, targetLines, maxLines);
+        chunks.forEach(chunk => {
+            slides.push(chunk);
+            typeSlides.push(type);
+        });
+    };
+
+    // Constrói os slides usando o addBlock (muito mais limpo!)
+    for (let i = 0; i < typeText.length; i++) {
+        let sType = typeText[i];
+        if (sType == 0) {
+            addBlock(estrofes[countVerse], 0);
+            countVerse++;
+            onVerse = true;
+        } else if (sType == 1) {
+            addBlock(chorus[0], 1);
+            onVerse = false;
+            afterChorus = true;
+        } else {
+            countChorus++;
+            addBlock(chorus[countChorus], 1);
+            onVerse = false;
+        }
+
+        // Lógica de repetir o refrão
+        if ((i + 1) < typeText.length) {
+            if (afterChorus && onVerse && typeText[i + 1] < 1) {
+                addBlock(chorus[countChorus], 1);
+            }
+        } else {
+            if (afterChorus && onVerse) {
+                addBlock(chorus[countChorus], 1);
+            }
+        }
     }
-  }
-  return { slides, typeSlides }
+    return { slides, typeSlides };
+}
+
+function splitTextBlock(text: string, targetLines: number, maxLines: number): string[] {
+    const lines = text.split('\n');
+    if (lines.length <= maxLines) return [text]; // Passou na tolerância, não corta.
+
+    const chunks: string[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+        let remaining = lines.length - i;
+        let take = targetLines;
+
+        if (remaining <= maxLines) {
+            take = remaining;
+        } else if (remaining > maxLines && remaining < targetLines * 2) {
+            take = Math.ceil(remaining / 2);
+        }
+
+        chunks.push(lines.slice(i, i + take).join('\n'));
+        i += take;
+    }
+
+    return chunks;
 }
 
 const infoSlides = ref(parseSlides("")); // (Sua função parseSlides permanece inalterada)
@@ -138,6 +163,9 @@ const songSlides = computed(() => {
     if (!songInfo.activeSong) return [];
     return infoSlides.value.slides.map((block, index) => {
         let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
+        if(infoSlides.value.typeSlides[index] == -1) {
+            label = "título"
+        }
         return { label, text: block };
     });
 });
@@ -155,71 +183,17 @@ const currentSlideType = computed(() => {
 
 const currentActiveStyle = computed(() => textStyles.value[currentSlideType.value]);
 
-// Lógica de Drag & Drop (Atualizada para usar o store)
-const startAction = (e: MouseEvent, type: string) => {
-    e.preventDefault();
-    if (currentTab.value !== 'posicao') return;
-
-    interactionType.value = type;
-    startMouse.x = e.clientX;
-    startMouse.y = e.clientY;
-
-    // Lendo do Store diretamente
-    startBox.x = infoPresentationStore.design.posX;
-    startBox.y = infoPresentationStore.design.posY;
-    startBox.w = infoPresentationStore.design.width;
-    startBox.h = infoPresentationStore.design.height;
-
-    startFontSize = currentActiveStyle.value.fontSize;
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', stopAction);
+// Função que recebe a nova fonte do Drag&Drop (quando o autoFontSize está ligado)
+const handleFontSizeUpdate = (newSize: number) => {
+    infoPresentationStore.textStyles[currentSlideType.value].fontSize = newSize;
 };
 
-const onMove = (e: MouseEvent) => {
-    if (!interactionType.value || !previewContainer.value) return;
-
-    const rect = previewContainer.value.getBoundingClientRect();
-    const deltaX = ((e.clientX - startMouse.x) / rect.width) * 100;
-    const deltaY = ((e.clientY - startMouse.y) / rect.height) * 100;
-
-    let newX = startBox.x, newY = startBox.y, newW = startBox.w, newH = startBox.h;
-
-    switch (interactionType.value) {
-        case 'move': newX = startBox.x + deltaX; newY = startBox.y + deltaY; break;
-        case 'br': newW = startBox.w + deltaX; newH = startBox.h + deltaY; break;
-        case 'bl': newW = startBox.w - deltaX; newX = startBox.x + deltaX; newH = startBox.h + deltaY; break;
-        case 'tr': newW = startBox.w + deltaX; newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
-        case 'tl': newW = startBox.w - deltaX; newX = startBox.x + deltaX; newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
-        case 'r': newW = startBox.w + deltaX; break;
-        case 'l': newW = startBox.w - deltaX; newX = startBox.x + deltaX; break;
-        case 'b': newH = startBox.h + deltaY; break;
-        case 't': newH = startBox.h - deltaY; newY = startBox.y + deltaY; break;
-    }
-
-    const minSize = 5;
-    if (newW < minSize) { if (['l', 'tl', 'bl'].includes(interactionType.value)) newX += newW - minSize; newW = minSize; }
-    if (newH < minSize) { if (['t', 'tl', 'tr'].includes(interactionType.value)) newY += newH - minSize; newH = minSize; }
-
-    newX = Math.max(0, Math.min(100 - newW, newX));
-    newY = Math.max(0, Math.min(100 - newH, newY));
-
-    if (infoPresentationStore.autoFontSize && interactionType.value !== 'move') {
-        const scaleRatio = newH / startBox.h;
-        infoPresentationStore.textStyles[currentSlideType.value].fontSize = Math.max(2, Math.min(30, startFontSize * scaleRatio));
-    }
-
-    // Salvando no Store DIRETAMENTE
-    infoPresentationStore.design.posX = Math.round(newX);
-    infoPresentationStore.design.posY = Math.round(newY);
-    infoPresentationStore.design.width = Math.round(newW);
-    infoPresentationStore.design.height = Math.round(newH);
-};
-
-const stopAction = () => {
-    interactionType.value = null;
-    window.removeEventListener('mousemove', onMove);
-    window.removeEventListener('mouseup', stopAction);
+// Função que recebe as novas coordenadas do Drag&Drop e salva na Store
+const handleLayoutUpdate = (newLayout: { posX: number, posY: number, width: number, height: number }) => {
+    infoPresentationStore.design.posX = newLayout.posX;
+    infoPresentationStore.design.posY = newLayout.posY;
+    infoPresentationStore.design.width = newLayout.width;
+    infoPresentationStore.design.height = newLayout.height;
 };
 
 // 1. Descobre o número máximo de linhas na música atual
@@ -239,13 +213,13 @@ const maxAllowedFontSize = computed(() => {
 // 3. Monitora mudanças e "esmaga" a fonte se ela estourar o limite
 watch(maxAllowedFontSize, (newMax) => {
     const styles = ['geral', 'titulo', 'verso', 'refrao'] as const;
-    
+
     styles.forEach(style => {
         if (textStyles.value[style].fontSize > newMax) {
             textStyles.value[style].fontSize = newMax;
         }
     });
-    
+
     if (isProjecting.value) projectCurrentSlide();
 });
 
@@ -259,7 +233,7 @@ function convertToSlideFmt(label: SlideProj[]): SlideExp[] {
     return label.map(slide => ({ text: slide.text, type: (removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral') as SlideExp['type'] }));
 }
 
-function removeAccents(str: string | undefined) : string | null{
+function removeAccents(str: string | undefined): string | null {
     if (!str) return null;
 
     return str
@@ -315,12 +289,12 @@ const projectCurrentSlide = async () => {
 
     try {
         // Converte o objeto para string e envia no campo 'html' (o Rust não liga para o conteúdo)
-        await invoke('update_projection', { 
-            html: JSON.stringify(slidePayload), 
+        await invoke('update_projection', {
+            html: JSON.stringify(slidePayload),
             targetMonitor: conf.selectedMonitor || null
         });
         isProjecting.value = true;
-    } catch (error) { 
+    } catch (error) {
         console.error("Erro ao projetar o slide:", error);
     }
 };
@@ -361,17 +335,31 @@ const handleKeydown = (e: KeyboardEvent) => {
     }
 };
 
+const isSavePresetOpen = ref(false)
+const newPresetName = ref('')
+
+const handleSavePreset = () => {
+    // Evita salvar nomes vazios
+    if (!newPresetName.value.trim()) return;
+
+    // Chama a ação da Store que criamos
+    infoPresentationStore.saveCurrentAsPreset(newPresetName.value.trim());
+
+    // Fecha a modal e limpa o campo
+    isSavePresetOpen.value = false;
+    newPresetName.value = '';
+}
+
 onMounted(() => {
     window.addEventListener('keydown', handleKeydown);
 });
 
-onUnmounted(() => { 
-    stopAction(); 
+onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown);
 });
 
 watch(currentSlideIndex, () => {
-    
+
     songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide); // Log para verificar o slide atual
     if (isProjecting.value) { // Só envia se estiver no modo apresentação
         projectCurrentSlide();
@@ -379,11 +367,39 @@ watch(currentSlideIndex, () => {
 });
 
 watch(() => songInfo.rawLyric, (newValue) => {
+    
     lyric.value = newValue;
-    infoSlides.value = parseSlides(newValue);
-    songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide); 
+    checkEstrutura()
+    
+    songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide);
 });
 
+const checkEstrutura = () => {
+    if (songInfo.rawLyric) {
+        infoSlides.value = parseSlides(
+            songInfo.rawLyric,
+            infoPresentationStore.design.targetLines,
+            infoPresentationStore.design.maxLines
+        );
+
+        // Lógica para Injetar o Slide de Capa se o botão estiver ativo
+        if (infoPresentationStore.design.coverSlide && songInfo.activeSong?.fullName) {
+            infoSlides.value.slides.unshift(songInfo.activeSong.fullName);
+            infoSlides.value.typeSlides.unshift(-1); // -1 pode ser o seu código para "Capa"
+        }
+    }
+}
+
+watch(
+    [
+        () => infoPresentationStore.design.targetLines,
+        () => infoPresentationStore.design.maxLines,
+        () => infoPresentationStore.design.coverSlide
+    ],
+    () => {
+        checkEstrutura()
+    }
+);
 
 
 </script>
@@ -394,99 +410,88 @@ watch(() => songInfo.rawLyric, (newValue) => {
             <v-btn icon variant="text" size="small" class="mr-2" @click="songInfo.toggleSidebar">
                 <v-icon>{{ songInfo.showSidebarLists ? 'mdi-arrow-collapse-left' : 'mdi-arrow-expand-right' }}</v-icon>
             </v-btn>
+
             <v-toolbar-title class="text-subtitle-1 font-weight-bold">
                 {{ songInfo.activeSong ? songInfo.activeSong.fullName : 'Modo de Apresentação' }}
             </v-toolbar-title>
-            
+
             <v-spacer></v-spacer>
+
+            <v-tooltip text="Salvar design atual como um Tema" location="bottom">
+                <template v-slot:activator="{ props }">
+                    <v-btn v-bind="props" icon="mdi-content-save-outline" variant="text"
+                        class="mr-2 text-medium-emphasis" @click="isSavePresetOpen = true"></v-btn>
+                </template>
+            </v-tooltip>
+
+            <v-divider vertical class="mx-2 my-2"></v-divider>
 
             <span v-if="isProjecting" class="text-caption text-medium-emphasis mr-4">
                 (Use ← → para navegar, Esc para sair)
             </span>
 
             <v-btn v-if="songInfo.activeSong && !isProjecting" color="primary" variant="flat" size="small"
-                prepend-icon="mdi-play"
-                @click="projectCurrentSlide">Projetar</v-btn>
-                
+                prepend-icon="mdi-play" @click="projectCurrentSlide">Projetar</v-btn>
+
             <v-btn v-if="songInfo.activeSong && isProjecting" color="error" variant="flat" size="small"
-                prepend-icon="mdi-stop"
-                @click="stopProjection">Parar Apresentação</v-btn>
+                prepend-icon="mdi-stop" @click="stopProjection">Parar Apresentação</v-btn>
         </v-toolbar>
 
         <div v-if="songInfo.activeSong?._id" class="d-flex flex-column flex-grow-1 overflow-hidden">
 
             <div class="bg-black d-flex align-center justify-center relative flex-shrink-0 preview-wrapper">
-                <div ref="previewContainer" class="preview-screen"
-                    :style="{ aspectRatio: screenRatio, backgroundColor: design.bgType === 'color' ? design.bgColor : '#000' }">
-
-                    <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
-                        class="video-bg" :style="{ objectFit: design.bgFit }" />
-
-                    <video v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
-                        autoplay loop muted class="video-bg" :style="{ objectFit: design.bgFit }"></video>
-
-                    <div class="slide-text-box" :class="{
-                        'is-positioning': currentTab === 'posicao',
-                        'is-active': interactionType !== null
-                    }" :style="{
-                        left: `${design.posX}%`,
-                        top: `${design.posY}%`,
-                        width: `${design.width}%`,
-                        height: `${design.height}%`,
-                        fontFamily: currentActiveStyle.fontFamily
-                    }" @mousedown="startAction($event, 'move')">
-
-                        <div class="text-inner-content" :style="{
-                            fontSize: `${currentActiveStyle.fontSize}cqi`,
-                            textAlign: currentActiveStyle.align,
-                            fontWeight: currentActiveStyle.bold ? 'bold' : 'normal',
-                            fontStyle: currentActiveStyle.italic ? 'italic' : 'normal',
-                            color: currentActiveStyle.color,
-                            width: '100%',
-                            maxHeight: '100%',
-                            overflow: 'hidden'
-                        }">
-                            {{ currentSlideText }}
-                        </div>
-
-                        <template v-if="currentTab === 'posicao'">
-                            <div class="handle tl" @mousedown.stop="startAction($event, 'tl')" />
-                            <div class="handle tr" @mousedown.stop="startAction($event, 'tr')" />
-                            <div class="handle bl" @mousedown.stop="startAction($event, 'bl')" />
-                            <div class="handle br" @mousedown.stop="startAction($event, 'br')" />
-                            <div class="handle t" @mousedown.stop="startAction($event, 't')" />
-                            <div class="handle b" @mousedown.stop="startAction($event, 'b')" />
-                            <div class="handle l" @mousedown.stop="startAction($event, 'l')" />
-                            <div class="handle r" @mousedown.stop="startAction($event, 'r')" />
-                        </template>
-                    </div>
-                </div>
+                <SlidePreview :design="design" :textStyle="currentActiveStyle" :text="currentSlideText"
+                    :screenRatio="screenRatio" :editable="currentTab === 'posicao'"
+                    :autoFontSize="infoPresentationStore.autoFontSize" @update-layout="handleLayoutUpdate"
+                    @update-font-size="handleFontSizeUpdate" />
             </div>
 
             <v-card class="flex-grow-1 rounded-0 elevation-0 d-flex flex-column border-t bg-background">
-                <v-tabs v-model="currentTab" bg-color="surface" density="compact" class="border-b" color="primary">
-                    <v-tab value="slides"><v-icon start>mdi-presentation-play</v-icon>Slides</v-tab>
-                    <v-tab value="fundo"><v-icon start>mdi-image-outline</v-icon>Fundo</v-tab>
-                    <v-tab value="texto"><v-icon start>mdi-format-text</v-icon>Texto</v-tab>
-                    <v-tab value="posicao"><v-icon start>mdi-crosshairs-gps</v-icon>Posição</v-tab>
-                </v-tabs>
+                <div class="d-flex align-center bg-surface border-b flex-shrink-0">
+                    <v-tooltip :text="`Preset Atual: ${infoPresentationStore.currentPreset?.name}`" location="bottom"
+                        v-if="infoPresentationStore.currentPreset">
+                        <template v-slot:activator="{ props }">
+                            <v-chip v-bind="props" class="mx-3 cursor-pointer transition-swing" color="primary"
+                                variant="tonal" prepend-icon="mdi-palette-outline" @click="isPresetModalOpen = true">
+                                Tema
+                            </v-chip>
+                        </template>
+                    </v-tooltip>
 
-                <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
-                    <v-window v-model="currentTab" class="fill-height">
-                        
-                        <v-window-item value="slides" class="pa-4 fill-height overflow-y-auto">
+                    <v-divider vertical class="my-2" v-if="infoPresentationStore.currentPreset"></v-divider>
+                    <v-tabs v-model="currentTab" bg-color="surface" density="compact" class="flex-grow-1"
+                        color="primary">
+                        <v-tab value="slides"><v-icon start>mdi-presentation-play</v-icon>Slides</v-tab>
+                        <v-tab value="estrutura"><v-icon start>mdi-format-list-bulleted-type</v-icon>Estrutura</v-tab>
+                        <v-tab value="fundo"><v-icon start>mdi-image-outline</v-icon>Fundo</v-tab>
+                        <v-tab value="texto"><v-icon start>mdi-format-text</v-icon>Texto</v-tab>
+                        <v-tab value="posicao"><v-icon start>mdi-crosshairs-gps</v-icon>Posição</v-tab>
+
+                    </v-tabs>
+                </div>
+
+                <v-card-text class="flex-grow-1 overflow-hidden pa-0 d-flex flex-column">
+
+                    <v-window v-model="currentTab" class="flex-grow-1">
+
+                        <v-window-item value="slides" class="pa-4 h-100 overflow-y-auto">
                             <TabSlides :slides="songSlides" v-model:currentSlideIndex="currentSlideIndex" />
                         </v-window-item>
-                        
-                        <v-window-item value="fundo" class="pa-6 fill-height">
+
+                        <v-window-item value="estrutura" class="pa-4 h-100 overflow-y-auto">
+                            <TabEstrutura :slides="songSlides" v-model:currentSlideIndex="currentSlideIndex" />
+                        </v-window-item>
+
+                        <v-window-item value="fundo" class="pa-6 h-100 overflow-y-auto">
                             <TabBackground />
                         </v-window-item>
 
-                        <v-window-item value="texto" class="fill-height overflow-y-auto pa-2 pa-sm-4">
+                        <v-window-item value="texto" class="pa-2 pa-sm-4 h-100 overflow-y-auto">
                             <TabText :maxAllowedFontSize="maxAllowedFontSize" />
                         </v-window-item>
-                        
-                        <v-window-item value="posicao" class="pa-6 fill-height d-flex flex-column align-center justify-center">
+
+                        <v-window-item value="posicao"
+                            class="pa-6 h-100 overflow-y-auto d-flex flex-column align-center justify-center">
                             <TabPosition />
                         </v-window-item>
 
@@ -500,161 +505,57 @@ watch(() => songInfo.rawLyric, (newValue) => {
             <h3 class="font-weight-medium">Selecione uma música no repertório</h3>
         </div>
     </div>
+    <v-dialog v-model="isPresetModalOpen" max-width="900">
+        <v-card rounded="lg">
+            <v-card-title class="d-flex align-center border-b bg-surface-light pa-4">
+                <v-icon icon="mdi-palette" class="mr-2" color="primary"></v-icon>
+                Galeria de Temas
+                <v-spacer></v-spacer>
+                <v-btn icon="mdi-close" variant="text" @click="isPresetModalOpen = false"></v-btn>
+            </v-card-title>
+
+            <v-card-text class="pa-6 bg-background">
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
+
+                    <v-card v-for="preset in infoPresentationStore.presets" :key="preset.id" hover
+                        class="d-flex flex-column rounded-lg overflow-hidden border"
+                        :class="{ 'border-primary border-md': infoPresentationStore.currentPresetId === preset.id }"
+                        @click="infoPresentationStore.applyPreset(preset.id); isPresetModalOpen = false;">
+                        <SlidePreview :design="preset.design" :textStyle="preset.textStyles[currentSlideType]"
+                            :text="songInfo.currentSlide.text" :screenRatio="screenRatio" :editable="false"
+                            style="height: 140px; border-radius: 0;" />
+
+                        <div class="pa-3 text-center bg-surface">
+                            <span class="text-subtitle-2 font-weight-bold">{{ preset.name }}</span>
+                        </div>
+                    </v-card>
+
+                </div>
+            </v-card-text>
+        </v-card>
+    </v-dialog>
+    <v-dialog v-model="isSavePresetOpen" max-width="400">
+        <v-card rounded="lg">
+            <v-card-title class="d-flex align-center border-b bg-surface-light pa-4 text-subtitle-1">
+                <v-icon icon="mdi-content-save-cog" class="mr-2" color="primary"></v-icon>
+                Salvar Novo Tema
+            </v-card-title>
+
+            <v-card-text class="pa-4 pt-6">
+                <v-text-field v-model="newPresetName" label="Nome do Tema"
+                    placeholder="Ex: Culto de Domingo, Acústico..." variant="outlined" density="comfortable" autofocus
+                    hide-details @keyup.enter="handleSavePreset"></v-text-field>
+            </v-card-text>
+
+            <v-card-actions class="pa-4 pt-0 border-t bg-surface-light">
+                <v-spacer></v-spacer>
+                <v-btn variant="text" color="medium-emphasis" @click="isSavePresetOpen = false">
+                    Cancelar
+                </v-btn>
+                <v-btn variant="flat" color="primary" @click="handleSavePreset" :disabled="!newPresetName.trim()">
+                    Salvar Tema
+                </v-btn>
+            </v-card-actions>
+        </v-card>
+    </v-dialog>
 </template>
-
-<style scoped>
-/* O seu bloco <style> não precisou de alteração, mantém as configurações de exibição */
-.preview-wrapper {
-    height: 45vh;
-    padding: 24px;
-}
-
-.preview-screen {
-    width: 100%;
-    max-width: 900px;
-    max-height: 100%;
-    border-radius: 4px;
-    overflow: hidden;
-    position: relative;
-    transition: aspect-ratio 0.3s ease;
-}
-
-.video-bg {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 0;
-}
-
-.slide-text-box {
-    position: absolute;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    color: white;
-    /* Cor da fonte em branco na projeção */
-    text-align: center;
-    white-space: pre-wrap;
-    user-select: none;
-    border: 2px dashed rgba(255, 255, 255, 0.6);
-    background-color: rgba(33, 150, 243, 0.1);
-    cursor: move;
-
-    container-type: inline-size;
-}
-
-.text-inner-content {
-    pointer-events: none;
-}
-
-.slide-text-box.is-positioning {
-    border: 2px dashed rgba(255, 255, 255, 0.8);
-    background-color: rgba(0, 0, 0, 0.2);
-    cursor: grab;
-}
-
-.slide-text-box.is-dragging {
-    cursor: grabbing;
-    border-color: #2196F3;
-    background-color: rgba(33, 150, 243, 0.2);
-    transition: none;
-}
-
-.border-primary {
-    border-color: rgb(var(--v-theme-primary)) !important;
-    border-width: 2px !important;
-}
-
-.text-truncate-multiline {
-  display: -webkit-box;
-  -webkit-line-clamp: 4; 
-  line-clamp: 4;/* Limita a 4 linhas no preview */
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.gap-2 {
-    gap: 8px;
-}
-
-.is-active {
-    border-color: #2196F3;
-    background-color: rgba(33, 150, 243, 0.2);
-}
-
-.handle {
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    background: white;
-    border: 2px solid #1976d2;
-    border-radius: 50%;
-}
-
-.tl {
-    top: -6px;
-    left: -6px;
-    cursor: nwse-resize;
-}
-
-.tr {
-    top: -6px;
-    right: -6px;
-    cursor: nesw-resize;
-}
-
-.bl {
-    bottom: -6px;
-    left: -6px;
-    cursor: nesw-resize;
-}
-
-.br {
-    bottom: -6px;
-    right: -6px;
-    cursor: nwse-resize;
-}
-
-.t {
-    top: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    cursor: ns-resize;
-}
-
-.b {
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    cursor: ns-resize;
-}
-
-.l {
-    left: -6px;
-    top: 50%;
-    transform: translateY(-50%);
-    cursor: ew-resize;
-}
-
-.r {
-    right: -6px;
-    top: 50%;
-    transform: translateY(-50%);
-    cursor: ew-resize;
-}
-
-.color-btn {
-    transition: all 0.2s ease;
-}
-
-.color-btn.selected-color {
-    outline: 2px solid rgb(var(--v-theme-primary));
-    outline-offset: 3px;
-    transform: scale(1.1); /* Dá um leve zoom no botão selecionado */
-}
-</style>
