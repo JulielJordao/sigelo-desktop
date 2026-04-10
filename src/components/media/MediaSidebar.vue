@@ -78,8 +78,14 @@ const toggleVolume = async () => {
 
 // Quando receber o evento @setFixed da MediaSidebar:
 const handleSetFixed = async (file: MediaFile) => {
-  await emit('set-fixed-media', file);
-  mediaStore.setFixedMedia(file);
+  if(file.id === mediaStore.fixedMedia?.id) {
+    await emit('set-fixed-media', null);
+    await emit('clear-projection')
+    mediaStore.setFixedMedia(null);
+  } else {
+    await emit('set-fixed-media', file);
+    mediaStore.setFixedMedia(file);
+  }
 };
 
 // Crie um botão "Limpar Tela" na sua interface e dispare isso para terminar a apresentação:

@@ -8,11 +8,11 @@ import type { MediaFile } from '../stores/mediaStore';
 
 import { useConfigStore } from '../stores/useConfigStore';
 
+const isDev = import.meta.env.DEV;
+
 const configStore = useConfigStore();
 
 const mediaStore = useMediaStore();
-
-const { setFixedMedia } = mediaStore;
 
 interface MediaControlPayload {
     action: 'play' | 'pause' | 'mute' | 'unmute' | 'restart';
@@ -39,6 +39,7 @@ let unlistenFixed: UnlistenFn | null = null;
 let unlistenClear: UnlistenFn | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 let unlistenMediaControl: UnlistenFn | null = null;
+let unlistenRemoveFixed: UnlistenFn | null = null;
 
 const videoRef = ref<HTMLVideoElement | null>(null);
 
@@ -117,8 +118,8 @@ onMounted(async () => {
     unlistenFixed = await listen<MediaFile>('set-fixed-media', async (event) => {
         const oldFixedMedia = {...mediaStore.fixedMedia}
 
-        debugLog.value = `Mídia fixa definida: ${event.payload.isVideo}`;
-        await setFixedMedia(event.payload);
+        debugLog.value = `Mídia fixa definida: ${event.payload?.isVideo}`;
+        await mediaStore.setFixedMedia(event.payload);
 
         if ((projectionType.value === 'none' || projectionType.value === 'fixed') && oldFixedMedia.id != event.payload.id) {
             projectionType.value = 'fixed';
@@ -131,12 +132,12 @@ onMounted(async () => {
                 console.error("Erro ao exibir janela de projeção:", err);
             }
         }
-      
     });
 
-    unlistenClear = await listen('clear-projection', () => {
+    unlistenClear = await listen<boolean>('clear-projection', (event) => {
+        const cleanFixed = event.payload;
 
-        projectionType.value = mediaStore.fixedMedia ? 'fixed' : 'none';
+        projectionType.value = mediaStore.fixedMedia && !cleanFixed ? 'fixed' : 'none';
         debugLog.value = mediaStore.fixedMedia + "";
     });
 
@@ -240,7 +241,7 @@ onUnmounted(() => {
 
         <div v-else class="w-100 h-100 bg-black"></div>
 
-        <div style="position: absolute; top: 10px; left: 10px; background: rgba(255,0,0,0.8); color: white; padding: 10px; z-index: 9999; font-weight: bold; border-radius: 4px;">
+        <div v-if="isDev" style="position: absolute; top: 10px; left: 10px; background: rgba(255,0,0,0.8); color: white; padding: 10px; z-index: 9999; font-weight: bold; border-radius: 4px;">
             DEBUG: {{ debugLog }}
         </div>
 

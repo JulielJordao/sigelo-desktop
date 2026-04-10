@@ -26,10 +26,9 @@ watch(() => mediaStore.fixedMedia, (newVal) => {
 const toggleFixedMedia = async () => {
   isFixedActive.value = !isFixedActive.value;
   if (isFixedActive.value) {
-    await tauriEmit('set-fixed-media', mediaStore.fixedMedia);
+    await tauriEmit('clear-projection')
   } else {
-    await tauriEmit('set-fixed-media', null);
-    await tauriEmit('clear-projection');
+    await tauriEmit('clear-projection', true);
   }
 };
 
@@ -41,12 +40,13 @@ const removeFixedMedia = async () => {
 };
 
 const formatDuration = (seconds: number | undefined) => {
-    if (!seconds) return '--:--';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  if (!seconds) return '--:--';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s < 10 ? '0' : ''}${s}`;
 };
 
+/*
 const projectYoutubeVideo = async (video: MediaFile) => {
   console.log(video)
   // Converte o caminho físico do disco para um caminho que a tag <video> do Vue consiga ler
@@ -57,14 +57,14 @@ const projectYoutubeVideo = async (video: MediaFile) => {
   mediaStore.setFixedMedia(video);
 
   // O seu watch do 'mediaStore.fixedMedia' no AppHeader já vai cuidar de projetar!
-};
+}; */
 
 const openCacheFolder = async () => {
-    try {
-        await invoke('open_youtube_cache_folder');
-    } catch (error) {
-        console.error("Erro ao abrir pasta do cache:", error);
-    }
+  try {
+    await invoke('open_youtube_cache_folder');
+  } catch (error) {
+    console.error("Erro ao abrir pasta do cache:", error);
+  }
 };
 
 // ATUALIZADO: Agora os emits enviam o "tipo" de ação
@@ -116,25 +116,20 @@ onUnmounted(() => {
           </template>
 
           <v-card min-width="320" max-width="400" class="elevation-4 border rounded-lg mt-2">
-            <div class="bg-surface-light px-4 py-1 border-b d-flex align-center justify-space-between text-subtitle-2 font-weight-bold">
-    <div class="d-flex align-center">
-        <v-icon size="small" color="error" class="mr-2">mdi-youtube</v-icon>
-        <span>Arquivos do YouTube</span>
-    </div>
+            <div
+              class="bg-surface-light px-4 py-1 border-b d-flex align-center justify-space-between text-subtitle-2 font-weight-bold">
+              <div class="d-flex align-center">
+                <v-icon size="small" color="error" class="mr-2">mdi-youtube</v-icon>
+                <span>Arquivos do YouTube</span>
+              </div>
 
-    <v-tooltip text="Abrir pasta no computador" location="top">
-        <template v-slot:activator="{ props }">
-            <v-btn 
-                v-bind="props" 
-                icon="mdi-folder-open-outline" 
-                variant="text" 
-                size="small" 
-                color="medium-emphasis"
-                @click="openCacheFolder"
-            ></v-btn>
-        </template>
-    </v-tooltip>
-</div>
+              <v-tooltip text="Abrir pasta no computador" location="top">
+                <template v-slot:activator="{ props }">
+                  <v-btn v-bind="props" icon="mdi-folder-open-outline" variant="text" size="small"
+                    color="medium-emphasis" @click="openCacheFolder"></v-btn>
+                </template>
+              </v-tooltip>
+            </div>
 
             <v-list density="compact" lines="two" class="pa-0" max-height="400" style="overflow-y: auto;">
               <v-list-item v-for="video in youtubeStore.cachedVideos" :key="video.name" class="border-b pa-3">
@@ -160,6 +155,7 @@ onUnmounted(() => {
                   {{ video.size_mb }} MB
                 </v-list-item-subtitle>
 
+                <!--
                 <template v-slot:append>
                   <div class="d-flex align-center gap-1">
                     <v-tooltip text="Projetar como Fundo" location="top">
@@ -176,7 +172,7 @@ onUnmounted(() => {
                       </template>
                     </v-tooltip>
                   </div>
-                </template>
+                </template> -->
               </v-list-item>
             </v-list>
           </v-card>

@@ -169,8 +169,12 @@ export const usePresentationStore = defineStore('presentation', () => {
         const storeData = await tauriStore.value.get<Preset>('default_preset')
         
         if(storeData) {
-            currentPresetId.value = storeData.id
-            currentPresetIsLoaded.value = true
+            if(presets.value.some(it => it.id === storeData.id)) {
+                currentPresetId.value = storeData.id
+                currentPresetIsLoaded.value = true
+            } else {
+                currentPresetId.value = presets.value[0].id
+            }
         }
     }
 

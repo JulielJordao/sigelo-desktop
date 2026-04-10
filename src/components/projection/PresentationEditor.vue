@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
+import { ask } from '@tauri-apps/plugin-dialog';
+import { emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
@@ -306,13 +308,13 @@ const projectCurrentSlide = async () => {
 const stopProjection = async () => {
     isProjecting.value = false;
     try {
-        await invoke('stop_projection');
+        await emit('clear-projection');
     } catch (error) {
         console.error("Erro ao parar a projeção:", error);
     }
 };
 
-const handleKeydown = (e: KeyboardEvent) => {
+const handleKeydown = async (e: KeyboardEvent) => {
     if (!isProjecting.value) return; // Só funciona se a projeção estiver rodando
 
     switch (e.key) {
@@ -332,9 +334,16 @@ const handleKeydown = (e: KeyboardEvent) => {
             break;
         case 'Escape':
             // Pergunta se quer encerrar ao apertar ESC
-            if (confirm("Deseja encerrar a apresentação?")) {
-                stopProjection();
-            }
+            const confirmed = await ask('Deseja realmente encerrar a apresentação?', { 
+                    title: 'Sigelo',
+                    kind: 'warning', // Dá um destaque visual de aviso
+                    okLabel: 'Sim, Encerrar',
+                    cancelLabel: 'Cancelar'
+                });
+
+                if (confirmed) {
+                    stopProjection();
+                }
             break;
     }
 };
@@ -393,8 +402,8 @@ watch(
     }
 );
 
-const updateCurrentPreset = ()=> {
-    if(infoPresentationStore.currentPresetId) {
+const updateCurrentPreset = () => {
+    if (infoPresentationStore.currentPresetId) {
         infoPresentationStore.updateActivePreset();
     }
 }

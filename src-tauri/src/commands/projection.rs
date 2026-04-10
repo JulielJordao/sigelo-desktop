@@ -2,38 +2,63 @@ use crate::projection::renderer::render_html;
 use tauri::{AppHandle, Manager, Position}; // Mantemos o import para usar a função mais abaixo
 
 #[tauri::command]
-pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<String>) {
-    // 1. Atualiza o estado e emite o evento para o Vue (Isso não rouba foco)
+pub fn update_projection(app: tauri::AppHandle, html: String, target_monitor: Option<String>) {
+    // 1. Atualiza o conteúdo HTML
     crate::projection::renderer::render_html(&app, html);
 
     // 2. Manipulação da janela
     if let Some(window) = app.get_webview_window("projection") {
-        // Só mexe na posição e no fullscreen se a janela estiver invisível
         let is_visible = window.is_visible().unwrap_or(false);
 
+        // A. Garante que a janela está visível
         if !is_visible {
             let _ = window.show();
             let _ = window.unminimize();
-
-            // Move para o monitor correto
-            if let Some(monitor_name) = target_monitor {
-                if let Ok(monitors) = app.available_monitors() {
-                    if let Some(monitor) = monitors
-                        .into_iter()
-                        .find(|m| m.name() == Some(&monitor_name))
-                    {
-                        let position = monitor.position();
-                        let _ = window.set_position(tauri::Position::Physical(*position));
-                    }
-                }
-            }
-
             let _ = window.set_fullscreen(true);
-
-            // BÔNUS: Devolve o foco para o editor principal imediatamente
-            // Assim, você não precisa clicar no editor de novo para usar as setas do teclado!
+            
+            // Devolve o foco ao principal ao abrir pela primeira vez
             if let Some(main_window) = app.get_webview_window("main") {
                 let _ = main_window.set_focus();
+            }
+        }
+
+        // B. Lógica dinâmica de Monitor (Funciona mesmo com ela já aberta)
+        if let Some(target_name) = target_monitor {
+            let mut needs_move = false;
+
+            // Descobre em qual monitor a janela de projeção está rodando AGORA
+            if let Ok(Some(current_monitor)) = window.current_monitor() {
+                // Se o nome do monitor atual for diferente do alvo nas configurações, precisamos mover
+                if current_monitor.name() != Some(&target_name) {
+                    needs_move = true;
+                }
+            } else {
+                needs_move = true; // Se falhar em ler, move por precaução
+            }
+
+            // Se o monitor mudou, faz a realocação
+            if needs_move {
+                if let Ok(monitors) = app.available_monitors() {
+                    if let Some(monitor) = monitors.into_iter().find(|m| m.name() == Some(&target_name)) {
+                        
+                        // TRUQUE PARA MAC/WINDOWS: Tirar do fullscreen antes de mover para outra tela
+                        // evita bugs visuais ou travamentos do sistema operacional.
+                        let _ = window.set_fullscreen(false);
+                        
+                        // Move para as coordenadas do novo monitor
+                        let position = monitor.position();
+                        let _ = window.set_position(tauri::Position::Physical(*position));
+                        
+                        // Volta para o fullscreen na tela nova
+                        let _ = window.set_fullscreen(true);
+
+                        // Como a janela piscou de uma tela para outra, o SO pode ter roubado o foco.
+                        // Devolvemos o foco IMEDIATAMENTE para o app principal.
+                        if let Some(main_window) = app.get_webview_window("main") {
+                            let _ = main_window.set_focus();
+                        }
+                    }
+                }
             }
         }
     }
