@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import { usePresentationStore } from '../../stores/usePresentationStore';
-
+import FontSelector from '../utils/FontSelector.vue';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 
 const songInfo = useMusicPresentationStore();
@@ -10,13 +10,6 @@ defineProps<{ maxAllowedFontSize: number }>();
 
 const store = usePresentationStore();
 const activeTextSetting = ref<'geral' | 'titulo' | 'verso' | 'refrao'>('geral');
-const fontOptions = [
-    { title: 'Arial', value: 'Arial' },
-    { title: 'Verdana', value: 'Verdana' },
-    { title: 'Roboto', value: 'Roboto' },
-    { title: 'Times New Roman', value: 'Times New Roman' },
-    { title: 'Inter', value: 'Inter' }
-];
 
 watch(() => songInfo.getCurrentSlideType, (newValue) => {
     if (newValue) {
@@ -92,26 +85,8 @@ onMounted(() => {
                     </v-col>
 
                     <v-col cols="12" md="6">
-                        <p class="text-caption font-weight-bold mb-2">Família da Fonte</p>
-                        <v-select v-model="store.textStyles[activeTextSetting].fontFamily" :items="fontOptions"
-                            item-title="title" item-value="value" variant="outlined" density="compact" class="mb-6"
-                            hide-details>
-                            <template #item="{ props, item }">
-                                <v-list-item v-bind="props">
-                                    <template #title>
-                                        <span :style="{ fontFamily: item.value }">
-                                            {{ item.title }}
-                                        </span>
-                                    </template>
-                                </v-list-item>
-                            </template>
+                        <FontSelector v-model="store.textStyles[activeTextSetting].fontFamily" class="mb-6" />
 
-                            <template #selection="{ item }">
-                                <span :style="{ fontFamily: item.value }">
-                                    {{ item.title }}
-                                </span>
-                            </template>
-                        </v-select>
 
                         <p class="text-caption font-weight-bold mb-2">Estilo</p>
                         <div class="d-flex gap-2 mb-4 mb-md-0">

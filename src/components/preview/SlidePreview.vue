@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from 'vue';
+import { useConfigStore } from '../../stores/useConfigStore';
+
+const configStore = useConfigStore()
 
 const props = defineProps({
     // Recebe o design e o estilo específicos
@@ -107,6 +110,10 @@ onUnmounted(() => {
         <video v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" :src="design.bgMedia" autoplay
             loop muted class="video-bg" :style="{ objectFit: design.bgFit }"></video>
 
+        <div 
+            class="dark-overlay" 
+            :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"
+        ></div>
         <div class="slide-text-box" :class="{
             'is-positioning': editable,
             'is-active': interactionType !== null
@@ -162,18 +169,29 @@ onUnmounted(() => {
     transition: aspect-ratio 0.3s ease;
 }
 
+.dark-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2; /* Nível 2 - Acima do fundo */
+    pointer-events: none; 
+    transition: background-color 0.3s ease; 
+}
+
 .video-bg {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 0;
+    z-index: 1;
 }
 
 .slide-text-box {
     position: absolute;
-    z-index: 10;
+    z-index: 20;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -192,6 +210,7 @@ onUnmounted(() => {
 
 .text-inner-content {
     pointer-events: none;
+    z-index: 3;
 }
 
 .slide-text-box.is-positioning {

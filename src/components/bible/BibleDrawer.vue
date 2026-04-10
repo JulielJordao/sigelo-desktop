@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, watch, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core'; 
 import { useConfigStore } from '../../stores/useConfigStore'; // Ajuste o caminho se necessário
 import bibleData from "../../data/bible.json"
+import FontSelector from '../utils/FontSelector.vue';
+import { api } from '../../routes/index'
 import { calculateMaxFontSize, getMaxCharsFromSlides, getMaxLinesFromSlides } from '../../utils/projection';
 
 const configStore = useConfigStore();
 const emit = defineEmits(['project', 'close']);
+
+const currentTab = ref('texto');
 
 const isOpen = ref(false);
 const step = ref<'book' | 'chapter' | 'verse' | 'loading' | 'view' | 'projecting'>('book');
@@ -88,7 +92,18 @@ const open = async (reference?: { abbr: string, chapter: number, verses?: string
   isOpen.value = true;
   if (reference) {
     step.value = 'loading';
-    await fetchBibleText(reference.abbr, reference.chapter, reference.verses || '1');
+    if(!reference.verses){
+      await fetchBibleText(reference.abbr, true);
+    } else {
+      const splitVerse = reference.verses.split("-")
+      if(splitVerse.length > 1) {
+        verseStart.value = Number.parseInt(splitVerse[0])
+        verseEnd.value = Number.parseInt(splitVerse[1])
+
+        await fetchBibleText(reference.abbr, true);
+      }
+    }
+    
   } else {
     resetSelection();
   }
@@ -104,20 +119,20 @@ const selectBook = (book: any) => { selectedBook.value = book; searchQuery.value
 const selectChapter = (chapterIndex: number) => { selectedChapter.value = chapterIndex; verseStart.value = 1; verseEnd.value = totalVersesInChapter.value; step.value = 'verse'; };
 const confirmVerses = () => {
   let versesStr = verseStart.value === verseEnd.value ? `${verseStart.value}` : `${verseStart.value}-${verseEnd.value}`;
-  fetchBibleText(selectedBook.value.abbr, selectedChapter.value, versesStr);
+  fetchBibleText(selectedBook.value.abbr, false);
 };
-const selectWholeChapter = () => fetchBibleText(selectedBook.value.abbr, selectedChapter.value, `1-${totalVersesInChapter.value}`);
+const selectWholeChapter = () => fetchBibleText(selectedBook.value.abbr, true);
 const resetSelection = () => { selectedBook.value = null; fetchedData.value = null; searchQuery.value = ''; step.value = 'book'; };
 
 // BUSCA NA API
-const fetchBibleText = async (abbr: string, chapter: number | string, verses: string) => {
+const fetchBibleText = async (abbr: string, wholeChapter: boolean) => {
   step.value = 'loading';
   try {
     const normalizedAbbr = abbr.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const url = `http://localhost:3000/api/bible/${normalizedAbbr}/${chapter}/${verses}`;
-    const response = await fetch(url);
-    const data = await response.json();
-    fetchedData.value = data;
+    const verses = wholeChapter ? `1-${totalVersesInChapter.value}` : `${verseStart.value}-${verseEnd.value}`
+    const response = await api.bibleApi(normalizedAbbr, selectedChapter.value, verses)
+
+    fetchedData.value = response;
     step.value = 'view';
   } catch (error) {
     console.error("Erro ao buscar texto bíblico:", error);
@@ -340,14 +355,7 @@ defineExpose({ open, close });
                 <p class="text-caption font-weight-bold mb-1 mt-4">Tamanho da Fonte</p>
                 <v-slider v-model="projectionSettings.fontSize" min="2" :max="maxBibleFontSize" step="0.1" thumb-label color="primary" hide-details></v-slider>
 
-                <p class="text-caption font-weight-bold mb-1 mt-4">Tipo de Fonte</p>
-                <v-select 
-                  v-model="projectionSettings.fontFamily" 
-                  :items="['Roboto', 'Arial', 'Times New Roman', 'Verdana', 'Georgia']" 
-                  variant="outlined" 
-                  density="compact" 
-                  hide-details
-                ></v-select>
+                <font-selector v-model="projectionSettings.fontFamily"></font-selector>
 
                 <div class="d-flex align-center mt-4 mb-2">
                   <v-checkbox v-model="projectionSettings.showReference" label="Exibir Referência no Rodapé" color="primary" density="compact" hide-details></v-checkbox>
@@ -416,12 +424,6 @@ defineExpose({ open, close });
     </div>
   </v-navigation-drawer>
 </template>
-
-<script lang="ts">
-  // Adicionamos o currentTab para gerenciar as abas de Texto e Configuração
-  import { ref } from 'vue';
-  const currentTab = ref('texto');
-</script>
 
 <style scoped>
 .line-height-relaxed { line-height: 1.6; }

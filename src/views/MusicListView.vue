@@ -25,7 +25,7 @@ watch(() => songCacheStore.selectedSong, (newValue) => {
   { deep: true })
 
 onMounted(async () => {
-  await presentationStore.fetchGroups();
+  await presentationStore.fetchGroups();  
   await songCacheStore.loadData()
 }); 
 </script>

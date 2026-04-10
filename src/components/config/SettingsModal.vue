@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useConfigStore } from '../../stores/useConfigStore'; 
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir, join } from '@tauri-apps/api/path';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { useTheme } from 'vuetify';
+import { usePresentationStore } from '../../stores/usePresentationStore';
 
+const presentationStore = usePresentationStore()
 const theme = useTheme();
 
 const configStore = useConfigStore();
@@ -53,9 +55,12 @@ const transitionOptions = [
   { title: 'Deslizar (Slide)', value: 'slide' }
 ];
 
-const themeOptions = ['Padrão', 'Culto de Domingo', 'Acampamento Jovem', 'Santa Ceia'];
+const themeOptions = <string[]>[];
 
-const bibleVersions = ['NAA (Nova Almeida Atualizada)', 'NVI (Nova Versão Internacional)', 'ARC (Almeida Revista e Corrigida)'];
+const bibleVersions = ['ACF (Almeida Corrigida e Fiel)'
+//,'NAA (Nova Almeida Atualizada)', 'NVI (Nova Versão Internacional)', 'ARC (Almeida Revista e Corrigida)'
+];
+
 const bibleLayouts = [
   { title: 'Referência Acima do Texto', value: 'top' },
   { title: 'Referência Abaixo (Direita)', value: 'bottom-right' },
@@ -207,6 +212,11 @@ const saveAndClose = () => {
     // 3. Fecha o modal
     configStore.closeDialog();
 }
+
+onMounted(async ()=> {
+  await presentationStore.loadPresets()
+  //presentationStore.presets.forEach(it => themeOptions.push(it.name))
+})
 
 defineExpose({ openDialog })
 </script>
@@ -399,7 +409,7 @@ defineExpose({ openDialog })
                     <span class="text-subtitle-1 font-weight-bold">Dados da Internet</span>
                   </div>
                   <p class="text-caption text-medium-emphasis mb-4">
-                    Bíblias em JSON baixadas, miniaturas e arquivos de atualização.
+                    Bíblias em JSON baixadas, fontes, miniaturas e arquivos de atualização.
                   </p>
                   
                   <h2 class="text-h3 font-weight-black text-secondary mb-6">
@@ -433,10 +443,10 @@ defineExpose({ openDialog })
 
             <v-row class="mb-4">
               <v-col cols="12" md="8">
-                <v-select v-model="localSettings.activeTheme" :items="themeOptions" label="Tema de Projeção Ativo" variant="outlined" density="comfortable" prepend-inner-icon="mdi-palette-swatch" hide-details></v-select>
+                <v-select :disabled="true" v-model="localSettings.activeTheme" :items="themeOptions" label="Tema de Projeção Ativo" variant="outlined" density="comfortable" prepend-inner-icon="mdi-palette-swatch" hide-details></v-select>
               </v-col>
               <v-col cols="12" md="4" class="d-flex align-center">
-                <v-btn prepend-icon="mdi-content-save" color="primary" variant="flat" class="w-100 h-100" style="min-height: 48px;">Salvar Tema</v-btn>
+                <v-btn :disabled="true"  prepend-icon="mdi-content-save" color="primary" variant="flat" class="w-100 h-100" style="min-height: 48px;">Salvar Tema</v-btn>
               </v-col>
             </v-row>
 

@@ -341,7 +341,8 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const isSavePresetOpen = ref(false)
 
-onMounted(() => {
+onMounted(async () => {
+    await infoPresentationStore.loadPresets()
     window.addEventListener('keydown', handleKeydown);
 });
 

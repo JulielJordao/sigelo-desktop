@@ -27,7 +27,7 @@ export const useConfigStore = defineStore('config', () => {
     chromaKey: 'none',
 
     // Bíblia
-    bibleVersion: 'NAA (Nova Almeida Atualizada)',
+    bibleVersion: 'ACF (Almeida Corrigida e Fiel)',
     bibleLayout: 'bottom-right',
     showVerseNumbers: false,
 
