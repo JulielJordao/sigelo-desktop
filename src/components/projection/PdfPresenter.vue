@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';

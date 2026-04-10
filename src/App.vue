@@ -5,6 +5,7 @@ import YoutubeImportModal from './components/youtube/YoutubeImportModal.vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ref, onMounted, computed } from 'vue';
 import { exportToPPTX } from './utils/pptxGen';
+import { exportToPDF } from './utils/pdfGen';
 import { useFontStore } from './stores/useFontStore';
 import { useRoute } from 'vue-router';
 
@@ -38,6 +39,8 @@ const handleImportAction = (type: string) => {
 const handleExportAction = (type: String) => {
   if(type === "pptx"){
     exportToPPTX()
+  } else if(type === 'pdf'){
+    exportToPDF()
   }
   console.log("Usuário clicou em exportar ou usou o menu nativo!");
   // ex: exportToPPTX();

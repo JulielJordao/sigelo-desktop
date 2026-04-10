@@ -11,9 +11,10 @@ const props = defineProps<{
 const musicStore = useMusicPresentationStore()
 const songCacheStore = useSongCacheStore()
 
+/*
 const emit = defineEmits<{
   (e: 'select', id: string): void
-}>();
+}>();*/
 
 // --- Lógica de Busca ---
 const isSearchActive = ref(false);

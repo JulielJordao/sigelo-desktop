@@ -37,9 +37,10 @@ let unlistenScroll: UnlistenFn | null = null;
 let unlistenMedia: UnlistenFn | null = null;
 let unlistenFixed: UnlistenFn | null = null;
 let unlistenClear: UnlistenFn | null = null;
-let syncInterval: ReturnType<typeof setInterval> | null = null;
 let unlistenMediaControl: UnlistenFn | null = null;
-let unlistenRemoveFixed: UnlistenFn | null = null;
+let syncInterval: ReturnType<typeof setInterval> | null = null;
+
+// let unlistenRemoveFixed: UnlistenFn | null = null;
 
 const videoRef = ref<HTMLVideoElement | null>(null);
 
@@ -178,6 +179,7 @@ onUnmounted(() => {
     if (unlistenMedia) unlistenMedia();
     if (unlistenFixed) unlistenFixed();
     if (unlistenClear) unlistenClear();
+    if (unlistenMediaControl) unlistenMediaControl()
     if (syncInterval) clearInterval(syncInterval);
 });
 </script>

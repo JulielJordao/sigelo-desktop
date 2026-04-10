@@ -10,13 +10,9 @@ const configStore = useConfigStore();
 const youtubeStore = useYoutubeStore()
 const conf = configStore.settings;
 
-import { useMenuStore } from '../../stores/menuStore';
-
-const menuStore = useMenuStore();
-
 const mediaStore = useMediaStore();
 
-const isOpen = computed(() => menuStore.menuOpened === 'Media');
+// const isOpen = computed(() => menuStore.menuOpened === 'Media');
 const currentContext = ref<MediaContext>('Media');
 const isDragging = ref(false);
 

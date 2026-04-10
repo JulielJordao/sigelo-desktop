@@ -8,6 +8,7 @@ import { useMenuStore } from '../stores/menuStore';
 import { useYoutubeStore } from '../stores/useYoutubeStore';
 //import { convertFileSrc } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
+import ModalAbout from "./ModalAbout.vue"
 
 const menuStore = useMenuStore();
 const mediaStore = useMediaStore();
@@ -18,6 +19,7 @@ const isMac = osType === 'macos';
 const appWindow = getCurrentWindow();
 
 const isFixedActive = ref(true);
+const showAboutDialog = ref(false)
 
 watch(() => mediaStore.fixedMedia, (newVal) => {
   if (newVal) isFixedActive.value = true;
@@ -99,6 +101,19 @@ onUnmounted(() => {
     v-if="menuStore.menuOpened !== 'PdfPresenter'">
     <div data-tauri-drag-region class="drag-layer"></div>
     <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
+    <v-tooltip text="Sobre o Sigelo" location="bottom">
+      <template v-slot:activator="{ props }">
+        <v-btn 
+          v-bind="props" 
+          icon="mdi-information-variant" 
+          size="small"
+          variant="text" 
+          color="grey-darken-1"
+          class="z-10 ml-2" 
+          @click="showAboutDialog = true"
+        ></v-btn>
+      </template>
+    </v-tooltip>
     <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 
     <div class="z-10 d-flex align-center" :class="isMac ? '' : 'mr-4'">
@@ -266,6 +281,7 @@ onUnmounted(() => {
 
       </v-btn-group>
     </div>
+    <modal-about v-model="showAboutDialog"></modal-about>
 
     <div v-if="!isMac" class="window-controls z-10 d-flex align-center">
       <v-btn icon="mdi-window-minimize" variant="text" class="window-btn" @click="minimize"></v-btn>

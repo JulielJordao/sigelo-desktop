@@ -1,9 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, watch } from 'vue';
-import type { Song } from '../types/song';
 import { load } from '@tauri-apps/plugin-store';
 import type { Store } from '@tauri-apps/plugin-store';
-import { isKeyObject } from 'node:util/types';
 
 export interface SongGroupCache {
     id: string,

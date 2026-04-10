@@ -71,7 +71,7 @@ const updateValue = (val: string | null) => {
                                 {{ item.title }}
                             </span>
                             
-                            <v-chip v-if="item.raw?.isCustom" size="x-small" color="success" variant="flat" class="ml-2">
+                            <v-chip v-if="item.isCustom" size="x-small" color="success" variant="flat" class="ml-2">
                                 Instalada
                             </v-chip>
                         </div>

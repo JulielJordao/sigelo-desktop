@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { useMenuStore } from '../../stores/menuStore';
 import { useEventStore } from '../../stores/eventStore';
 
 import type { Event } from '../../types/event'; 
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 
 const eventStore = useEventStore();
-const menuStore = useMenuStore();
 const musicStore = useMusicPresentationStore();
 
-const isOpen = computed(() => menuStore.menuOpened === 'Events'); 
+//const isOpen = computed(() => menuStore.menuOpened === 'Events'); 
 
 const selectedDate = ref<Date | null>(null);
 const selectedEvent = ref<Event | null>(null);

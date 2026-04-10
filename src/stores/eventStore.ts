@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 import routes from '../routes/index';
 import type { Event } from '../types/event';
 import type { Song } from '../types/song';

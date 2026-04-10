@@ -119,7 +119,7 @@ const close = () => {
 const selectBook = (book: any) => { selectedBook.value = book; searchQuery.value = ''; step.value = 'chapter'; };
 const selectChapter = (chapterIndex: number) => { selectedChapter.value = chapterIndex; verseStart.value = 1; verseEnd.value = totalVersesInChapter.value; step.value = 'verse'; };
 const confirmVerses = () => {
-  let versesStr = verseStart.value === verseEnd.value ? `${verseStart.value}` : `${verseStart.value}-${verseEnd.value}`;
+ // let versesStr = verseStart.value === verseEnd.value ? `${verseStart.value}` : `${verseStart.value}-${verseEnd.value}`;
   fetchBibleText(selectedBook.value.abbr, false);
 };
 const selectWholeChapter = () => fetchBibleText(selectedBook.value.abbr, true);

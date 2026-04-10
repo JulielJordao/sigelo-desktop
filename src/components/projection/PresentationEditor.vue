@@ -10,7 +10,6 @@ import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/project
 import SlidePreview from '../preview/SlidePreview.vue';
 import ModalSavePreset from '../presets/modalSavePreset.vue';
 import ModalSelectPreset from '../presets/modalSelectPreset.vue';
-import { Slide as SlideExp } from '../../utils/pptxGen'; // Importando a interface Slide para tipagem
 
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import type { Slide } from '../../stores/presentationStore';
@@ -230,15 +229,10 @@ watch(maxAllowedFontSize, (newMax) => {
 
     if (isProjecting.value) projectCurrentSlide();
 });
-
+/*
 interface SlideProj {
     label: string;
     text: string;
-}
-
-function convertToSlideFmt(label: SlideProj[]): SlideExp[] {
-    const props = ['título', 'verso', 'refrão', 'geral'];
-    return label.map(slide => ({ text: slide.text, type: (removeAccents(props.find(p => slide.label.toLowerCase().includes(p))) || 'geral') as SlideExp['type'] }));
 }
 
 function removeAccents(str: string | undefined): string | null {
@@ -248,7 +242,7 @@ function removeAccents(str: string | undefined): string | null {
         .toLowerCase()
         .normalize('NFD') // Decompõe os acentos
         .replace(/[\u0300-\u036f]/g, "");
-}
+}*/
 
 const projectCurrentSlide = async () => {
     if (!songInfo.activeSong) return;
@@ -335,10 +329,9 @@ const handleKeydown = async (e: KeyboardEvent) => {
             }
             break;
         case 'Escape':
-            // Pergunta se quer encerrar ao apertar ESC
             const confirmed = await ask('Deseja realmente encerrar a apresentação?', { 
                     title: 'Sigelo',
-                    kind: 'warning', // Dá um destaque visual de aviso
+                    kind: 'warning', 
                     okLabel: 'Sim, Encerrar',
                     cancelLabel: 'Cancelar'
                 });
