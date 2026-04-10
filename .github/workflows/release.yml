@@ -28,6 +28,12 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+        # 1. ESTE PASSO É OBRIGATÓRIO (Instala o Bun no servidor)
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2 # Use v2 para melhor suporte ao Windows
+        with:
+          bun-version: latest
+
       - name: install frontend dependencies
         run: bun install # Ou yarn install
 
