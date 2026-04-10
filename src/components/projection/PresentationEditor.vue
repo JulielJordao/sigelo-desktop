@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
 import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
-import { exportToPPTX } from '../../utils/pptxGen';
+
 import SlidePreview from '../preview/SlidePreview.vue';
 import ModalSavePreset from '../presets/modalSavePreset.vue';
 import ModalSelectPreset from '../presets/modalSelectPreset.vue';
@@ -166,12 +166,14 @@ function splitTextBlock(text: string, targetLines: number, maxLines: number): st
 const infoSlides = ref(parseSlides("")); // (Sua função parseSlides permanece inalterada)
 
 const songSlides = computed(() => {
+    songInfo.listSlides = []
     if (!songInfo.activeSong) return [];
     return infoSlides.value.slides.map((block, index) => {
         let label = infoSlides.value.typeSlides[index] == 0 ? `Slide ${index + 1} - verso` : `Slide ${index + 1} - refrão`
         if (infoSlides.value.typeSlides[index] == -1) {
             label = "título"
         }
+        songInfo.listSlides.push({label: label, text: block})
         return { label, text: block };
     });
 });

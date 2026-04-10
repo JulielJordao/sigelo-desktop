@@ -59,25 +59,25 @@ export const useMediaStore = defineStore('media', () => {
         // a leitura desses arquivos. Como o yt-dlp não gera o mesmo JSON que o seu app,
         // você pode precisar criar uma lógica separada para montar o objeto MediaFile
         // dos vídeos do YouTube, caso o getJsonFiles ignore vídeos sem JSON próprio.
-        
+
         // Exemplo simplificado de como ler direto sem depender do getJsonFiles:
         for (const entry of ytEntries) {
-            if (entry.isFile && entry.name.endsWith('.mp4')) {
-                const filePath = await join(youtubeFolder, entry.name);
-                const fileStat = await stat(filePath);
-                
-                files.push({
-                    id: entry.name,
-                    name: entry.name.replace('.mp4', ''),
-                    path: filePath,
-                    url: convertFileSrc(filePath),
-                    isVideo: true,
-                    modifiedAt: fileStat.mtime ? fileStat.mtime.getTime() : Date.now(),
-                    category: 'YouTube',
-                    isFavorite: false,
-                    type: 'Media'
-                });
-            }
+          if (entry.isFile && entry.name.endsWith('.mp4')) {
+            const filePath = await join(youtubeFolder, entry.name);
+            const fileStat = await stat(filePath);
+
+            files.push({
+              id: entry.name,
+              name: entry.name.replace('.mp4', ''),
+              path: filePath,
+              url: convertFileSrc(filePath),
+              isVideo: true,
+              modifiedAt: fileStat.mtime ? fileStat.mtime.getTime() : Date.now(),
+              category: 'YouTube',
+              isFavorite: false,
+              type: 'Media'
+            });
+          }
         }
       } catch (e) { console.warn("Pasta YouTube ausente", e) }
 
@@ -171,21 +171,53 @@ export const useMediaStore = defineStore('media', () => {
 
   const deleteFile = async (fileId: string, completely: boolean) => {
     const index = mediaFiles.value.findIndex(f => f.id === fileId);
+
     if (index === -1) return;
 
     const file = mediaFiles.value[index];
+    const isYoutubeVideo = file.category === 'YouTube';
 
     if (completely) {
       try {
-        await remove(file.path); // Remove fisicamente do HD
+        // 1. Remove o arquivo principal primeiro
+        await remove(file.path);
+
+        if (isYoutubeVideo) {
+          console.log("Removendo dependências de:", file.path);
+
+          // Separa o diretório e o nome do arquivo lidando com / (Mac/Linux) e \ (Windows)
+          // match[1] = "C:\Pasta\" ou "/home/pasta/"
+          // match[2] = "meu.video.mp4"
+          const match = file.path.match(/(.*[\\/])(.*)$/);
+
+          if (match) {
+            const dirPath = match[1];
+            const fullFileName = match[2];
+
+            // Remove apenas a última extensão (lida bem com "meu.video.legal.mp4")
+            const lastDotIndex = fullFileName.lastIndexOf(".");
+            const baseNameFile = lastDotIndex !== -1
+              ? fullFileName.substring(0, lastDotIndex)
+              : fullFileName;
+
+            const jsonPath = `${dirPath}${baseNameFile}.info.json`;
+            const imagePath = `${dirPath}${baseNameFile}.webp`;
+
+            // Usamos .catch(() => {}) aqui para que, se o .json ou .webp já 
+            // não existirem por algum motivo, a função não quebre e continue rodando
+            await remove(jsonPath).catch(() => console.warn(`Não foi possível remover: ${jsonPath}`));
+            await remove(imagePath).catch(() => console.warn(`Não foi possível remover: ${imagePath}`));
+          }
+        }
+
+        // 2. Só remove da interface se tudo der certo
+        mediaFiles.value.splice(index, 1);
+
       } catch (e) {
-        console.error("Erro ao deletar arquivo do disco:", e);
-        return; // Retorna para não remover da interface caso o Tauri falhe
+        console.error("Erro ao deletar arquivo principal do disco:", e);
+        return;
       }
     }
-
-    // Remove da interface Vue (tanto no soft delete quanto no hard delete)
-    mediaFiles.value.splice(index, 1);
   };
 
   const toggleFavorite = (fileId: string) => {

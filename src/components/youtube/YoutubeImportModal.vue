@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
+import { useMediaStore } from '../../stores/mediaStore';
 
 const props = defineProps({
   modelValue: Boolean
@@ -19,6 +20,7 @@ const isEngineReady = ref(false);
 const isCheckingEngine = ref(false);
 const isUpdatingEngine = ref(false);
 const youtubeStore = useYoutubeStore()
+const mediaStore = useMediaStore()
 
 // Estados do Vídeo
 const url = ref('');
@@ -114,6 +116,8 @@ const downloadAndCache = async () => {
         });
 
         await youtubeStore.fetchCache()
+
+        await mediaStore.loadMedia()
 
         console.log(filePath)
         

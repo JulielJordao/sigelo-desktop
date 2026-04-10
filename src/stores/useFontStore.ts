@@ -8,40 +8,74 @@ import { open } from '@tauri-apps/plugin-dialog';
 export interface FontOption {
     title: string;
     value: string;
-    isCustom: boolean; // Para sabermos se foi o usuário que adicionou
+    cssValue: string;
+    isCustom: boolean;
 }
 
 export const useFontStore = defineStore('fonts', () => {
-    // Fontes nativas do sistema (Padrão)
-    const systemFonts = ref<FontOption[]>([
-        { title: 'Arial', value: 'Arial, sans-serif', isCustom: false },
-        { title: 'Verdana', value: 'Verdana, sans-serif', isCustom: false },
-        { title: 'Tahoma', value: 'Tahoma, sans-serif', isCustom: false },
-        { title: 'Trebuchet MS', value: '"Trebuchet MS", sans-serif', isCustom: false },
-        { title: 'Times New Roman', value: '"Times New Roman", serif', isCustom: false },
-        { title: 'Georgia', value: 'Georgia, serif', isCustom: false },
-        { title: 'Courier New', value: '"Courier New", monospace', isCustom: false },
-        { title: 'Roboto', value: 'Roboto' , isCustom: false },
-        { title: 'Inter', value: 'Inter', isCustom: false  }
-    ]);
-
+    // 1. Começa VAZIO! Será preenchido automaticamente pela pasta
+    const defaultFonts = ref<FontOption[]>([]);
+    
     const customFonts = ref<FontOption[]>([]);
     const isLoading = ref(false);
 
-    // Junta as duas listas, ordenando as customizadas primeiro
-    const allFonts = computed(() => [...customFonts.value, ...systemFonts.value]);
+    const allFonts = computed(() => [...customFonts.value, ...defaultFonts.value]);
 
-    // LÊ A PASTA E INJETA AS FONTES NO CSS
+    // ==========================================
+    // CARREGA FONTES PADRÃO (Da pasta src/fonts)
+    // ==========================================
+    const loadDefaultFonts = async () => {
+        // Evita carregar de novo se já preencheu a lista
+        if (defaultFonts.value.length > 0) return; 
+
+        const fontFiles = import.meta.glob('../fonts/*.{ttf,otf}', { 
+            eager: true, 
+            query: '?url', 
+            import: 'default' 
+        });
+
+        for (const [path, url] of Object.entries(fontFiles)) {
+            const fileName = path.split('/').pop()?.replace(/\.[^/.]+$/, "") || "";
+            
+            // Separa o nome da família da variação (Ex: "Roboto-Bold" vira "Roboto")
+            const family = fileName.split('-')[0]; 
+            let weight = 'normal';
+            let style = 'normal';
+
+            if (fileName.includes('-Bold')) weight = 'bold';
+            if (fileName.includes('Italic')) style = 'italic';
+
+            try {
+                const fontFace = new FontFace(family, `url(${url as string})`, { weight, style });
+                const loadedFont = await fontFace.load();
+                (document.fonts as any).add(loadedFont);
+
+                // Só adiciona na lista do menu se ainda não existir essa família lá
+                const alreadyExists = defaultFonts.value.some(f => f.title === family);
+                if (!alreadyExists) {
+                    defaultFonts.value.push({
+                        title: family, // "Roboto"
+                        value: family, // O que vai para o Rust
+                        cssValue: `"${family}", sans-serif`, // O que o Vue usa no CSS
+                        isCustom: false
+                    });
+                }
+            } catch (e) {
+                console.error(`Erro ao injetar fonte padrão ${fileName}:`, e);
+            }
+        }
+    };
+
+    // ==========================================
+    // CARREGA FONTES DO CACHE (HD)
+    // ==========================================
     const loadCustomFonts = async () => {
         try {
             isLoading.value = true;
             const appData = await appLocalDataDir();
-            // Criando o caminho cache/fontes
             const fontsFolder = await join(appData, 'cache', 'fonts');
 
-            // Garante que a pasta existe
-            const folderExists = await exists(fontsFolder);
-            if (!folderExists) {
+            if (!(await exists(fontsFolder))) {
                 await mkdir(fontsFolder, { recursive: true });
                 return;
             }
@@ -53,18 +87,16 @@ export const useFontStore = defineStore('fonts', () => {
                 if (entry.isFile && (entry.name.endsWith('.ttf') || entry.name.endsWith('.otf'))) {
                     const filePath = await join(fontsFolder, entry.name);
                     const assetUrl = convertFileSrc(filePath);
-                    
-                    // O nome da família será o nome do arquivo sem extensão
                     const fontFamilyName = entry.name.replace(/\.[^/.]+$/, "");
 
-                    // MÁGICA: Injeta a fonte física no DOM do navegador
                     const fontFace = new FontFace(fontFamilyName, `url(${assetUrl})`);
                     const loadedFont = await fontFace.load();
                     (document.fonts as any).add(loadedFont);
 
                     customFonts.value.push({
                         title: fontFamilyName,
-                        value: `"${fontFamilyName}", sans-serif`,
+                        value: fontFamilyName,
+                        cssValue: `"${fontFamilyName}", sans-serif`,
                         isCustom: true
                     });
                 }
@@ -76,7 +108,6 @@ export const useFontStore = defineStore('fonts', () => {
         }
     };
 
-    // ABRE JANELA DO SISTEMA PARA ADICIONAR NOVA FONTE
     const addNewFont = async () => {
         try {
             // Abre o selecionador de arquivos nativo do Windows/Mac
@@ -104,5 +135,5 @@ export const useFontStore = defineStore('fonts', () => {
         }
     };
 
-    return { allFonts, customFonts, isLoading, loadCustomFonts, addNewFont };
+    return { allFonts, customFonts, isLoading, addNewFont, loadDefaultFonts, loadCustomFonts }; // Não esqueça de exportar a loadDefaultFonts
 });

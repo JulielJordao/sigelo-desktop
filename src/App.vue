@@ -4,11 +4,15 @@ import AppHeader from './components/AppHeader.vue';
 import YoutubeImportModal from './components/youtube/YoutubeImportModal.vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ref, onMounted, computed } from 'vue';
+import { exportToPPTX } from './utils/pptxGen';
+import { useFontStore } from './stores/useFontStore';
 import { useRoute } from 'vue-router';
 
 const refPdfPresenter = ref<InstanceType<typeof PdfPresenter> | null>(null);
 const windowLabel = ref('');
 const route = useRoute();
+
+const fontStore = useFontStore()
 
 const showToolbar = computed(() => {
   const isProjectionWindow = windowLabel.value === 'projection';
@@ -31,13 +35,18 @@ const handleImportAction = (type: string) => {
   // ex: pdfPresenterRef.value?.openPdfFile();
 };
 
-const handleExportAction = () => {
+const handleExportAction = (type: String) => {
+  if(type === "pptx"){
+    exportToPPTX()
+  }
   console.log("Usuário clicou em exportar ou usou o menu nativo!");
   // ex: exportToPPTX();
 };
 
 onMounted(async () => {
   const appWindow = getCurrentWindow();
+  await fontStore.loadDefaultFonts();
+  await fontStore.loadCustomFonts();
   windowLabel.value = appWindow.label;
 });
 </script>
@@ -62,7 +71,6 @@ onMounted(async () => {
 </template>
 
 <style>
-/* Estilos Globais para o seu Desktop App */
 html,
 body {
   margin: 0;

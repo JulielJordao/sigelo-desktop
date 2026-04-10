@@ -6,6 +6,7 @@ mod monitors;
 mod projection;
 mod state;
 mod youtube;
+mod pdf;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -44,7 +45,8 @@ pub fn run() {
             crate::youtube::youtube::check_ytdlp_status,
             crate::youtube::youtube::get_cached_videos,
             crate::youtube::youtube::delete_cached_video,
-            crate::youtube::youtube::open_youtube_cache_folder
+            crate::youtube::youtube::open_youtube_cache_folder,
+            crate::pdf::generate_pdf::generate_pdf
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

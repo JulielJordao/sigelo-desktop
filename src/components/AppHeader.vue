@@ -3,10 +3,10 @@ import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type } from '@tauri-apps/plugin-os';
 import { listen, emit as tauriEmit } from '@tauri-apps/api/event';
-import { useMediaStore, MediaFile } from '../stores/mediaStore';
+import { useMediaStore } from '../stores/mediaStore';
 import { useMenuStore } from '../stores/menuStore';
 import { useYoutubeStore } from '../stores/useYoutubeStore';
-import { convertFileSrc } from '@tauri-apps/api/core';
+//import { convertFileSrc } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
 
 const menuStore = useMenuStore();
@@ -102,7 +102,7 @@ onUnmounted(() => {
     <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 
     <div class="z-10 d-flex align-center" :class="isMac ? '' : 'mr-4'">
-      <v-btn-group v-if="true" color="error" variant="tonal" density="comfortable"
+      <v-btn-group v-if="youtubeStore.cachedVideos.length > 0" color="error" variant="tonal" density="comfortable"
         class="rounded-pill overflow-hidden mr-3">
         <v-menu location="bottom end" transition="slide-y-transition" :close-on-content-click="false">
           <template v-slot:activator="{ props: menuProps }">

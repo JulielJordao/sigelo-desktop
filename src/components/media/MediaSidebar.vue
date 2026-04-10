@@ -4,8 +4,10 @@ import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { useYoutubeStore } from '../../stores/useYoutubeStore';
 
 const configStore = useConfigStore();
+const youtubeStore = useYoutubeStore()
 const conf = configStore.settings;
 
 import { useMenuStore } from '../../stores/menuStore';
@@ -140,6 +142,7 @@ const confirmDeletePrompt = (file: MediaFile) => {
 const executeDelete = async (completely: boolean) => {
   if (fileToDelete.value) {
     await mediaStore.deleteFile(fileToDelete.value.id, completely);
+    youtubeStore.fetchCache()
   }
   deleteDialog.value = false;
   fileToDelete.value = null;

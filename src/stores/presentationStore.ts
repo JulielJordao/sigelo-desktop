@@ -4,7 +4,7 @@ import routes from '../routes/index';
 import { getLinkFiles } from '../utils/convertData';
 import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
-import { useSongCacheStore, type SongGroupCache } from './songCacheStore';
+import { useSongCacheStore } from './songCacheStore';
 
 export interface Slide {
   label: string;
@@ -18,6 +18,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   const isLoading = ref(false);
   const selectedGroupId = ref<string>("68f8be456569689b456edd83");
   const selectedSongId = ref<string>("");
+  const listSlides = ref<Slide[]>([])
 
   const rawGroups = ref<any[]>([]);
   const songs = ref<Song[]>([]);
@@ -41,19 +42,26 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   }
 
   const getCurrentSlideType = computed(() => {
-    const label = currentSlide.value.label.toLowerCase();
-    if (label.includes('refrão')) {
+    const label = getSlideTypeByLabel(currentSlide.value.label.toLowerCase());
+
+    return label
+  })
+
+  const getSlideTypeByLabel = (label: string) => {
+    if(!label) return "geral"
+    const lowerCaseLabel = label.toLowerCase()
+    if (lowerCaseLabel.includes('refrão')) {
       return 'refrao';
-    } else if (label.includes('verso')) {
+    } else if (lowerCaseLabel.includes('verso')) {
       return 'verso';
-    } else if (label.includes('título') || label.includes('titulo')) {
+    } else if (lowerCaseLabel.includes('título') || lowerCaseLabel.includes('titulo')) {
       return 'titulo';
-    } else if (label.includes('geral')) {
+    } else if (lowerCaseLabel.includes('geral')) {
       return 'geral';
     } else {
       return 'geral';
     }
-  })
+  }
 
   // --- AÇÕES ---
   const toggleSidebar = () => {
@@ -69,7 +77,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   };
 
   const selectGroup = async (id: string) => {
-    if (!isLoading.value) { 
+    if (!isLoading.value) {
       isLoading.value = true;
       selectedGroupId.value = id;
       rawLyric.value = '';
@@ -147,10 +155,10 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
 
   return {
     // Estados
-    showSidebarLists, isLoading, selectedGroupId, selectedSongId, rawGroups, songs, rawLyric,
+    listSlides, showSidebarLists, isLoading, selectedGroupId, selectedSongId, rawGroups, songs, rawLyric,
     // Getters
     filteredSongs, activeSong, setCustomSong, setCurrentSlide, currentSlide, getCurrentSlideType,
     // Ações
-    toggleSidebar, fetchGroups, selectGroup, fetchSongs, selectSong, fetchLyric
+    getSlideTypeByLabel, toggleSidebar, fetchGroups, selectGroup, fetchSongs, selectSong, fetchLyric
   };
 });

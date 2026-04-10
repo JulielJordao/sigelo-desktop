@@ -11,6 +11,12 @@ const emit = defineEmits(['update:modelValue']);
 const fontStore = useFontStore();
 
 onMounted(async () => {
+    // 1. Carrega as fontes que você colocou na pasta src/fonts
+    if (fontStore.allFonts.length === 0) {
+        await fontStore.loadDefaultFonts();
+    }
+    
+    // 2. Carrega as fontes do disco instaladas pelo usuário
     if (fontStore.customFonts.length === 0) {
         await fontStore.loadCustomFonts();
     }
