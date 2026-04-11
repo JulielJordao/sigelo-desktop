@@ -1,5 +1,4 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-
 mod commands;
 mod directory;
 mod monitors;
@@ -7,6 +6,7 @@ mod projection;
 mod state;
 mod youtube;
 mod pdf;
+
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -50,19 +50,69 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Se a janela que está tentando fechar for a "projection"
-                if window.label() == "projection" {
-                    // Impede o sistema de destruir a janela
+                let label = window.label();
+                
+                // 1. A PROJEÇÃO: Sempre se esconde em qualquer sistema (para reabrir rápido)
+                if label == "projection" {
                     api.prevent_close();
-                    // Apenas oculta, mantendo ela viva na memória para a próxima vez
                     let _ = window.hide();
+                }
+
+                // 2. A JANELA PRINCIPAL: Comportamento diferente por sistema
+                if label == "main" {
+                    #[cfg(target_os = "macos")]
+                    {
+                        // No Mac: Impede de fechar e apenas esconde (comportamento de Dock)
+                        api.prevent_close(); 
+                        let _ = window.hide(); 
+                    }
+                    
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        // No Windows/Linux: Não fazemos nada! 
+                        // Deixamos o Tauri seguir o padrão natural, que é fechar a 
+                        // janela e, por consequência, encerrar o aplicativo de vez.
+                    }
                 }
             }
         })
         .setup(|app| {
+            use tauri::Manager;
+
+            // --- LÓGICA EXCLUSIVA PARA MACOS ---
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::TitleBarStyle;
+                if let Some(window) = app.get_webview_window("main") {
+                    // Garante que o título esteja vazio para não ocupar espaço
+                    let _ = window.set_title(""); 
+                    // Força o Overlay caso o JSON não tenha pego
+                    let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
+                }
+            }
+
+            // --- LÓGICA PARA WINDOWS E LINUX ---
+            // Se NÃO for macOS, nós removemos as decorações completamente
+            #[cfg(not(target_os = "macos"))]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_decorations(false).unwrap();
+                }
+            }
             crate::monitors::watch::start_monitor_watcher(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error running tauri app");
+        .build(tauri::generate_context!())
+        .expect("error running tauri app")
+        .run(|app_handle, event| match event {
+            // Este evento é acionado quando o usuário clica no ícone do Dock no Mac
+            tauri::RunEvent::Reopen { .. } => {
+                use tauri::Manager;
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show(); // Traz a janela de volta da invisibilidade
+                    let _ = window.set_focus(); // Coloca ela em primeiro plano
+                }
+            }
+            _ => {} // Ignora outros eventos do ciclo de vida
+        });
 }

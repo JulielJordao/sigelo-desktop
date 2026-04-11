@@ -94,7 +94,6 @@ const stopAction = () => {
     window.removeEventListener('mouseup', stopAction);
 };
 
-
 onUnmounted(() => {
     stopAction();
 });

@@ -284,10 +284,12 @@ onUnmounted(() => {
     <modal-about v-model="showAboutDialog"></modal-about>
 
     <div v-if="!isMac" class="window-controls z-10 d-flex align-center">
-      <v-btn icon="mdi-window-minimize" variant="text" class="window-btn" @click="minimize"></v-btn>
-      <v-btn icon="mdi-window-maximize" variant="text" class="window-btn" @click="toggleMaximize"></v-btn>
-      <v-btn icon="mdi-close" variant="text" class="window-btn btn-close" @click="close"></v-btn>
-    </div>
+    <v-btn icon="mdi-minus" variant="text" size="small" class="window-btn" @click="minimize"></v-btn>
+    
+    <v-btn icon="mdi-crop-square" variant="text" size="small" class="window-btn" @click="toggleMaximize"></v-btn>
+    
+    <v-btn icon="mdi-close" variant="text" size="small" class="window-btn btn-close" @click="close"></v-btn>
+  </div>
   </v-app-bar>
 </template>
 

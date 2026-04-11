@@ -173,6 +173,14 @@ onMounted(async () => {
     });
 });
 
+const handleKeyDown = async (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+        // Quando apertar ESC, chama o Rust para fechar/ocultar a tela
+        await invoke('stop_projection');
+    }
+};
+
+
 onUnmounted(() => {
     if (unlistenUpdate) unlistenUpdate();
     if (unlistenScroll) unlistenScroll(); 
@@ -181,7 +189,13 @@ onUnmounted(() => {
     if (unlistenClear) unlistenClear();
     if (unlistenMediaControl) unlistenMediaControl()
     if (syncInterval) clearInterval(syncInterval);
+    window.removeEventListener('keydown', handleKeyDown);
 });
+
+onMounted(() => {
+    window.addEventListener('keydown', handleKeyDown);
+})
+
 </script>
 
 <template>

@@ -12,6 +12,10 @@ const conf = configStore.settings;
 
 const mediaStore = useMediaStore();
 
+// --- CONTROLE SEGURO DE EVENTOS GLOBAIS DO TAURI ---
+let isDestroyed = false;
+let activeListeners: UnlistenFn[] = [];
+
 // const isOpen = computed(() => menuStore.menuOpened === 'Media');
 const currentContext = ref<MediaContext>('Media');
 const isDragging = ref(false);
@@ -158,44 +162,47 @@ const formatDuration = (seconds?: number) => {
   return `${m}:${s}`;
 };
 
-let unlistenHover: UnlistenFn;
-let unlistenDrop: UnlistenFn;
-let unlistenCancel: UnlistenFn;
+onMounted(() => {
+  isDestroyed = false;
 
-onMounted(async () => {
-  if (mediaStore.mediaFiles.length === 0) {
-    mediaStore.loadMedia();
-  }
-
-  // 1. Escuta quando o arquivo entra na janela do app (Tauri v2)
-  unlistenHover = await listen('tauri://drag-enter', () => {
+  // 1. Escuta quando o arquivo entra na janela
+  listen('tauri://drag-enter', () => {
     isDragging.value = true;
+  }).then(unlisten => {
+    // Se o componente morreu antes do listen terminar de carregar, mata o evento imediatamente
+    if (isDestroyed) unlisten(); else activeListeners.push(unlisten);
   });
 
-  // 2. Escuta quando o arquivo é efetivamente solto (Tauri v2)
-  unlistenDrop = await listen('tauri://drag-drop', async (event: any) => {
+  // 2. Escuta quando o arquivo é solto
+  listen('tauri://drag-drop', async (event: any) => {
     isDragging.value = false;
-
-    // ATENÇÃO: No Tauri v2, o payload é um objeto que contém 'paths' e 'position'
     const filePaths = event.payload.paths as string[];
-    console.log("Arquivos recebidos pelo Tauri v2:", filePaths);
-
+    
     if (filePaths && filePaths.length > 0) {
       await mediaStore.addDroppedFiles(filePaths, currentContext.value);
     }
+  }).then(unlisten => {
+    if (isDestroyed) unlisten(); else activeListeners.push(unlisten);
   });
 
-  // 3. Escuta quando o usuário desiste e arrasta para fora da janela (Tauri v2)
-  unlistenCancel = await listen('tauri://drag-leave', () => {
+  // 3. Escuta quando cancela o arraste
+  listen('tauri://drag-leave', () => {
     isDragging.value = false;
+  }).then(unlisten => {
+    if (isDestroyed) unlisten(); else activeListeners.push(unlisten);
   });
+
+  if (mediaStore.mediaFiles.length === 0) {
+    mediaStore.loadMedia();
+  }
 });
 
-// Limpa os ouvintes quando o componente for destruído para evitar memory leaks
 onUnmounted(() => {
-  if (unlistenHover) unlistenHover();
-  if (unlistenDrop) unlistenDrop();
-  if (unlistenCancel) unlistenCancel();
+  isDestroyed = true; // Levanta a bandeira que o componente morreu
+  
+  // Limpa todos os eventos que foram registrados com sucesso
+  activeListeners.forEach(unlisten => unlisten());
+  activeListeners = []; // Zera a lista
 });
 </script>
 

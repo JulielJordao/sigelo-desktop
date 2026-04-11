@@ -55,20 +55,25 @@ export const useMediaStore = defineStore('media', () => {
 
       try {
         const ytEntries = await readDir(youtubeFolder);
-        // Atenção: Certifique-se de que a sua função 'getJsonFiles' saiba lidar com 
-        // a leitura desses arquivos. Como o yt-dlp não gera o mesmo JSON que o seu app,
-        // você pode precisar criar uma lógica separada para montar o objeto MediaFile
-        // dos vídeos do YouTube, caso o getJsonFiles ignore vídeos sem JSON próprio.
 
-        // Exemplo simplificado de como ler direto sem depender do getJsonFiles:
         for (const entry of ytEntries) {
-          if (entry.isFile && entry.name.endsWith('.mp4')) {
+          // 1. PROTEÇÃO: Ignora se for arquivo oculto sem nome (evita quebrar no Windows)
+          if (!entry.isFile || !entry.name) continue;
+
+          // 2. EXTENSÕES ABRANGENTES: O yt-dlp no Windows adora baixar .webm e .mkv
+          const lowerName = entry.name.toLowerCase();
+          const isSupportedVideo = lowerName.endsWith('.mp4') || 
+                                   lowerName.endsWith('.webm') || 
+                                   lowerName.endsWith('.mkv');
+
+          if (isSupportedVideo) {
             const filePath = await join(youtubeFolder, entry.name);
             const fileStat = await stat(filePath);
 
             files.push({
               id: entry.name,
-              name: entry.name.replace('.mp4', ''),
+              // Remove qualquer uma das extensões suportadas para o nome de exibição ficar limpo
+              name: entry.name.replace(/\.(mp4|webm|mkv)$/i, ''), 
               path: filePath,
               url: convertFileSrc(filePath),
               isVideo: true,
@@ -79,7 +84,10 @@ export const useMediaStore = defineStore('media', () => {
             });
           }
         }
-      } catch (e) { console.warn("Pasta YouTube ausente", e) }
+      } catch (e) { 
+        // Dica: Imprima o erro real temporariamente para debugar se a pasta realmente não existe
+        console.warn("Pasta YouTube ausente ou erro ao ler:", e); 
+      }
 
       mediaFiles.value = files;
     } catch (error) {
@@ -124,6 +132,7 @@ export const useMediaStore = defineStore('media', () => {
   const addDroppedFiles = async (filePaths: string[], context: MediaContext) => {
     isLoading.value = true;
     try {
+      console.log(context)
       const baseDir = await appDataDir();
       const targetFolder = context === 'Media'
         ? await join(baseDir, 'media', 'reproducao')

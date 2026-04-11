@@ -26,38 +26,51 @@ pub fn update_projection(app: tauri::AppHandle, html: String, target_monitor: Op
         if let Some(target_name) = target_monitor {
             let mut needs_move = false;
 
-            // Descobre em qual monitor a janela de projeção está rodando AGORA
             if let Ok(Some(current_monitor)) = window.current_monitor() {
-                // Se o nome do monitor atual for diferente do alvo nas configurações, precisamos mover
                 if current_monitor.name() != Some(&target_name) {
                     needs_move = true;
                 }
             } else {
-                needs_move = true; // Se falhar em ler, move por precaução
+                needs_move = true; 
+            }
+
+            // --- NOVA TRAVA DE SEGURANÇA ---
+            // Descobre se o monitor alvo é exatamente o mesmo onde o controle "main" está aberto
+            let mut is_same_as_main = false;
+            if let Some(main_window) = app.get_webview_window("main") {
+                if let Ok(Some(main_mon)) = main_window.current_monitor() {
+                    if main_mon.name() == Some(&target_name) {
+                        is_same_as_main = true;
+                    }
+                }
             }
 
             // Se o monitor mudou, faz a realocação
             if needs_move {
                 if let Ok(monitors) = app.available_monitors() {
                     if let Some(monitor) = monitors.into_iter().find(|m| m.name() == Some(&target_name)) {
-                        
-                        // TRUQUE PARA MAC/WINDOWS: Tirar do fullscreen antes de mover para outra tela
-                        // evita bugs visuais ou travamentos do sistema operacional.
                         let _ = window.set_fullscreen(false);
                         
-                        // Move para as coordenadas do novo monitor
                         let position = monitor.position();
                         let _ = window.set_position(tauri::Position::Physical(*position));
-                        
-                        // Volta para o fullscreen na tela nova
-                        let _ = window.set_fullscreen(true);
-
-                        // Como a janela piscou de uma tela para outra, o SO pode ter roubado o foco.
-                        // Devolvemos o foco IMEDIATAMENTE para o app principal.
-                        if let Some(main_window) = app.get_webview_window("main") {
-                            let _ = main_window.set_focus();
-                        }
                     }
+                }
+            }
+
+            // --- LÓGICA CONDICIONAL DE FULLSCREEN ---
+            if is_same_as_main {
+                // Se for a mesma tela do controle, apenas maximiza (Modo Janela Segura)
+                // Isso evita o "sequestro" e permite usar Alt+Tab ou a barra de tarefas facilmente
+                let _ = window.set_fullscreen(false);
+                let _ = window.maximize();
+            } else {
+                // Se for uma tela separada, força o Fullscreen verdadeiro
+                let _ = window.set_fullscreen(true);
+                
+                // Só tentamos roubar o foco de volta se a projeção estiver em OUTRA tela.
+                // Tentar roubar o foco de uma janela fullscreen na MESMA tela do Windows não funciona.
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let _ = main_window.set_focus();
                 }
             }
         }
