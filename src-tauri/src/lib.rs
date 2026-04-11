@@ -106,6 +106,7 @@ pub fn run() {
         .expect("error running tauri app")
         .run(|app_handle, event| match event {
             // Este evento é acionado quando o usuário clica no ícone do Dock no Mac
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
                 use tauri::Manager;
                 if let Some(window) = app_handle.get_webview_window("main") {
