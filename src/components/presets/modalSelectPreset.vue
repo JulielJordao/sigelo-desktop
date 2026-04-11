@@ -125,7 +125,7 @@ watch(isPresetModalOpen, (newVal) => {
                         <div @click="!isDeleteMode && (presentationStore.applyPreset(preset.id), isPresetModalOpen = false)"
                              :style="{ cursor: isDeleteMode ? 'default' : 'pointer' }">
                             <SlidePreview :design="preset.design"
-                                :textStyle="presentationStore.textStyles[songInfo.getCurrentSlideType]"
+                                :textStyle="preset.textStyles[songInfo.getCurrentSlideType]"
                                 :text="songInfo.currentSlide.text" :screenRatio="screenRatio" :editable="false"
                                 style="height: 140px; border-radius: 0;" 
                                 :class="{ 'opacity-50': isDeleteMode }" />

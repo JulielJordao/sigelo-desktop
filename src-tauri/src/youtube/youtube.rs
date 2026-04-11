@@ -124,10 +124,17 @@ pub fn check_ytdlp_status(app: tauri::AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
-    let app_dir = app.path().app_local_data_dir().map_err(|_| "Falha ao obter diretório")?;
-    fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
+// 1. Pega a pasta AppData/Local
+    let app_dir = app.path().app_local_data_dir().map_err(|_| "Falha ao obter diretório AppLocalData")?;
+    
+    // 2. Define e cria a pasta 'bin' (se não existir)
+    let bin_dir = app_dir.join("bin");
 
-    // 1. ATUALIZAR YT-DLP (Binário direto)
+    if !bin_dir.exists() {
+        fs::create_dir_all(&bin_dir).map_err(|e| format!("Erro ao criar pasta bin: {}", e))?;
+    }
+
+ // 1. ATUALIZAR YT-DLP (Binário direto)
     let (ytdlp_name, ytdlp_url) = if cfg!(target_os = "windows") {
         ("yt-dlp.exe", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
     } else if cfg!(target_os = "macos") {
@@ -136,7 +143,7 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
         ("yt-dlp", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp")
     };
 
-    let ytdlp_path = app_dir.join(ytdlp_name);
+    let ytdlp_path = bin_dir.join(ytdlp_name);
     let ytdlp_bytes = download_bytes(ytdlp_url).await?;
     save_file(&ytdlp_path, &ytdlp_bytes)?;
     set_executable_permission(&ytdlp_path);
@@ -151,7 +158,14 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
     };
 
     let ffmpeg_exe_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
-    let ffmpeg_path = app_dir.join(ffmpeg_exe_name);
+ // 1. ATUALIZAR YT-DLP (Binário direto)
+    let (ytdlp_name, ytdlp_url) = if cfg!(target_os = "windows") {
+        ("yt-dlp.exe", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
+    } else if cfg!(target_os = "macos") {
+        ("yt-dlp", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")
+    } else {
+        ("yt-dlp", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp")
+    };    let ffmpeg_path = bin_dir.join(ffmpeg_exe_name);
 
     if cfg!(any(target_os = "windows", target_os = "macos")) {
         // Baixa o ZIP e extrai apenas o executável do FFmpeg
@@ -214,12 +228,13 @@ fn set_executable_permission(path: &Path) {
 // 2. Função auxiliar para pegar o caminho do yt-dlp baixado
 fn get_ytdlp_path(app: &AppHandle) -> String {
     let app_dir = app.path().app_local_data_dir().unwrap();
+    let bin_dir = app_dir.join("bin");
     let file_name = if cfg!(target_os = "windows") {
         "yt-dlp.exe"
     } else {
         "yt-dlp"
     };
-    app_dir.join(file_name).to_string_lossy().to_string()
+    bin_dir.join(file_name).to_string_lossy().to_string()
 }
 
 // 3. Função para buscar título e miniatura
@@ -257,6 +272,8 @@ pub async fn cache_youtube_video(app: tauri::AppHandle, url: String, quality: St
     let yt_folder = get_youtube_folder(&app)?;
     let app_dir = app.path().app_local_data_dir().map_err(|_| "Erro app_dir")?;
     let exe_path = get_ytdlp_path(&app);
+
+    let bin_dir = app_dir.join("bin");
     
     // O template de saída (Pasta YouTube / ID do video . extensão)
     let output_template = yt_folder.join("%(id)s.%(ext)s");
@@ -274,7 +291,7 @@ pub async fn cache_youtube_video(app: tauri::AppHandle, url: String, quality: St
     let cmd = app.shell().command(exe_path)
         .args([
             "-f", format_arg,
-            "--ffmpeg-location", &app_dir.to_string_lossy(),
+            "--ffmpeg-location", &bin_dir.to_string_lossy(),
             "--merge-output-format", "mp4",
             "--no-playlist",
             "--write-info-json", 

@@ -55,7 +55,7 @@ const checkForUpdates = async () => {
       <v-avatar size="100" class="mx-auto border bg-grey-lighten-4">
         <v-img :src="iconTheme" alt="Sigelo Logo" class="pa-2"></v-img>
       </v-avatar>
-      <h2 class="text-h5 font-weight-black text-grey-darken-4 tracking-tight">Sigelo</h2>
+      <h2 class="text-h5 font-weight-black tracking-tight">Sigelo</h2>
       <v-chip size="small" color="primary" variant="flat" class="mb-2 font-weight-bold">
         Versão {{ appVersion }}
       </v-chip>

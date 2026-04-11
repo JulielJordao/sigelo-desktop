@@ -91,6 +91,14 @@
         }
       ]
     },
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$APPLOCALDATA/cache/fonts/**" },
+        { "path": "$APPLOCALDATA/media/**" }
+      ]
+    },
     "store:default"
   ]
 }

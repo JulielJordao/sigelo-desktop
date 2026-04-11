@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { readDir, stat, copyFile, remove } from '@tauri-apps/plugin-fs';
-import { appDataDir, join, basename, extname } from '@tauri-apps/api/path';
+import { appLocalDataDir, join, basename, extname } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 export type MediaContext = 'Media' | 'Theme' | 'YouTube';
@@ -34,7 +34,7 @@ export const useMediaStore = defineStore('media', () => {
   const loadMedia = async () => {
     try {
       isLoading.value = true;
-      const baseDir = await appDataDir();
+      const baseDir = await appLocalDataDir()
       const repFolder = await join(baseDir, 'media', 'reproducao');
       const themeFolder = await join(baseDir, 'media', 'slides');
       const youtubeFolder = await join(baseDir, 'media', 'reproducao', 'YouTube');
@@ -133,7 +133,7 @@ export const useMediaStore = defineStore('media', () => {
     isLoading.value = true;
     try {
       console.log(context)
-      const baseDir = await appDataDir();
+      const baseDir = await appLocalDataDir();
       const targetFolder = context === 'Media'
         ? await join(baseDir, 'media', 'reproducao')
         : await join(baseDir, 'media', 'slides');

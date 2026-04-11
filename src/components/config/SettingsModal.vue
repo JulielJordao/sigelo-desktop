@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useConfigStore } from '../../stores/useConfigStore'; 
 import { invoke } from '@tauri-apps/api/core';
-import { appDataDir, join } from '@tauri-apps/api/path';
+import { appLocalDataDir, join } from '@tauri-apps/api/path';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { useTheme } from 'vuetify';
 import { usePresentationStore } from '../../stores/usePresentationStore';
@@ -178,7 +178,7 @@ const fetchStorageStats = async () => {
 // Inicializa os caminhos e garante que as pastas existem
 const setupFolders = async () => {
   try {
-    const baseDir = await appDataDir();
+    const baseDir = await appLocalDataDir();
     
     // Define os caminhos
     mediaFolderPath.value = await join(baseDir, 'media');
