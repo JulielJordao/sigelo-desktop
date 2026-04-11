@@ -65,7 +65,7 @@ const goWithoutAccount = async () => {
           <v-img :src="iconTheme" class="pa-2"></v-img>
         </v-avatar>
 
-        <h2 class="text-h5 font-weight-bold text-grey-darken-4 tracking-tight mb-1">
+        <h2 class="text-h5 font-weight-bold text-primary tracking-tight mb-1">
           Bem-vindo ao Sigelo
         </h2>
         <p class="text-body-2 text-grey-darken-1 font-weight-regular">

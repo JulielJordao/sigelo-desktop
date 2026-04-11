@@ -111,8 +111,7 @@ const processBackgroundImage = async (
     opacity: number, 
     bgColorHex: string
 ): Promise<string> => {
-    // 1. Lê os bytes do arquivo usando a API do Tauri
-    const fileBytes = await readFile(imagePath);
+    const fileBytes = await readFile(cleanPath(imagePath));
     
     // 2. Converte os bytes para um URL que a tag <img> consiga ler
     const blob = new Blob([fileBytes]);
@@ -151,4 +150,34 @@ const processBackgroundImage = async (
     URL.revokeObjectURL(imageUrl);
 
     return base64Data;
+};
+
+/**
+ * Limpa URIs do Tauri transformando-as em caminhos de arquivo puros para o SO.
+ */
+export const cleanPath = (imagePath: string): string => {
+  if (!imagePath) return '';
+
+  // 1. Remove aspas extras (comum em strings vindas de JSON) e espaços
+  let clean = imagePath.trim().replace(/^["']|["']$/g, '');
+
+  const prefixes = [
+    "asset://localhost/",
+    "http://asset.localhost/",
+    "https://asset.localhost/",
+    "http://asset:localhost/"
+  ];
+
+  // 2. Procura e remove apenas o primeiro prefixo encontrado
+  for (const prefix of prefixes) {
+    if (clean.startsWith(prefix)) {
+      // No JS, o replace com string (não regex) substitui apenas a primeira ocorrência
+      clean = clean.replace(prefix, "");
+      break;
+    }
+  }
+
+  // 3. Decodifica caracteres especiais (Ex: %20 -> " ", %3A -> ":")
+  // Importante: Faça isso POR ÚLTIMO para não quebrar a lógica do startsWith
+  return decodeURIComponent(clean);
 };

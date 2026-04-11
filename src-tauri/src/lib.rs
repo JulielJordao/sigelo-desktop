@@ -17,6 +17,12 @@ use crate::state::app_state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 1. Desativa recursos de taxa de atualização variável que causam flickering em 75Hz+
+    // 2. Desativa o 'Occlusion Tracker' que às vezes faz o Windows 'pausar' o app sem bordas
+    std::env::set_var(
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
+        "--disable-features=msWebview2EnableVariableRefreshRate,CalculateNativeWinOcclusion"
+    );
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())

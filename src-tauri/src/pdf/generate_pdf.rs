@@ -53,9 +53,24 @@ fn process_background_image(
     // Agora o Rust sabe que `open` vem da biblioteca externa ::image
     let clean_path = path.trim_matches('"').trim();
 
+    
+    let prefixes = [
+        "asset://localhost/", 
+        "http://asset.localhost/", 
+        "https://asset.localhost/",
+        "http://asset:localhost/" // Caso venha com dois pontos em alguma config
+    ];
+    
     // Se por acaso ainda vier o prefixo, remove aqui também
-    let final_path = clean_path.replace("asset://localhost/", "");
+    let mut final_path = clean_path.to_string();
 
+    for prefix in &prefixes {
+        if final_path.starts_with(prefix) {
+            final_path  = final_path.replacen(prefix, "", 1);
+            break;
+        }
+    }
+    
     // No macOS, caminhos absolutos precisam começar com /
     // Se após remover o prefixo não começar com /, e for Unix, adicionamos
     #[cfg(unix)]

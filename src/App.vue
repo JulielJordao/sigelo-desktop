@@ -74,6 +74,11 @@ onMounted(async () => {
 </template>
 
 <style>
+
+.v-application {
+  background-color: rgb(var(--v-theme-background)) !important;
+}
+
 html,
 body {
   margin: 0;
@@ -81,12 +86,16 @@ body {
   user-select: none;
   /* Trava totalmente o scroll da janela nativa */
   overflow: hidden !important;
+  width: 100%;
+  overflow: hidden;
   height: 100%;
 }
 
 #app {
   height: 100vh;
   width: 100vw;
+  transform: translateZ(0);
+  background-color: rgb(var(--v-theme-background)) !important;
   /* Blinda o container principal contra vazamentos de layout */
   overflow: hidden;
 }
