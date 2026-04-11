@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue';
+import { ref, onUnmounted, watch } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 
 const configStore = useConfigStore()
+
 
 const props = defineProps({
     // Recebe o design e o estilo específicos
@@ -92,11 +93,15 @@ const stopAction = () => {
     interactionType.value = null;
     window.removeEventListener('mousemove', onMove);
     window.removeEventListener('mouseup', stopAction);
-};
+}
 
 onUnmounted(() => {
     stopAction();
 });
+
+watch(() => props.design.bgMedia, (newValue)=> {
+    console.log(newValue)
+})
 </script>
 
 <template>
@@ -106,8 +111,17 @@ onUnmounted(() => {
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
-        <video v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" :src="design.bgMedia" autoplay
-            loop muted class="video-bg" :style="{ objectFit: design.bgFit }"></video>
+       <video 
+            v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
+            :src="design.bgMedia" 
+            autoplay 
+            loop 
+            muted 
+            playsinline 
+            crossorigin="anonymous"
+            class="video-bg" 
+            :style="{ objectFit: design.bgFit }"
+        ></video>
 
         <div 
             class="dark-overlay" 
@@ -235,6 +249,7 @@ onUnmounted(() => {
     -webkit-line-clamp: 4;
     line-clamp: 4;
     /* Limita a 4 linhas no preview */
+    transform: translateZ(0);
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;

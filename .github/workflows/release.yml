@@ -13,8 +13,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: "windows-latest" # Compila o .exe/.msi
-          - platform: "macos-latest"  # Compila o .dmg
+          - platform: "windows-latest"
+            target: "x86_64-pc-windows-msvc" # Padrão Windows
+            
+          - platform: "macos-latest"
+            target: "aarch64-apple-darwin"   # Apple Silicon (M1/M2/M3)
+            
+          - platform: "macos-latest"
+            target: "x86_64-apple-darwin"    # Macs Intel (Antigos)
 
     runs-on: ${{ matrix.platform }}
     steps:

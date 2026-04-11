@@ -212,7 +212,7 @@ onMounted(() => {
              }">
             <div class="background-layer">
                 <div v-if="slideData.background.type === 'color'" :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
-                <video v-else-if="slideData.background.type === 'video'" :src="slideData.background.media" autoplay loop muted :style="{ objectFit: slideData.background.fit }"></video>
+                <video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'" :src="slideData.background.media" autoplay loop muted :style="{ objectFit: slideData.background.fit }"></video>
                 <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media" :style="{ objectFit: slideData.background.fit }" />
             </div>
             <div 
@@ -311,6 +311,7 @@ onMounted(() => {
     height: 100%;
     z-index: 2; /* Nível 2 - Acima do fundo */
     pointer-events: none; 
+    transform: translateZ(0);
     transition: background-color 0.3s ease; 
 }
 

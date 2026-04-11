@@ -19,6 +19,8 @@
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
     "fs:allow-remove",
+    "fs:allow-copy-file",
+    "fs:allow-stat",
     {
       "identifier": "shell:allow-open",
       "allow": [
@@ -95,8 +97,14 @@
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$APPLOCALDATA/cache/fonts/**" },
-        { "path": "$APPLOCALDATA/media/**" }
+        { "path": "$APPLOCALDATA/**" },
+        { "path": "$APPCACHEDIR/**" },
+        
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$PICTURE/**" },
+        { "path": "$VIDEO/**" }
       ]
     },
     "store:default"

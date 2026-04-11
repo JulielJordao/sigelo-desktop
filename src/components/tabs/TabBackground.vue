@@ -146,7 +146,7 @@ const isCustomColor = computed(() => {
                     :class="[store.design.bgType === 'saved' && store.design.bgMedia === file.url ? 'selected-item' : 'border']"
                     @click="selectLocalMedia(file)"
                 >
-                    <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted preload="metadata"></video>
+                    <video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted preload="metadata"></video>
                     <v-img v-else :src="file.url" cover height="100%"></v-img>
 
                     <div v-if="file.isVideo" class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center" style="background: rgba(0,0,0,0.3);">

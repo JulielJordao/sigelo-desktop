@@ -163,7 +163,7 @@ const projectCurrentSlide = async () => {
   if (settings.bgType === 'color') {
     bgHtml = `<div style="position: absolute; inset: 0; background-color: ${settings.bgColor}; z-index: -1;"></div>`;
   } else if (settings.bgIsVideo && settings.bgMedia) {
-    bgHtml = `<video src="${settings.bgMedia}" autoplay loop muted style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${settings.bgFit}; z-index: -1;"></video>`;
+    bgHtml = `<video src="${settings.bgMedia}" crossorigin="anonymous" autoplay playsinline loop muted style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${settings.bgFit}; z-index: -1;"></video>`;
   } else if (settings.bgMedia) {
     bgHtml = `<img src="${settings.bgMedia}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${settings.bgFit}; z-index: -1;" />`;
   }
