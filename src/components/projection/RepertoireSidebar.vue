@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import SearchSongModal from '../songs/SearchSongModal.vue';
-import type { SongGroupCache } from 'stores/songCacheStore';
+import type { SongGroupCache } from '../../stores/songCacheStore';
 
 defineProps<{
   groups: Array<SongGroupCache>;

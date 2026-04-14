@@ -44,7 +44,7 @@ watch(() => songCacheStore.selectedSong, async (newValue) => {
 
       await nextTick();
       
-      const element = document.getElementById(`song-item-${newValue.songId}`);
+      const element = document.getElementById(`song-item-${newValue.id}`);
       
       if (element) {
         element.scrollIntoView({ 

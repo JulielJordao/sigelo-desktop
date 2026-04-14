@@ -5,7 +5,6 @@ import { getLinkFiles } from '../utils/convertData';
 import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
 import { useSongCacheStore } from './songCacheStore';
-import type { SongGroupCache } from './songCacheStore';
 
 export interface Slide {
   label: string;
