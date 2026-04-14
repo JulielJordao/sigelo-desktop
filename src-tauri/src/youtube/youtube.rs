@@ -159,7 +159,7 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
 
     let ffmpeg_exe_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
  // 1. ATUALIZAR YT-DLP (Binário direto)
-    let (ytdlp_name, ytdlp_url) = if cfg!(target_os = "windows") {
+    let (_ytdlp_name, _ytdlp_url) = if cfg!(target_os = "windows") {
         ("yt-dlp.exe", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
     } else if cfg!(target_os = "macos") {
         ("yt-dlp", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")
@@ -283,9 +283,8 @@ pub async fn cache_youtube_video(app: tauri::AppHandle, url: String, quality: St
     let format_arg = match quality.as_str() {
         "Lowest" => "worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]",
         "Medium" => "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]",
-        _ => "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]", // 
         "Highest" => "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]",
-        _ => "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]",
+        _ => "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
     };
 
     let cmd = app.shell().command(exe_path)

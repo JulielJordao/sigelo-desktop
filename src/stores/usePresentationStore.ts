@@ -45,6 +45,7 @@ export interface TextStylesState {
 export interface Preset {
     id: string; // Sempre bom ter um ID para facilitar no v-for e buscas
     name: string;
+    lastSaved: Date | string,
     design: DesignState;
     textStyles: TextStylesState;
 }
@@ -104,6 +105,7 @@ export const usePresentationStore = defineStore('presentation', () => {
         const newPreset: Preset = {
             id: crypto.randomUUID(), 
             name: presetName,
+            lastSaved: new Date(),
             design: JSON.parse(JSON.stringify(design.value)),
             textStyles: JSON.parse(JSON.stringify(textStyles.value))
         };
@@ -156,6 +158,7 @@ export const usePresentationStore = defineStore('presentation', () => {
         console.log(index)
         if (index !== -1) {
             // Usa o clone profundo para atualizar os dados desconectando da reatividade
+            presets.value[index].lastSaved = new Date()
             presets.value[index].design = JSON.parse(JSON.stringify(design.value));
             presets.value[index].textStyles = JSON.parse(JSON.stringify(textStyles.value));
         }
@@ -173,7 +176,7 @@ export const usePresentationStore = defineStore('presentation', () => {
                 currentPresetId.value = storeData.id
                 currentPresetIsLoaded.value = true
             } else {
-                currentPresetId.value = presets.value[0].id
+                currentPresetId.value = presets.value[0]?.id
             }
         }
     }
@@ -208,7 +211,7 @@ export const usePresentationStore = defineStore('presentation', () => {
 
         if (storeData) {
             presets.value = storeData;
-            currentPresetId.value = storeData[0].id
+            currentPresetId.value = storeData[0]?.id
         }
         
     }

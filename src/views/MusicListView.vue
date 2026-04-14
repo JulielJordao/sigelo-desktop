@@ -17,9 +17,9 @@ const songCacheStore = useSongCacheStore()
 watch(() => songCacheStore.selectedSong, (newValue) => {
   if(newValue.songGroupId !== presentationStore.selectedGroupId){
     presentationStore.selectGroup(newValue.songGroupId)
-    presentationStore.selectSong(newValue.songId)
-  } else if(newValue.songId !== presentationStore.selectedSongId) {
-    presentationStore.selectSong(newValue.songId)
+    presentationStore.selectSong(newValue.id)
+  } else if(newValue.id !== presentationStore.selectedSongId) {
+    presentationStore.selectSong(newValue.id)
   }
 },
   { deep: true })
@@ -37,7 +37,7 @@ onMounted(async () => {
       <template v-if="presentationStore.showSidebarLists && menuStore.menuOpened === 'Songs'">
         <v-col cols="2" class="border-e bg-white transition-all d-flex flex-column h-100">
           <RepertoireSidebar 
-            :groups="presentationStore.rawGroups" 
+            :groups="songCacheStore.listSongGroups" 
             :selected-id="presentationStore.selectedGroupId" 
             @select="presentationStore.selectGroup" 
           />

@@ -1,9 +1,11 @@
 // src/stores/mediaStore.ts
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import { readDir, stat, copyFile, remove } from '@tauri-apps/plugin-fs';
+import { ref, computed, watch } from 'vue';
+import { readDir, stat, copyFile, remove, mkdir, exists } from '@tauri-apps/plugin-fs';
 import { appLocalDataDir, join, basename, extname } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { Store } from "@tauri-apps/plugin-store";
+import { load } from '@tauri-apps/plugin-store';
 
 export type MediaContext = 'Media' | 'Theme' | 'YouTube';
 
@@ -24,12 +26,29 @@ export interface MediaFile {
 export const useMediaStore = defineStore('media', () => {
   const mediaFiles = ref<MediaFile[]>([]);
 
+  const favoriteFiles = ref<string[]>([])
+
+  let tauriStore: Store | null = null;
+
   const fixedMedia = ref<MediaFile | null>(null);
 
   const isLoading = ref(false);
+  const isLoaded = ref(false)
 
   const themeFiles = computed(() => mediaFiles.value.filter(m => m.type === 'Theme'));
   const reproductionFiles = computed(() => mediaFiles.value.filter(m => m.type === 'Media'));
+
+  // 2. Salva no disco nativo toda vez que algo em settings mudar
+  watch(
+    favoriteFiles, 
+    async (newFavorites) => {
+      if (!isLoaded.value || !tauriStore) return; // Só tenta salvar se o tauriStore já foi instanciado
+      
+      await tauriStore.set('favorite_files', newFavorites);
+      await tauriStore.save(); 
+    }, 
+    { deep: true }
+  );
 
   const loadMedia = async () => {
     try {
@@ -38,6 +57,10 @@ export const useMediaStore = defineStore('media', () => {
       const repFolder = await join(baseDir, 'media', 'reproducao');
       const themeFolder = await join(baseDir, 'media', 'slides');
       const youtubeFolder = await join(baseDir, 'media', 'reproducao', 'YouTube');
+
+      if (!(await exists(repFolder))) await mkdir(repFolder, { recursive: true });
+      if (!(await exists(themeFolder))) await mkdir(themeFolder, { recursive: true });
+      if (!(await exists(youtubeFolder))) await mkdir(youtubeFolder, { recursive: true });
 
       const files: MediaFile[] = [];
 
@@ -90,6 +113,24 @@ export const useMediaStore = defineStore('media', () => {
       }
 
       mediaFiles.value = files;
+
+      tauriStore = await load('files.json', { autoSave: false , defaults: { favorite_files: [] }});
+            
+      const savedFavorites = await tauriStore.get<string[]>('favorite_files');
+
+      if (Array.isArray(savedFavorites)) {
+        const newFavorites = savedFavorites.filter(it => {
+          return mediaFiles.value.find(file => {
+            if(file.id === it){
+              file.isFavorite = true
+              return true
+            } else { return false }
+          })
+        })
+        favoriteFiles.value = newFavorites
+      }
+
+      isLoaded.value = true
     } catch (error) {
       console.error("Erro ao carregar mídias do Pinia:", error);
     } finally {
@@ -233,6 +274,17 @@ export const useMediaStore = defineStore('media', () => {
     const file = mediaFiles.value.find(f => f.id === fileId);
     if (file) {
       file.isFavorite = !file.isFavorite;
+
+      if(file.isFavorite) {
+        favoriteFiles.value.push(fileId)
+      } else {
+        const index = favoriteFiles.value.indexOf(fileId)
+
+        if(index !== -1){
+          favoriteFiles.value.splice(index, 1)
+        }
+      }
+
     }
   };
 

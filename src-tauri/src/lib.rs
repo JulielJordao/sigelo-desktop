@@ -6,7 +6,7 @@ mod projection;
 mod state;
 mod youtube;
 mod pdf;
-
+mod offline;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -29,7 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(AppState::default())
+        .manage(AppState::new())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -52,7 +52,8 @@ pub fn run() {
             crate::youtube::youtube::get_cached_videos,
             crate::youtube::youtube::delete_cached_video,
             crate::youtube::youtube::open_youtube_cache_folder,
-            crate::pdf::generate_pdf::generate_pdf
+            crate::pdf::generate_pdf::generate_pdf,
+            crate::offline::lyrics::get_offline_lyrics_safe
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

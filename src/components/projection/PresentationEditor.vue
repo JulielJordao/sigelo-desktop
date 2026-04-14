@@ -172,7 +172,7 @@ const songSlides = computed(() => {
         if (infoSlides.value.typeSlides[index] == -1) {
             label = "título"
         }
-        songInfo.listSlides.push({label: label, text: block})
+        songInfo.listSlides.push({ label: label, text: block })
         return { label, text: block };
     });
 });
@@ -329,16 +329,16 @@ const handleKeydown = async (e: KeyboardEvent) => {
             }
             break;
         case 'Escape':
-            const confirmed = await ask('Deseja realmente encerrar a apresentação?', { 
-                    title: 'Sigelo',
-                    kind: 'warning', 
-                    okLabel: 'Sim, Encerrar',
-                    cancelLabel: 'Cancelar'
-                });
+            const confirmed = await ask('Deseja realmente encerrar a apresentação?', {
+                title: 'Sigelo',
+                kind: 'warning',
+                okLabel: 'Sim, Encerrar',
+                cancelLabel: 'Cancelar'
+            });
 
-                if (confirmed) {
-                    stopProjection();
-                }
+            if (confirmed) {
+                stopProjection();
+            }
             break;
     }
 };
@@ -361,6 +361,29 @@ watch(currentSlideIndex, () => {
         projectCurrentSlide();
     }
 });
+
+const formatRelativeTime = (date: Date | string) => {
+
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return ""
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+// Mostra "11/04/2026 14:30:15" no tooltip
+const formatFullDate = (date: Date | string) => {
+    if (!date) return ""
+
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return ""
+
+    return d.toLocaleString([], {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+};
 
 watch(() => songInfo.rawLyric, (newValue) => {
 
@@ -397,9 +420,12 @@ watch(
     }
 );
 
-const updateCurrentPreset = () => {
+const showSaveAlert = ref(false)
+
+const updateCurrentPreset = async () => {
     if (infoPresentationStore.currentPresetId) {
-        infoPresentationStore.updateActivePreset();
+        await infoPresentationStore.updateActivePreset();
+        showSaveAlert.value = true
     }
 }
 
@@ -428,12 +454,39 @@ const updateCurrentPreset = () => {
                     </v-tooltip>
                 </template>
 
-                <v-list density="compact" class="elevation-3" min-width="220">
-                    <v-list-item prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
-                        :disabled="!infoPresentationStore.currentPresetId" @click="updateCurrentPreset"></v-list-item>
+                <v-list density="compact" class="elevation-3" min-width="260">
+                    <template v-if="infoPresentationStore.currentPreset">
+                        <v-list-item lines="two">
+                            <v-list-item-title class="text-overline font-weight-bold text-primary">
+                                TEMA ATIVO
+                            </v-list-item-title>
+                            <v-list-item-subtitle class="text-truncate">
+                                {{ infoPresentationStore.currentPreset.name }}
+                            </v-list-item-subtitle>
 
-                    <v-list-item prepend-icon="mdi-content-save-plus" title="Salvar como Novo Tema"
-                        @click="isSavePresetOpen = true"></v-list-item>
+                            <template v-slot:append>
+                                <v-icon size="small" icon="mdi-clock-outline" class="mr-1"
+                                    v-tooltip:bottom="'Salvo em: ' + formatFullDate(infoPresentationStore.currentPreset.lastSaved)"></v-icon>
+                                <span class="text-caption">{{
+                                    formatRelativeTime(infoPresentationStore.currentPreset.lastSaved) }}</span>
+                            </template>
+                        </v-list-item>
+                        <v-divider class="mb-2"></v-divider>
+                    </template>
+
+                    <v-list-item class="text-red-darken-3" prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
+                        :disabled="!infoPresentationStore.currentPresetId" @click="updateCurrentPreset">
+                        <template v-slot:subtitle>
+                            Salva alterações no tema selecionado
+                        </template>
+                    </v-list-item>
+
+                    <v-list-item class="text-green-darken-3" prepend-icon="mdi-content-save-plus"
+                        title="Salvar como Novo Tema" @click="isSavePresetOpen = true">
+                        <template v-slot:subtitle>
+                            Cria uma nova cópia deste design
+                        </template>
+                    </v-list-item>
                 </v-list>
             </v-menu>
 
@@ -532,4 +585,19 @@ const updateCurrentPreset = () => {
     </div>
     <ModalSelectPreset v-model="isPresetModalOpen"></ModalSelectPreset>
     <ModalSavePreset v-model="isSavePresetOpen"></ModalSavePreset>
+
+    <v-snackbar
+        v-model="showSaveAlert"
+        color="success"
+        elevation="24"
+        rounded="pill"
+        :timeout="3000"
+        >
+        <v-icon start icon="mdi-check-circle"></v-icon>
+        Preset **{{ infoPresentationStore.currentPreset?.name }}** atualizado com sucesso!
+
+        <template v-slot:actions>
+            <v-btn variant="text" @click="showSaveAlert = false">Fechar</v-btn>
+        </template>
+    </v-snackbar>
 </template>

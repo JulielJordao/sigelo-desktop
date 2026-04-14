@@ -5,10 +5,37 @@ import { getLinkFiles } from '../utils/convertData';
 import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
 import { useSongCacheStore } from './songCacheStore';
+import type { SongGroupCache } from './songCacheStore';
 
 export interface Slide {
   label: string;
   text: string;
+}
+
+export interface SongGroup {
+  _id: string; // ID gerado pelo MongoDB
+  name: string;
+
+  // Lista de IDs de grupos ou usuários que têm acesso
+  vinculatedTo?: string[];
+
+  groupUserId: string;
+  isGlobal: boolean;
+
+  // Dados de propriedade
+  hasOwner: boolean;
+  owner?: string;
+  ownerName?: string;
+
+  // Filtros aplicados a este grupo (ex: ['Cifra', 'Letra'])
+  filterTypes?: string[];
+
+  createdBy: string;
+
+  // Datas - No JSON vindo da API elas chegam como string (ISO), 
+  // mas no JS podemos tratá-las como Date ou string.
+  createdAt: Date | string;
+  songsUpdatedAt: Date | string;
 }
 
 export const useMusicPresentationStore = defineStore('musicPresentation', () => {
@@ -48,7 +75,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   })
 
   const getSlideTypeByLabel = (label: string) => {
-    if(!label) return "geral"
+    if (!label) return "geral"
     const lowerCaseLabel = label.toLowerCase()
     if (lowerCaseLabel.includes('refrão')) {
       return 'refrao';
@@ -73,6 +100,22 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
     rawGroups.value = [];
     if (Array.isArray(response?.response)) {
       rawGroups.value = response.response;
+
+      if (songCacheStore.listSongGroups.length === 0) {
+        response.response.forEach((it: SongGroup) => {
+          songCacheStore.listSongGroups.push({ id: it._id, label: it.name, songs: [] })
+        })
+      }
+      else {
+        response.response.forEach((it: SongGroup) => {
+          const indexOf = songCacheStore.listSongGroups.findIndex(group => group.id === it._id)
+          if(indexOf == -1){
+            songCacheStore.listSongGroups.push({ id: it._id, label: it.name, songs: [] })
+          } else {
+            songCacheStore.listSongGroups[indexOf].label = it.name
+          }
+        })
+      }
     }
   };
 
@@ -82,6 +125,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       selectedGroupId.value = id;
       rawLyric.value = '';
       await fetchSongs();
+      
       isLoading.value = false;
     }
   };
@@ -101,18 +145,24 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       songCacheStore.changeCacheInfo({
         id: selectedGroupId.value, label: fullName, songs: sortedSongs.map(it => {
           return {
+            songGroupId: selectedGroupId.value,
             id: it._id,
-            fullName: it.fullName
+            fullName: it.fullName,
+            lyric: ""
           }
         })
       })
+      songCacheStore.getCacheLyrics(selectedGroupId.value)
     }
   };
 
   const selectSong = async (id: string) => {
     customSong.value = null
     selectedSongId.value = id;
-    await fetchLyric();
+    if (songCacheStore.selectedSong.lyric === "" || !songCacheStore.selectedSong.lyric) {
+      await fetchLyric();
+    }
+    rawLyric.value = songCacheStore.selectedSong.lyric;
   };
 
   const setCustomSong = async (song: Song) => {
@@ -125,6 +175,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
         const url = getLinkFiles(lyricFile.fileName);
         const fetchedLyric = await routes.proxy(url);
         rawLyric.value = fetchedLyric.content;
+        songCacheStore.selectedSong.lyric = rawLyric.value
       } else {
         rawLyric.value = "";
       }

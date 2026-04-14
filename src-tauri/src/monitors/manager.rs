@@ -24,6 +24,7 @@ pub enum MonitorPreference {
     Monitor(usize),
 }
 
+/* 
 pub fn choose_projection_monitor(app: &AppHandle) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
 
@@ -39,3 +40,4 @@ pub fn choose_projection_monitor(app: &AppHandle) -> Option<Monitor> {
     // fallback: usar o primário
     app.primary_monitor().ok().flatten()
 }
+    */

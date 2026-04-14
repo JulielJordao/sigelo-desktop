@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, Monitor};
+use tauri::{AppHandle, Monitor};
 
 use crate::monitors::display::MonitorInfo;
 

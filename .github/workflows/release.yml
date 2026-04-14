@@ -30,6 +30,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -47,6 +48,19 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A MÁGICA ACONTECE AQUI:
+          SIGELO_DECRYPT_KEY: ${{ secrets.SIGELO_DECRYPT_KEY }}
+          VITE_SIGELO_DECRYPT_KEY: ${{ secrets.VITE_SIGELO_DECRYPT_KEY }}
+
+
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          
+          # Variáveis para Notarização (Apple Notary Service)
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # Para o Tauri 2.0, usamos APPLE_TEAM_ID para o novo serviço de notarização
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: v__VERSION__ # Puxa a versão do tauri.conf.json
           releaseName: "Sigelo v__VERSION__"

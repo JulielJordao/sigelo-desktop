@@ -32,7 +32,7 @@ const searchResults = computed(() => {
 
 // Função para quando o usuário clicar em uma música da lista
 const selectSong = (song: any, group: any) => { 
-  songStore.setSelectedSong(group.id, song.id)
+  songStore.setSelectedSong(group.id, song.id, song.fullName)
   
   // Limpa a busca e fecha a modal
   searchQuery.value = ''

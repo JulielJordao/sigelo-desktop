@@ -2,9 +2,9 @@ use crate::projection::renderer::render_html;
 use tauri::{AppHandle, Manager, Position}; // Mantemos o import para usar a função mais abaixo
 
 #[tauri::command]
-pub fn update_projection(app: tauri::AppHandle, html: String, target_monitor: Option<String>) {
+pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<String>) {
     // 1. Atualiza o conteúdo HTML
-    crate::projection::renderer::render_html(&app, html);
+    render_html(&app, html);
 
     // 2. Manipulação da janela
     if let Some(window) = app.get_webview_window("projection") {
@@ -52,7 +52,7 @@ pub fn update_projection(app: tauri::AppHandle, html: String, target_monitor: Op
                         let _ = window.set_fullscreen(false);
                         
                         let position = monitor.position();
-                        let _ = window.set_position(tauri::Position::Physical(*position));
+                        let _ = window.set_position(Position::Physical(*position));
                     }
                 }
             }

@@ -1,4 +1,5 @@
 import { fetch } from '@tauri-apps/plugin-http';
+import { invoke } from "@tauri-apps/api/core"
 
 // Interfaces básicas para tipagem
 interface ApiResponse<T = any> {
@@ -258,8 +259,18 @@ export const api = {
 
     const get = async() => getData(`${url}list`, getToken())
 
+    const getOfflineLyrics = async(id: string) => {
+      try {
+        const lyrics = await invoke("get_offline_lyrics_safe", { groupId: id })
+        return lyrics
+      } catch (err) {
+        return {}
+      }
+    }
+
     return {
-        get
+        get,
+        getOfflineLyrics
     }
   },
   song: () => {
