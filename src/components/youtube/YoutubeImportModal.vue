@@ -35,16 +35,26 @@ const qualityOptions = [
   { title: 'Baixa Qualidade (Mais rápido)', value: 'Lowest' }
 ];
 
-// MÁGICA 1: Verifica o motor assim que a modal for aberta
+// NOVO: Estados de Navegador para os Cookies
+const selectedBrowser = ref('none');
+const browserOptions = [
+  { title: 'Sem Login (Padrão)', value: 'none' },
+  { title: 'Google Chrome', value: 'chrome' },
+  { title: 'Microsoft Edge', value: 'edge' },
+  { title: 'Mozilla Firefox', value: 'firefox' },
+  { title: 'Opera', value: 'opera' },
+  { title: 'Brave', value: 'brave' },
+];
+
 watch(isOpen, async (newVal) => {
     if (newVal) {
         await checkAndSetupEngine();
     } else {
-        // Limpa os dados ao fechar
         setTimeout(() => {
             url.value = '';
             videoInfo.value = null;
             selectedQuality.value = 'Highest';
+            selectedBrowser.value = 'none'; // Reseta o navegador
         }, 300);
     }
 });
@@ -53,12 +63,9 @@ const checkAndSetupEngine = async () => {
     isCheckingEngine.value = true;
     try {
         const engineExists = await invoke<boolean>('check_ytdlp_status');
-        
         if (!engineExists) {
-            // PRIMEIRA VEZ: Não tem o motor, então baixa automaticamente
             await updateEngine();
         } else {
-            // JÁ TEM: Libera a interface
             isEngineReady.value = true;
         }
     } catch (error) {
@@ -81,7 +88,6 @@ const updateEngine = async () => {
     }
 };
 
-// Passo 1: Busca apenas as informações (Sem baixar)
 const fetchVideoInfo = async () => {
     if (!url.value) return;
     isFetchingInfo.value = true;
@@ -91,7 +97,6 @@ const fetchVideoInfo = async () => {
             title: info.title,
             thumbnail: info.thumbnail
         };
-        
     } catch (error) {
         alert("Erro 403 ou Link Inválido. Tente clicar em 'Atualizar Motor' e tente novamente.");
         console.error(error);
@@ -100,14 +105,17 @@ const fetchVideoInfo = async () => {
     }
 };
 
-// Passo 2: Baixa o vídeo na qualidade escolhida
 const downloadAndCache = async () => {
     if (!url.value) return;
     isDownloading.value = true;
     try {
+        // Envia null se for 'none', senão envia a string do navegador escolhido
+        const browserToSend = selectedBrowser.value === 'none' ? null : selectedBrowser.value;
+
         const filePath = await invoke<string>('cache_youtube_video', { 
             url: url.value,
-            quality: selectedQuality.value
+            quality: selectedQuality.value,
+            browser: browserToSend // Passa o novo argumento pro Rust
         });
         
         emit('video-ready', { 
@@ -115,15 +123,12 @@ const downloadAndCache = async () => {
             title: videoInfo.value?.title 
         });
 
-        await youtubeStore.fetchCache()
-
-        await mediaStore.loadMedia()
-
-        console.log(filePath)
+        await youtubeStore.fetchCache();
+        await mediaStore.loadMedia();
         
         isOpen.value = false;
     } catch (error) {
-        alert("Falha ao baixar o vídeo. Tente uma qualidade menor.");
+        alert("Falha ao baixar o vídeo. Verifique se o navegador está FECHADO e tente novamente.");
         console.error(error);
     } finally {
         isDownloading.value = false;
@@ -215,7 +220,32 @@ const closeModal = () => {
                         hide-details
                         :disabled="isDownloading"
                         prepend-inner-icon="mdi-quality-high"
+                        class="mb-4"
                     ></v-select>
+
+                    <v-select
+                        v-model="selectedBrowser"
+                        :items="browserOptions"
+                        label="Usar login do navegador (Para vídeos restritos)"
+                        variant="outlined"
+                        density="comfortable"
+                        hide-details
+                        :disabled="isDownloading"
+                        prepend-inner-icon="mdi-cookie"
+                    ></v-select>
+
+                    <v-expand-transition>
+                        <v-alert
+                            v-if="selectedBrowser !== 'none'"
+                            type="warning"
+                            variant="tonal"
+                            density="compact"
+                            class="mt-3 text-caption"
+                            icon="mdi-alert"
+                        >
+                            <strong>Atenção:</strong> Você deve <b>fechar o {{ browserOptions.find(b => b.value === selectedBrowser)?.title }}</b> completamente antes de clicar em Baixar, ou o download irá falhar.
+                        </v-alert>
+                    </v-expand-transition>
                 </div>
             </v-expand-transition>
 

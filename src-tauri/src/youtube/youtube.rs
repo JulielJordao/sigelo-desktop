@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 use std::io::{Cursor, Write};
-use std::path::{Path};
+use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
 pub struct RustCachedVideo {
@@ -19,9 +19,7 @@ pub struct RustCachedVideo {
 }
 
 fn get_youtube_folder(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    // Pega o diretório de dados do app (o mesmo appDataDir() do Vue)
     let app_data = app.path().app_local_data_dir().map_err(|_| "Erro ao obter appData".to_string())?;
-    
     let yt_folder = app_data.join("media").join("reproducao").join("YouTube");
     
     if !yt_folder.exists() {
@@ -31,10 +29,8 @@ fn get_youtube_folder(app: &tauri::AppHandle) -> Result<std::path::PathBuf, Stri
     Ok(yt_folder)
 }
 
-// 2. Atualizado para ler da pasta correta
 #[tauri::command]
 pub fn get_cached_videos(app: tauri::AppHandle) -> Result<Vec<RustCachedVideo>, String> {
-    // AQUI: Usando a nossa função que aponta para media/reproducao/YouTube
     let cache_dir = get_youtube_folder(&app)?;
     let mut videos = Vec::new();
 
@@ -54,7 +50,6 @@ pub fn get_cached_videos(app: tauri::AppHandle) -> Result<Vec<RustCachedVideo>, 
                     .unwrap_or_default()
                     .as_millis() as u64;
 
-                // Busca a Duração no arquivo .info.json
                 let json_path = path.with_extension("info.json");
                 let mut duration = 0.0;
                 if let Ok(json_content) = std::fs::read_to_string(&json_path) {
@@ -63,7 +58,6 @@ pub fn get_cached_videos(app: tauri::AppHandle) -> Result<Vec<RustCachedVideo>, 
                     }
                 }
 
-                // Busca a Thumbnail (.jpg, .webp ou .png)
                 let mut thumb_path = String::new();
                 for ext in ["jpg", "webp", "png"] {
                     let p = path.with_extension(ext);
@@ -87,28 +81,23 @@ pub fn get_cached_videos(app: tauri::AppHandle) -> Result<Vec<RustCachedVideo>, 
     Ok(videos)
 }
 
-// 3. Atualizado para deletar o vídeo, a thumb e o json
 #[tauri::command]
 pub fn delete_cached_video(app: tauri::AppHandle, filename: String) -> Result<(), String> {
-    // AQUI: Apontando para a pasta correta
     let cache_dir = get_youtube_folder(&app)?;
     let file_path = cache_dir.join(filename);
 
     if file_path.exists() {
-        // 1. Deleta o vídeo (.mp4)
         std::fs::remove_file(&file_path).map_err(|e| format!("Erro ao deletar vídeo: {}", e))?;
 
-        // 2. Tenta deletar o arquivo de informações (.info.json)
         let json_path = file_path.with_extension("info.json");
         if json_path.exists() {
-            let _ = std::fs::remove_file(json_path); // Ignora erro se não existir
+            let _ = std::fs::remove_file(json_path);
         }
 
-        // 3. Tenta deletar a miniatura (testa as 3 extensões possíveis)
         for ext in ["jpg", "webp", "png"] {
             let thumb_path = file_path.with_extension(ext);
             if thumb_path.exists() {
-                let _ = std::fs::remove_file(thumb_path); // Ignora erro se não existir
+                let _ = std::fs::remove_file(thumb_path);
             }
         }
     }
@@ -124,17 +113,14 @@ pub fn check_ytdlp_status(app: tauri::AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
-// 1. Pega a pasta AppData/Local
     let app_dir = app.path().app_local_data_dir().map_err(|_| "Falha ao obter diretório AppLocalData")?;
-    
-    // 2. Define e cria a pasta 'bin' (se não existir)
     let bin_dir = app_dir.join("bin");
 
     if !bin_dir.exists() {
         fs::create_dir_all(&bin_dir).map_err(|e| format!("Erro ao criar pasta bin: {}", e))?;
     }
 
- // 1. ATUALIZAR YT-DLP (Binário direto)
+    // 1. ATUALIZAR YT-DLP
     let (ytdlp_name, ytdlp_url) = if cfg!(target_os = "windows") {
         ("yt-dlp.exe", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
     } else if cfg!(target_os = "macos") {
@@ -148,7 +134,7 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
     save_file(&ytdlp_path, &ytdlp_bytes)?;
     set_executable_permission(&ytdlp_path);
 
-    // 2. ATUALIZAR FFMPEG (ZIP ou Tar)
+    // 2. ATUALIZAR FFMPEG
     let ffmpeg_url = if cfg!(target_os = "windows") {
         "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
     } else if cfg!(target_os = "macos") {
@@ -158,26 +144,36 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
     };
 
     let ffmpeg_exe_name = if cfg!(target_os = "windows") { "ffmpeg.exe" } else { "ffmpeg" };
- // 1. ATUALIZAR YT-DLP (Binário direto)
-    let (_ytdlp_name, _ytdlp_url) = if cfg!(target_os = "windows") {
-        ("yt-dlp.exe", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe")
-    } else if cfg!(target_os = "macos") {
-        ("yt-dlp", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")
-    } else {
-        ("yt-dlp", "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp")
-    };    let ffmpeg_path = bin_dir.join(ffmpeg_exe_name);
+    let ffmpeg_path = bin_dir.join(ffmpeg_exe_name);
 
     if cfg!(any(target_os = "windows", target_os = "macos")) {
-        // Baixa o ZIP e extrai apenas o executável do FFmpeg
         let zip_bytes = download_bytes(ffmpeg_url).await?;
-        extract_ffmpeg_from_zip(&zip_bytes, &ffmpeg_path)?;
+        extract_file_from_zip(&zip_bytes, &ffmpeg_path, "ffmpeg")?;
     } else {
-        // No Linux (simplificado para o seu caso de uso)
         let bytes = download_bytes(ffmpeg_url).await?;
         save_file(&ffmpeg_path, &bytes)?;
     }
-
     set_executable_permission(&ffmpeg_path);
+
+    // 3. ATUALIZAR DENO (NOVO - MOTOR JAVASCRIPT)
+    let deno_url = if cfg!(target_os = "windows") {
+        "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+    } else if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip"
+        } else {
+            "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-apple-darwin.zip"
+        }
+    } else {
+        "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+    };
+
+    let deno_exe_name = if cfg!(target_os = "windows") { "deno.exe" } else { "deno" };
+    let deno_path = bin_dir.join(deno_exe_name);
+
+    let deno_zip_bytes = download_bytes(deno_url).await?;
+    extract_file_from_zip(&deno_zip_bytes, &deno_path, "deno")?;
+    set_executable_permission(&deno_path);
 
     Ok("Motores atualizados com sucesso!".to_string())
 }
@@ -196,21 +192,22 @@ fn save_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-fn extract_ffmpeg_from_zip(zip_bytes: &[u8], dest_path: &Path) -> Result<(), String> {
+// Função de extração atualizada para servir tanto pro FFmpeg quanto pro Deno
+fn extract_file_from_zip(zip_bytes: &[u8], dest_path: &Path, target_name: &str) -> Result<(), String> {
     let reader = Cursor::new(zip_bytes);
     let mut archive = zip::ZipArchive::new(reader).map_err(|e| e.to_string())?;
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         
-        // Procuramos um arquivo que termine com 'ffmpeg' ou 'ffmpeg.exe' dentro do zip
-        if file.name().ends_with("ffmpeg") || file.name().ends_with("ffmpeg.exe") {
+        // Verifica se o nome do arquivo termina com o target (ex: 'ffmpeg.exe' ou 'deno')
+        if file.name().ends_with(target_name) || file.name().ends_with(&format!("{}.exe", target_name)) {
             let mut out_file = fs::File::create(dest_path).map_err(|e| e.to_string())?;
             std::io::copy(&mut file, &mut out_file).map_err(|e| e.to_string())?;
             return Ok(());
         }
     }
-    Err("FFmpeg não encontrado dentro do arquivo ZIP".to_string())
+    Err(format!("{} não encontrado dentro do arquivo ZIP", target_name))
 }
 
 fn set_executable_permission(path: &Path) {
@@ -225,36 +222,39 @@ fn set_executable_permission(path: &Path) {
     }
 }
 
-// 2. Função auxiliar para pegar o caminho do yt-dlp baixado
 fn get_ytdlp_path(app: &AppHandle) -> String {
     let app_dir = app.path().app_local_data_dir().unwrap();
     let bin_dir = app_dir.join("bin");
-    let file_name = if cfg!(target_os = "windows") {
-        "yt-dlp.exe"
-    } else {
-        "yt-dlp"
-    };
+    let file_name = if cfg!(target_os = "windows") { "yt-dlp.exe" } else { "yt-dlp" };
     bin_dir.join(file_name).to_string_lossy().to_string()
 }
 
-// 3. Função para buscar título e miniatura
+// --- COMANDOS YOUTUBE ---
+
 #[tauri::command]
 pub async fn get_youtube_info(app: AppHandle, url: String) -> Result<serde_json::Value, String> {
-    // Pega o caminho dinâmico do executável
+    let app_dir = app.path().app_local_data_dir().map_err(|_| "Erro app_dir")?;
     let exe_path = get_ytdlp_path(&app);
+    
+    // Configura o caminho do Deno para buscar a info também
+    let bin_dir = app_dir.join("bin");
+    let deno_exe = if cfg!(target_os = "windows") { "deno.exe" } else { "deno" };
+    let deno_path = bin_dir.join(deno_exe);
 
-    // Usa .command(exe_path) no lugar de .sidecar()
-    let cmd = app
-        .shell()
-        .command(exe_path)
-        .args(["--dump-json", "--no-playlist", &url]);
+    // Usando Vec<String> para montar os comandos dinamicamente
+    let args = vec![
+        "--dump-json".to_string(),
+        "--no-playlist".to_string(),
+        "--js-runtimes".to_string(), deno_path.to_string_lossy().to_string(),
+        url
+    ];
 
+    let cmd = app.shell().command(exe_path).args(args);
     let output = cmd.output().await.map_err(|e| e.to_string())?;
 
     if output.status.success() {
         let json_str = String::from_utf8_lossy(&output.stdout);
-        let parsed: serde_json::Value =
-            serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
 
         Ok(json!({
             "title": parsed["title"],
@@ -265,41 +265,55 @@ pub async fn get_youtube_info(app: AppHandle, url: String) -> Result<serde_json:
     }
 }
 
-// 4. Função para baixar o vídeo de fato
 #[tauri::command]
-pub async fn cache_youtube_video(app: tauri::AppHandle, url: String, quality: String) -> Result<String, String> {
-    // 1. Caminhos das pastas
+pub async fn cache_youtube_video(
+    app: tauri::AppHandle, 
+    url: String, 
+    quality: String, 
+    browser: Option<String>
+) -> Result<String, String> {
     let yt_folder = get_youtube_folder(&app)?;
     let app_dir = app.path().app_local_data_dir().map_err(|_| "Erro app_dir")?;
     let exe_path = get_ytdlp_path(&app);
-
     let bin_dir = app_dir.join("bin");
     
-    // O template de saída (Pasta YouTube / ID do video . extensão)
+    // Pega o executável do Deno
+    let deno_exe = if cfg!(target_os = "windows") { "deno.exe" } else { "deno" };
+    let deno_path = bin_dir.join(deno_exe);
+
     let output_template = yt_folder.join("%(id)s.%(ext)s");
 
-    // 2. Lógica de Qualidade com FFmpeg (Agora permitindo união de trilhas separadas)
-    // Buscamos o melhor MP4 + melhor M4A para garantir compatibilidade Apple
     let format_arg = match quality.as_str() {
-        "Lowest" => "worstvideo[ext=mp4]+worstaudio[ext=m4a]/worst[ext=mp4]",
-        "Medium" => "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]",
-        "Highest" => "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]",
-        _ => "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]"
+        "Lowest" => "worst",
+        "Medium" => "bv*[height<=720]+ba/b[height<=720]",
+        "Highest" => "bv*[ext=mp4]+ba[ext=m4a]/b",
+        _ => "bv*+ba/b"
     };
 
-    let cmd = app.shell().command(exe_path)
-        .args([
-            "-f", format_arg,
-            "--ffmpeg-location", &bin_dir.to_string_lossy(),
-            "--merge-output-format", "mp4",
-            "--no-playlist",
-            "--write-info-json", 
-            "--write-thumbnail", 
-            "-o", &output_template.to_string_lossy(),
-            "--print", "after_move:filepath",
-            &url
-        ]);
+    let mut args = vec![
+        "-f".to_string(), format_arg.to_string(),
+        "--ffmpeg-location".to_string(), bin_dir.to_string_lossy().to_string(),
         
+        // AQUI ESTÁ A MÁGICA: Informa o yt-dlp onde está o motor JavaScript (Deno)
+        "--js-runtimes".to_string(), deno_path.to_string_lossy().to_string(),
+  
+        "--no-playlist".to_string(),
+        "--write-info-json".to_string(),
+        "--write-thumbnail".to_string(),
+        "-o".to_string(), output_template.to_string_lossy().to_string(),
+        "--print".to_string(), "after_move:filepath".to_string(),
+    ];
+
+    if let Some(browser_name) = browser {
+        args.push("--cookies-from-browser".to_string());
+        args.push(browser_name);
+        args.push("--extractor-args".to_string());
+        args.push("youtube:player_client=web,android".to_string());
+    }
+
+    args.push(url);
+
+    let cmd = app.shell().command(exe_path).args(args);
     let output = cmd.output().await.map_err(|e| e.to_string())?;
 
     if output.status.success() {
@@ -310,34 +324,24 @@ pub async fn cache_youtube_video(app: tauri::AppHandle, url: String, quality: St
         Err(format!("Erro no download/processamento: {}", error_msg))
     }
 }
-// NOVO: Comando para abrir a pasta de cache no sistema operacional
+
 #[tauri::command]
 pub fn open_youtube_cache_folder(app: tauri::AppHandle) -> Result<(), String> {
-    
    let youtube_dir = get_youtube_folder(&app)?;
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("explorer")
-            .arg(&youtube_dir)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        std::process::Command::new("explorer").arg(&youtube_dir).spawn().map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(&youtube_dir)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        std::process::Command::new("open").arg(&youtube_dir).spawn().map_err(|e| e.to_string())?;
     }
 
     #[cfg(target_os = "linux")]
     {
-        std::process::Command::new("xdg-open")
-            .arg(&youtube_dir)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        std::process::Command::new("xdg-open").arg(&youtube_dir).spawn().map_err(|e| e.to_string())?;
     }
 
     Ok(())

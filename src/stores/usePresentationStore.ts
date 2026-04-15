@@ -173,10 +173,13 @@ export const usePresentationStore = defineStore('presentation', () => {
         
         if(storeData) {
             if(presets.value.some(it => it.id === storeData.id)) {
-                currentPresetId.value = storeData.id
+                applyPreset(storeData.id) 
                 currentPresetIsLoaded.value = true
             } else {
-                currentPresetId.value = presets.value[0]?.id
+                if(presets.value.length >0) {
+                    currentPresetIsLoaded.value = true
+                    applyPreset(presets.value[0].id)
+                }   
             }
         }
     }

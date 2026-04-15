@@ -31,8 +31,8 @@ const searchResults = computed(() => {
 })
 
 // Função para quando o usuário clicar em uma música da lista
-const selectSong = (song: any, group: any) => { 
-  songStore.setSelectedSong(group.id, song.id, song.fullName)
+const selectSong = (song: any) => { 
+  songStore.setSelectedSong(song)
   
   // Limpa a busca e fecha a modal
   searchQuery.value = ''
@@ -75,7 +75,7 @@ const selectSong = (song: any, group: any) => {
               :title="song.fullName"
               class="cursor-pointer transition-swing"
               hover
-              @click="selectSong(song, group)"
+              @click="selectSong(song)"
             >
               <template v-slot:prepend>
                 <v-icon icon="mdi-music-note-outline" size="small" color="grey"></v-icon>

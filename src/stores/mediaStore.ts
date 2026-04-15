@@ -1,11 +1,12 @@
 // src/stores/mediaStore.ts
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
-import { readDir, stat, copyFile, remove, mkdir, exists } from '@tauri-apps/plugin-fs';
-import { appLocalDataDir, join, basename, extname } from '@tauri-apps/api/path';
+import { readDir, stat, copyFile, remove, mkdir, exists, rename } from '@tauri-apps/plugin-fs';
+import { appLocalDataDir, join, basename, extname, dirname } from '@tauri-apps/api/path';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { Store } from "@tauri-apps/plugin-store";
 import { load } from '@tauri-apps/plugin-store';
+import { usePresentationStore } from './usePresentationStore';
 
 export type MediaContext = 'Media' | 'Theme' | 'YouTube';
 
@@ -24,6 +25,9 @@ export interface MediaFile {
 }
 
 export const useMediaStore = defineStore('media', () => {
+
+  const presentationStore = usePresentationStore()
+
   const mediaFiles = ref<MediaFile[]>([]);
 
   const favoriteFiles = ref<string[]>([])
@@ -40,13 +44,13 @@ export const useMediaStore = defineStore('media', () => {
 
   // 2. Salva no disco nativo toda vez que algo em settings mudar
   watch(
-    favoriteFiles, 
+    favoriteFiles,
     async (newFavorites) => {
       if (!isLoaded.value || !tauriStore) return; // Só tenta salvar se o tauriStore já foi instanciado
-      
+
       await tauriStore.set('favorite_files', newFavorites);
-      await tauriStore.save(); 
-    }, 
+      await tauriStore.save();
+    },
     { deep: true }
   );
 
@@ -85,9 +89,9 @@ export const useMediaStore = defineStore('media', () => {
 
           // 2. EXTENSÕES ABRANGENTES: O yt-dlp no Windows adora baixar .webm e .mkv
           const lowerName = entry.name.toLowerCase();
-          const isSupportedVideo = lowerName.endsWith('.mp4') || 
-                                   lowerName.endsWith('.webm') || 
-                                   lowerName.endsWith('.mkv');
+          const isSupportedVideo = lowerName.endsWith('.mp4') ||
+            lowerName.endsWith('.webm') ||
+            lowerName.endsWith('.mkv');
 
           if (isSupportedVideo) {
             const filePath = await join(youtubeFolder, entry.name);
@@ -96,7 +100,7 @@ export const useMediaStore = defineStore('media', () => {
             files.push({
               id: entry.name,
               // Remove qualquer uma das extensões suportadas para o nome de exibição ficar limpo
-              name: entry.name.replace(/\.(mp4|webm|mkv)$/i, ''), 
+              name: entry.name.replace(/\.(mp4|webm|mkv)$/i, ''),
               path: filePath,
               url: convertFileSrc(filePath),
               isVideo: true,
@@ -107,21 +111,21 @@ export const useMediaStore = defineStore('media', () => {
             });
           }
         }
-      } catch (e) { 
+      } catch (e) {
         // Dica: Imprima o erro real temporariamente para debugar se a pasta realmente não existe
-        console.warn("Pasta YouTube ausente ou erro ao ler:", e); 
+        console.warn("Pasta YouTube ausente ou erro ao ler:", e);
       }
 
       mediaFiles.value = files;
 
-      tauriStore = await load('files.json', { autoSave: false , defaults: { favorite_files: [] }});
-            
+      tauriStore = await load('files.json', { autoSave: false, defaults: { favorite_files: [] } });
+
       const savedFavorites = await tauriStore.get<string[]>('favorite_files');
 
       if (Array.isArray(savedFavorites)) {
         const newFavorites = savedFavorites.filter(it => {
           return mediaFiles.value.find(file => {
-            if(file.id === it){
+            if (file.id === it) {
               file.isFavorite = true
               return true
             } else { return false }
@@ -275,12 +279,12 @@ export const useMediaStore = defineStore('media', () => {
     if (file) {
       file.isFavorite = !file.isFavorite;
 
-      if(file.isFavorite) {
+      if (file.isFavorite) {
         favoriteFiles.value.push(fileId)
       } else {
         const index = favoriteFiles.value.indexOf(fileId)
 
-        if(index !== -1){
+        if (index !== -1) {
           favoriteFiles.value.splice(index, 1)
         }
       }
@@ -295,6 +299,66 @@ export const useMediaStore = defineStore('media', () => {
     }
   };
 
+  const renameMedia = async (file: MediaFile, newBaseName: string) => {
+    try {
+      const oldUrl = file.url;
+      const oldPath = file.path;
+      const dir = await dirname(oldPath);
+      const ext = await extname(oldPath); // ex: 'mp4' ou 'mkv'
+
+      // Nome base antigo sem a extensão (ex: "video_aula")
+      const oldBaseName = await basename(oldPath, `.${ext}`);
+
+      const newFileName = `${newBaseName}.${ext}`;
+      const newPath = await join(dir, newFileName);
+
+      if (await exists(newPath)) {
+        return { success: false, error: `Já existe um arquivo chamado "${newFileName}" nesta pasta. Escolha um nome diferente.`}; // Interrompe a execução aqui
+      }
+
+      // 1. Renomeia o arquivo de mídia principal (.mp4, .mkv, etc)
+      await rename(oldPath, newPath);
+
+      // 2. Lógica para arquivos vinculados (YouTube / Webm / Info)
+      // Procuramos por: nome.info.json e nome.webp
+      const extraExtensions = ['info.json', 'webp'];
+
+      for (const extraExt of extraExtensions) {
+        const oldExtraPath = await join(dir, `${oldBaseName}.${extraExt}`);
+
+        if (await exists(oldExtraPath)) {
+          const newExtraPath = await join(dir, `${newBaseName}.${extraExt}`);
+          await rename(oldExtraPath, newExtraPath);
+        }
+      }
+
+      // 3. Atualiza o estado local do objeto MediaFile
+      file.name = newFileName;
+      file.path = newPath;
+      file.url = convertFileSrc(newPath); // Nova URL do Asset Protocol v2
+
+      // 4. Atualiza os Presets na PresentationStore
+      // Dica: Se o seu preset salva a URL, comparamos com a antiga
+      if (presentationStore.presets && presentationStore.presets.length > 0) {
+        presentationStore.presets.forEach(preset => {
+          if (preset.design.bgMedia === oldUrl) {
+            preset.design.bgMedia = file.url;
+          }
+        });
+      }
+
+      // 5. Se o arquivo renomeado for o atual "Fixed Media", atualiza a ref
+      if (fixedMedia.value?.id === file.id) {
+        fixedMedia.value.path = newPath;
+        fixedMedia.value.url = file.url;
+      }
+      return {success: true, error: ''}
+    } catch (error) {
+      return { success: false, error: "Erro crítico ao renomear arquivos de mídia:" + error }
+    }
+  };
+
+
   return {
     mediaFiles,
     fixedMedia,
@@ -304,6 +368,7 @@ export const useMediaStore = defineStore('media', () => {
     setFixedMedia,
     loadMedia,
     toggleFavorite,
+    renameMedia,
     updateDuration,
     addDroppedFiles,
     deleteFile

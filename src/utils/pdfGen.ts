@@ -19,7 +19,7 @@ export const exportToPDF = async () => {
     const fontStore = useFontStore();
     const design = presentationStore.design;
 
-    if (!musicPresentation.activeSong?._id) {
+    if (!musicPresentation.activeSong?.id) {
         await message('Nenhuma música selecionada para exportação.', { title: 'Aviso', kind: 'warning' });
         return;
     }

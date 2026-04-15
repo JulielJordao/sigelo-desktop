@@ -456,25 +456,25 @@ const updateCurrentPreset = async () => {
 
                 <v-list density="compact" class="elevation-3" min-width="260">
                     <template v-if="infoPresentationStore.currentPreset">
-                        <v-list-item lines="two">
+                        <v-list-item lines="two" v-if="infoPresentationStore.currentPreset?.id">
                             <v-list-item-title class="text-overline font-weight-bold text-primary">
                                 TEMA ATIVO
                             </v-list-item-title>
                             <v-list-item-subtitle class="text-truncate">
-                                {{ infoPresentationStore.currentPreset.name }}
+                                {{ infoPresentationStore.currentPreset?.name }}
                             </v-list-item-subtitle>
 
                             <template v-slot:append>
                                 <v-icon size="small" icon="mdi-clock-outline" class="mr-1"
                                     v-tooltip:bottom="'Salvo em: ' + formatFullDate(infoPresentationStore.currentPreset.lastSaved)"></v-icon>
                                 <span class="text-caption">{{
-                                    formatRelativeTime(infoPresentationStore.currentPreset.lastSaved) }}</span>
+                                    formatRelativeTime(infoPresentationStore.currentPreset?.lastSaved) }}</span>
                             </template>
                         </v-list-item>
                         <v-divider class="mb-2"></v-divider>
                     </template>
 
-                    <v-list-item class="text-red-darken-3" prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
+                    <v-list-item class="text-red-darken-3" v-if="infoPresentationStore.presets.length > 0 && infoPresentationStore.currentPreset?.id" prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
                         :disabled="!infoPresentationStore.currentPresetId" @click="updateCurrentPreset">
                         <template v-slot:subtitle>
                             Salva alterações no tema selecionado
@@ -515,7 +515,7 @@ const updateCurrentPreset = async () => {
                 prepend-icon="mdi-stop" @click="stopProjection">Parar Apresentação</v-btn>
         </v-toolbar>
 
-        <div v-if="songInfo.activeSong?._id" class="d-flex flex-column flex-grow-1 overflow-hidden">
+        <div v-if="songInfo.activeSong?.id" class="d-flex flex-column flex-grow-1 overflow-hidden">
 
             <div class="bg-black d-flex align-center justify-center relative flex-shrink-0 preview-wrapper">
                 <SlidePreview :design="design" :textStyle="currentActiveStyle" :text="currentSlideText"

@@ -17,9 +17,9 @@ const songCacheStore = useSongCacheStore()
 watch(() => songCacheStore.selectedSong, (newValue) => {
   if(newValue.songGroupId !== presentationStore.selectedGroupId){
     presentationStore.selectGroup(newValue.songGroupId)
-    presentationStore.selectSong(newValue.id)
+    presentationStore.selectSong(newValue)
   } else if(newValue.id !== presentationStore.selectedSongId) {
-    presentationStore.selectSong(newValue.id)
+    presentationStore.selectSong(newValue)
   }
 },
   { deep: true })

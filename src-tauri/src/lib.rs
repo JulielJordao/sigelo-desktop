@@ -14,6 +14,21 @@ fn greet(name: &str) -> String {
 }
 
 use crate::state::app_state::AppState;
+use std::net::{SocketAddr, TcpStream};
+use std::time::Duration;
+
+// Comando que o frontend vai chamar
+#[tauri::command]
+fn is_online() -> bool {
+    // Tenta conectar no DNS do Google (8.8.8.8) na porta 53 (porta de DNS)
+    let addr = SocketAddr::from(([8, 8, 8, 8], 53));
+    
+    // Define um timeout de 2 segundos. Se não responder, assume offline.
+    match TcpStream::connect_timeout(&addr, Duration::from_secs(2)) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -53,7 +68,8 @@ pub fn run() {
             crate::youtube::youtube::delete_cached_video,
             crate::youtube::youtube::open_youtube_cache_folder,
             crate::pdf::generate_pdf::generate_pdf,
-            crate::offline::lyrics::get_offline_lyrics_safe
+            crate::offline::lyrics::get_offline_lyrics_safe,
+            is_online
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

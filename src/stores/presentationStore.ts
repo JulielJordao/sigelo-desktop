@@ -5,6 +5,7 @@ import { getLinkFiles } from '../utils/convertData';
 import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
 import { useSongCacheStore } from './songCacheStore';
+import type { SongCache } from './songCacheStore';
 
 export interface Slide {
   label: string;
@@ -47,9 +48,9 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   const listSlides = ref<Slide[]>([])
 
   const rawGroups = ref<any[]>([]);
-  const songs = ref<Song[]>([]);
+  const songs = ref<SongCache[]>([]);
   const rawLyric = ref<string>(""); // Substitui a chamada da ref updateLyric
-  const customSong = ref<Song | null>(null);
+  const customSong = ref<SongCache | null>(null);
 
   // --- COMPUTED ---
   const filteredSongs = computed(() => songs.value);
@@ -57,7 +58,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
     if (customSong.value) {
       return customSong.value;
     }
-    return songs.value.find(s => s._id === selectedSongId.value) || null;
+    return songs.value.find(s => s.id === selectedSongId.value) || null;
   });
 
   const currentSlide = ref<Slide>({ label: '', text: '' });
@@ -108,7 +109,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       else {
         response.response.forEach((it: SongGroup) => {
           const indexOf = songCacheStore.listSongGroups.findIndex(group => group.id === it._id)
-          if(indexOf == -1){
+          if (indexOf == -1) {
             songCacheStore.listSongGroups.push({ id: it._id, label: it.name, songs: [] })
           } else {
             songCacheStore.listSongGroups[indexOf].label = it.name
@@ -124,22 +125,50 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       selectedGroupId.value = id;
       rawLyric.value = '';
       await fetchSongs();
-      
+
       isLoading.value = false;
     }
   };
 
   const fetchSongs = async () => {
-    const response = await routes.song().list(selectedGroupId.value);
+    let isListLoaded = false
+    const indexOf = songCacheStore.listSongGroups.findIndex(it => selectedGroupId.value === it.id)
 
-    if (Array.isArray(response?.search)) {
-      const list = response.search as Song[];
+    const loadSongs = async (listSongs: SongCache[]) => {
+      if (!isListLoaded) {
+        songs.value = listSongs.map((it) => {
+          return {
+            id: it.id,
+            songGroupId: it.songGroupId,
+            fullName: it.fullName,
+            lyric: it.lyric
+          }
+        })
+        isListLoaded = true
+      }
+    }
+
+    let isCacheEmpty = false
+
+    if (songCacheStore.listSongGroups[indexOf].songs.length > 0) {
+      loadSongs(songCacheStore.listSongGroups[indexOf].songs)
+    } else {
+      // caso o usuário limpe o arquivo de cache do sistema
+      isCacheEmpty = true
+    }
+
+    const response = await routes.song().list(selectedGroupId.value, isCacheEmpty ? undefined : songCacheStore.listLastDataUpdated[selectedGroupId.value]);
+
+    if (Array.isArray(response?.songs) && (!response?.isUpdated || songCacheStore.listSongGroups[indexOf].songs.length === 0)) {
+      console.log("hasToReload")
+      const list = response.songs as Song[];
 
       const sortedSongs = [...list].sort((a, b) => {
         return a.fullName.localeCompare(b.fullName, 'pt-BR', { sensitivity: 'base' });
       });
 
-      songs.value = sortedSongs
+      console.log(list)
+
       const fullName = rawGroups.value.find(it => it._id == selectedGroupId.value)?.name ?? ''
       songCacheStore.changeCacheInfo({
         id: selectedGroupId.value, label: fullName, songs: sortedSongs.map(it => {
@@ -151,21 +180,38 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
           }
         })
       })
-      songCacheStore.getCacheLyrics(selectedGroupId.value)
+
+      await songCacheStore.getCacheLyrics(selectedGroupId.value)
+
+      await loadSongs(songCacheStore.listSongGroups[indexOf].songs)
+
+      songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt)
+
+    } else {
+       console.log("notReload")
+      // songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt)
+      loadSongs(songCacheStore.listSongGroups[indexOf].songs)
     }
+    
+
   };
 
-  const selectSong = async (id: string) => {
+  const selectSong = async (song: SongCache) => {
     customSong.value = null
-    selectedSongId.value = id;
-    if (songCacheStore.selectedSong.lyric === "" || !songCacheStore.selectedSong.lyric) {
+    selectedSongId.value = song.id;
+    if (song.lyric === "" || !song.lyric) {
       await fetchLyric();
+    } else {
+      songCacheStore.selectedSong = song;
+      rawLyric.value = song.lyric === "" ? " " : song.lyric;
     }
-    rawLyric.value = songCacheStore.selectedSong.lyric;
+
   };
 
   const setCustomSong = async (song: Song) => {
-    customSong.value = song;
+
+    
+
     if (Array.isArray(song.files)) {
       const list: SongFile[] = song.files;
       const lyricFile = list.find(it => it.type == "Letra");
@@ -174,8 +220,21 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
         const url = getLinkFiles(lyricFile.fileName);
         const fetchedLyric = await routes.proxy(url);
         rawLyric.value = fetchedLyric.content;
+        customSong.value = {
+            songGroupId: song.songGroupId, 
+            id: song._id, 
+            fullName: song.fullName,
+            lyric: fetchedLyric.content
+        };
+        
         songCacheStore.selectedSong.lyric = rawLyric.value
       } else {
+        customSong.value = {
+            songGroupId: song.songGroupId, 
+            id: song._id, 
+            fullName: song.fullName,
+            lyric: ''
+        };
         rawLyric.value = "";
       }
     } else {

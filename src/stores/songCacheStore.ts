@@ -4,42 +4,63 @@ import { load } from '@tauri-apps/plugin-store';
 import type { Store } from '@tauri-apps/plugin-store';
 import { api } from '../routes/index';
 import CryptoJS from 'crypto-js'; // Importando a lib de criptografia
+import type { SongFile } from '../types/songFile';
+import type { BibleRef } from "../types/bibleRef";
 
 export interface SongGroupCache {
     id: string,
     label: string
-    songs: SongCache[]
+    songs: SongCache[],
+    songsUpdatedAt?: Date
 }
 
 export interface SongCache {
     songGroupId: string,
     id: string,
     fullName: string,
-    lyric: string
+    lyric: string,
+    files?: SongFile[]
+    writerBy?: string;
+    melodyBy?: string;
+    versionBy?: string;
+    tone?: string;
+    youtubeLink?: string;
+    audioLink?: string[];
+    bibleRefs?: BibleRef[];
+    tags?: string[];
 }
+
+export type LastUpdateMap = Record<string, Date | string>;
 
 export const useSongCacheStore = defineStore('songCache', () => {
 
     let tauriStore: Store | null = null;
+    let tauriStoreConfig: Store | null;
     const listSongGroups = ref<SongGroupCache[]>([]);
     const isLoaded = ref(false);
-    const selectedSong = ref<SongCache>({songGroupId: '', id: '', fullName: '', lyric: ''});
-    
+    const selectedSong = ref<SongCache>({ 
+        songGroupId: '', 
+        id: '', 
+        fullName: '', 
+        lyric: '' 
+    });
+    const listLastDataUpdated = ref<LastUpdateMap>({});
+
     // Pega a chave do ambiente
     const ENCRYPTION_KEY = import.meta.env.VITE_SIGELO_DECRYPT_KEY || "fallback-key-para-dev";
 
-    const setSelectedSong = (songGroupId: string, songId: string, fullName: string) =>{
-        selectedSong.value = {songGroupId, id: songId, lyric: '', fullName};
+    const setSelectedSong = (songCache: SongCache) => {
+        selectedSong.value = songCache
     }
 
     const getSearchResult = (search: string) => {
-        const result : SongGroupCache[] = [];
+        const result: SongGroupCache[] = [];
         listSongGroups.value.forEach(element => {
-           const filter = element.songs.filter(it => it.fullName.toLowerCase().includes(search.toLowerCase()));
+            const filter = element.songs.filter(it => it.fullName.toLowerCase().includes(search.toLowerCase()));
 
-           if(filter.length > 0 ) { 
-                result.push({label: element.label, id: element.id, songs: filter});
-           }
+            if (filter.length > 0) {
+                result.push({ label: element.label, id: element.id, songs: filter });
+            }
         });
         return result;
     }
@@ -50,23 +71,43 @@ export const useSongCacheStore = defineStore('songCache', () => {
                 console.warn("Chave de criptografia não encontrada. Usando chave de fallback.");
             }
 
+            let cacheSongsIsClean = false
+
             // O store agora só cuida do arquivo em si, sem opção de password
             tauriStore = await load('cacheSongs.bin', { autoSave: false, defaults: {} });
-            
+
             // Tentamos resgatar a string criptografada (salvamos com a chave 'secureData')
             const encryptedString = await tauriStore.get<string>('secureData');
-            
+
             if (encryptedString) {
                 // Descriptografa a string
                 const bytes = CryptoJS.AES.decrypt(encryptedString, ENCRYPTION_KEY);
                 const decryptedStr = bytes.toString(CryptoJS.enc.Utf8);
-                
+
                 // Se descriptografou com sucesso, converte de volta para o Array
                 if (decryptedStr) {
                     listSongGroups.value = JSON.parse(decryptedStr);
                 }
+            } else {
+                cacheSongsIsClean = false
             }
-        } catch(error) {
+
+            tauriStoreConfig = await load('updateGroupSong.json', { autoSave: false , defaults: { data: [] }});
+      
+            const savedData = await tauriStoreConfig.get<LastUpdateMap>('data');
+
+            if (savedData) {
+                // Opcional: Converter strings ISO de volta para objetos Date
+                const parsedMap: LastUpdateMap = {};
+                for (const [groupId, dateVal] of Object.entries(savedData)) {
+                    parsedMap[groupId] = dateVal ? new Date(dateVal) : '';
+                }
+                listLastDataUpdated.value = parsedMap;
+
+                if(cacheSongsIsClean)listLastDataUpdated.value = {}
+            }         
+
+        } catch (error) {
             console.error("Erro ao carregar ou descriptografar o cache:", error);
             // Em caso de erro (ex: chave mudou e falhou o decrypt), a lista continua vazia []
         } finally {
@@ -74,10 +115,10 @@ export const useSongCacheStore = defineStore('songCache', () => {
         }
     }
 
-    const changeCacheInfo = async (songGroups : SongGroupCache) => {
+    const changeCacheInfo = async (songGroups: SongGroupCache) => {
         const index = listSongGroups.value.findIndex(it => it.id === songGroups.id);
 
-        if(index != -1) {
+        if (index != -1) {
             listSongGroups.value[index].label = songGroups.label;
             listSongGroups.value[index].songs = songGroups.songs;
         } else {
@@ -88,55 +129,79 @@ export const useSongCacheStore = defineStore('songCache', () => {
     const getCacheLyrics = async (songGroupId: string) => {
         try {
             const lyrics = await api.songGroup().getOfflineLyrics(songGroupId) as Record<string, string>;
-            const songGroupCache = listSongGroups.value.find(it => it.id === songGroupId);
+            const indexOf = listSongGroups.value.findIndex(it => it.id === songGroupId);
 
-            if(songGroupCache?.songs) {
-                songGroupCache.songs.forEach(it => {
-                    if(lyrics[it.id]) {
-                        it.lyric = lyrics[it.id];
-                        it.songGroupId = songGroupId;
-                    }
-                });
+
+            if (indexOf != -1) {
+                if (listSongGroups.value[indexOf].songs) {
+                    listSongGroups.value[indexOf].songs.forEach(it => {
+                        if (lyrics[it.id]) {
+                            it.lyric = lyrics[it.id];
+                            it.songGroupId = songGroupId;
+                        }
+                    });
+                }
+
+                saveInfo(listSongGroups.value)
             }
+
         } catch (error) {
             console.error("Erro ao sincronizar letras:", error);
         }
     }
 
-    watch(
-        listSongGroups, 
-        async (newValue) => {
-          if (!isLoaded.value || !tauriStore) return; 
-            
-          try {
-              // 1. Pega os dados puros sem a reatividade do Vue
-              const pureData = Array.from(toRaw(newValue));
-              
-              // 2. Transforma em JSON string
-              const jsonString = JSON.stringify(pureData);
-              
-              // 3. Criptografa a string com AES
-              const encryptedString = CryptoJS.AES.encrypt(jsonString, ENCRYPTION_KEY).toString();
-              
-              // 4. Salva apenas a string criptografada no Tauri Store
-              await tauriStore.set('secureData', encryptedString);
-              await tauriStore.save(); 
-              
-          } catch (error) {
-              console.error("Erro ao criptografar e salvar o cache:", error);
-          }
-        }, 
-        { deep: true }
-      );
+    const saveInfo = async (newValue: Array<SongGroupCache>) => {
+        if (!isLoaded.value || !tauriStore) return;
 
-      return {
+        try {
+            // 1. Pega os dados puros sem a reatividade do Vue
+            const pureData = Array.from(toRaw(newValue));
+
+            // 2. Transforma em JSON string
+            const jsonString = JSON.stringify(pureData);
+
+            // 3. Criptografa a string com AES
+            const encryptedString = CryptoJS.AES.encrypt(jsonString, ENCRYPTION_KEY).toString();
+
+            // 4. Salva apenas a string criptografada no Tauri Store
+            await tauriStore.set('secureData', encryptedString);
+            await tauriStore.save();
+
+            listSongGroups.value.forEach(it => {
+                setLastUpdate(it.id, it.songsUpdatedAt ?? new Date())
+            })
+
+        } catch (error) {
+            console.error("Erro ao criptografar e salvar o cache:", error);
+        }
+    }
+
+    const setLastUpdate = (songGroupId: string, newDate: string | Date) => {
+        listLastDataUpdated.value[songGroupId] = newDate;
+    }
+
+    watch(
+        listLastDataUpdated,
+        async (newValue) => {
+            if (!isLoaded.value || !tauriStoreConfig) return;
+            
+            // toRaw funciona perfeitamente com objetos simples
+            await tauriStoreConfig.set('data', toRaw(newValue));
+            await tauriStoreConfig.save();
+        },
+        { deep: true }
+    );
+
+    return {
         listSongGroups,
         selectedSong,
         isLoaded,
+        listLastDataUpdated,
         setSelectedSong,
+        setLastUpdate,
         loadData,
         changeCacheInfo,
         getCacheLyrics,
         getSearchResult
-      }
+    }
 });

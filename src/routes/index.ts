@@ -16,6 +16,7 @@ interface ApiResponse<T = any> {
 const isDev = import.meta.env.DEV;
 //const url_base = "http://localhost:3000/" 
 const url_base = isDev   ? "http://localhost:3000/"   : "https://meu-app-backend-f9867824586e.herokuapp.com/";
+//const url_base = "https://meu-app-backend-f9867824586e.herokuapp.com/"
 
 const baseUrl = `${url_base}api/`;
 
@@ -71,13 +72,13 @@ const getValidateMessage = async (response: any, status: number): Promise<ApiRes
 // 4. Métodos Base de Requisicao (Generics)
 const getData = async <T = any>(url: string, useToken : string, body: any = null): Promise<T> => {
   const method = body ? "POST" : "GET";
+
   const response = await fetch(url, {
     method,
     headers: getDefaultHeaders(),
     ...withAuth(useToken),
     ...(body ? { body: JSON.stringify(body) } : {})
   });
-
   if (!response.ok) throw response;
   return await response.json();
 };
@@ -276,7 +277,16 @@ export const api = {
   song: () => {
     const url = baseUrl + "song/";
 
-    const list = async(songGroupId: string) => getData(`${url}listBySongGroup`, getToken(), {songGroupId})
+    const list = async (songGroupId: string, songsUpdatedAt: string | Date | undefined) => {
+      try {
+        const data = await getData(`${url}listOptimezed`, getToken(), {songGroupId, songsUpdatedAt})
+
+        return data
+      } catch (err) {
+        console.log("error", err)
+        return {search: [], error: true}
+      }
+    }
 
     const getByListId = async(listId: string | string[]) => getData(`${url}getSongById`, getToken(), listId)  
     

@@ -16,7 +16,7 @@ export const exportToPPTX = async () => {
     const store = usePresentationStore();
     const design = store.design;
 
-    if (!musicPresentation.activeSong?._id) {
+    if (!musicPresentation.activeSong?.id) {
         await message('Nenhuma música está selecionada para exportação.', { title: 'Aviso', kind: 'warning' });
         return;
     }

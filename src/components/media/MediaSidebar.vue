@@ -5,6 +5,7 @@ import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/m
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
+import { message } from '@tauri-apps/plugin-dialog';
 
 const configStore = useConfigStore();
 const youtubeStore = useYoutubeStore()
@@ -55,7 +56,7 @@ const handleProjectFile = async (file: MediaFile) => {
   await emit('project-media', file);
   projectedFile.value = file;
   isProjecting.value = true;
-  isPlaying.value = true; 
+  isPlaying.value = true;
 };
 
 // CORREÇÃO 3: Lógica dos botões de controle de mídia
@@ -80,7 +81,7 @@ const toggleVolume = async () => {
 
 // Quando receber o evento @setFixed da MediaSidebar:
 const handleSetFixed = async (file: MediaFile) => {
-  if(file.id === mediaStore.fixedMedia?.id) {
+  if (file.id === mediaStore.fixedMedia?.id) {
     await emit('set-fixed-media', null);
     await emit('clear-projection')
     mediaStore.setFixedMedia(null);
@@ -177,7 +178,7 @@ onMounted(() => {
   listen('tauri://drag-drop', async (event: any) => {
     isDragging.value = false;
     const filePaths = event.payload.paths as string[];
-    
+
     if (filePaths && filePaths.length > 0) {
       await mediaStore.addDroppedFiles(filePaths, currentContext.value);
     }
@@ -197,9 +198,51 @@ onMounted(() => {
   }
 });
 
+const editingId = ref<string | null>(null);
+const editName = ref<string>('');
+const showSaveAlert = ref(false)
+const newNameFile = ref("")
+
+// Inicia a edição ao dar duplo clique
+const startEdit = (file: MediaFile) => {
+  editingId.value = file.id;
+  // Remove a extensão do arquivo para facilitar a edição pelo usuário
+  const lastDotIndex = file.name.lastIndexOf('.');
+  editName.value = lastDotIndex !== -1 ? file.name.substring(0, lastDotIndex) : file.name;
+};
+
+// Cancela a edição
+const cancelEdit = () => {
+  editingId.value = null;
+  editName.value = '';
+};
+
+// Salva o novo nome
+const saveEdit = async (file: MediaFile) => {
+  const trimmedName = editName.value.trim();
+  if (!trimmedName || trimmedName === file.name.split('.')[0]) {
+    
+    cancelEdit();
+    return;
+  }
+
+  const result = await mediaStore.renameMedia(file, trimmedName);
+
+  if (result.success) {
+    cancelEdit();
+    newNameFile.value = trimmedName;
+    showSaveAlert.value = true
+  } else {
+    await message(
+      result.error + "",
+      { title: 'Conflito de Nomes', kind: 'error' }
+    );
+  }
+};
+
 onUnmounted(() => {
   isDestroyed = true; // Levanta a bandeira que o componente morreu
-  
+
   // Limpa todos os eventos que foram registrados com sucesso
   activeListeners.forEach(unlisten => unlisten());
   activeListeners = []; // Zera a lista
@@ -281,7 +324,8 @@ onUnmounted(() => {
               <v-spacer></v-spacer>
               <span class="text-uppercase" style="font-size: 0.65rem;">Controles de Apresentação</span>
             </div>
-            <div class="pa-3 d-flex align-center bg-surface-variant"> <div class="preview-container mr-3 rounded overflow-hidden flex-shrink-0"
+            <div class="pa-3 d-flex align-center bg-surface-variant">
+              <div class="preview-container mr-3 rounded overflow-hidden flex-shrink-0"
                 style="width: 80px; height: 60px;">
                 <video v-if="projectedFile.isVideo" :src="`${projectedFile.url}#t=0.5`" class="w-100 h-100 object-cover"
                   muted></video>
@@ -293,10 +337,13 @@ onUnmounted(() => {
                   <v-btn v-if="projectedFile.isVideo" :icon="isPlaying ? 'mdi-pause' : 'mdi-play'" size="small"
                     variant="tonal" @click="togglePlay">
                   </v-btn>
-                  <v-btn v-if="projectedFile.isVideo" icon="mdi-replay" size="small" variant="tonal" v-show="!isReloaded" @click="restartMedia" title="Reiniciar vídeo"></v-btn>
-                  <v-btn v-if="projectedFile.isVideo" :icon="isMuted ? 'mdi-volume-off' : 'mdi-volume-high'" size="small" variant="tonal" @click="toggleVolume"></v-btn>
+                  <v-btn v-if="projectedFile.isVideo" icon="mdi-replay" size="small" variant="tonal"
+                    v-show="!isReloaded" @click="restartMedia" title="Reiniciar vídeo"></v-btn>
+                  <v-btn v-if="projectedFile.isVideo" :icon="isMuted ? 'mdi-volume-off' : 'mdi-volume-high'"
+                    size="small" variant="tonal" @click="toggleVolume"></v-btn>
                   <v-spacer></v-spacer>
-                  <v-btn size="small" color="error" variant="flat" prepend-icon="mdi-stop" @click="clearPresentationScreen">Parar Apresentação</v-btn>
+                  <v-btn size="small" color="error" variant="flat" prepend-icon="mdi-stop"
+                    @click="clearPresentationScreen">Parar Apresentação</v-btn>
                 </div>
               </div>
             </div>
@@ -305,8 +352,10 @@ onUnmounted(() => {
 
         <div v-if="viewMode === 'list'" class="pt-2">
           <v-slide-y-transition group>
-            <v-card v-for="file in filteredAndSortedFiles" :key="file.id" class="mb-3 border-sm rounded-lg"
-              elevation="0" hover>
+            <v-card v-for="file in filteredAndSortedFiles" :key="file.id" v-click-outside="{
+              handler: () => { if (editingId === file.id) cancelEdit() },
+              closeConditional: () => editingId === file.id
+            }" class="mb-3 border-sm rounded-lg" elevation="0" hover>
               <div class="d-flex pa-2">
                 <div
                   class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
@@ -321,14 +370,29 @@ onUnmounted(() => {
                 </div>
 
                 <div class="flex-grow-1 overflow-hidden d-flex flex-column">
-                  <div class="d-flex justify-space-between align-start">
-                    <span class="text-subtitle-2 font-weight-bold text-truncate d-block flex-grow-1"
-                      :title="file.name">{{
-                        file.name }}</span>
-                    <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
-                      :color="file.isFavorite ? 'error' : 'medium-emphasis'" @click="toggleFavorite(file)" density="compact"
-                      class="flex-shrink-0 ml-1"></v-btn>
+
+                  <div class="d-flex justify-space-between align-start w-100">
+                    <template v-if="editingId === file.id">
+                      <div class="d-flex align-center w-100 mr-2">
+                        <v-text-field v-model="editName" density="compact" variant="outlined" hide-details autofocus
+                          @keyup.enter="saveEdit(file)" @keyup.esc="cancelEdit"></v-text-field>
+                        <v-btn icon="mdi-check" color="success" size="x-small" variant="text"
+                          @click.stop="saveEdit(file)"></v-btn>
+                        <v-btn icon="mdi-close" color="error" size="x-small" variant="text"
+                          @click.stop="cancelEdit"></v-btn>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span class="text-subtitle-2 font-weight-bold text-truncate d-block flex-grow-1 cursor-text"
+                        :title="file.name" @dblclick="startEdit(file)">
+                        {{ file.name }}
+                      </span>
+                      <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
+                        :color="file.isFavorite ? 'error' : 'medium-emphasis'" @click="toggleFavorite(file)"
+                        density="compact" class="flex-shrink-0 ml-1"></v-btn>
+                    </template>
                   </div>
+
                   <div class="d-flex align-center mt-1">
                     <v-chip size="x-small" color="primary" variant="flat" class="mr-1">{{ file.category }}</v-chip>
                     <v-icon size="x-small" :icon="file.isVideo ? 'mdi-video' : 'mdi-image'"
@@ -341,7 +405,8 @@ onUnmounted(() => {
                       class="flex-grow-1" @click="handleProjectFile(file)">
                       {{ projectedFile?.id === file.id ? 'Projetando...' : 'Projetar' }}
                     </v-btn>
-                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin" @click.stop="handleSetFixed(file)"></v-btn>
+                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin"
+                      @click.stop="handleSetFixed(file)"></v-btn>
                     <v-btn size="small" color="error" variant="text" icon="mdi-delete"
                       @click.stop="confirmDeletePrompt(file)"></v-btn>
                   </div>
@@ -353,10 +418,13 @@ onUnmounted(() => {
 
         <div v-else class="media-grid pt-2">
           <transition-group name="slide-y">
-            <v-card v-for="file in filteredAndSortedFiles" :key="`grid-${file.id}`"
+            <v-card v-for="file in filteredAndSortedFiles" v-click-outside="{
+              handler: () => { if (editingId === file.id) cancelEdit() },
+              closeConditional: () => editingId === file.id
+            }" :key="`grid-${file.id}`"
               :class="['border-sm rounded-lg overflow-hidden transition-all bg-surface', expandedId === file.id ? 'grid-item-expanded' : 'cursor-pointer']"
               elevation="0" hover @click="expandedId !== file.id && toggleExpand(file.id)">
-              
+
               <div v-if="expandedId === file.id" class="d-flex pa-2 position-relative bg-surface-light">
                 <v-btn icon="mdi-chevron-up" size="x-small" variant="text"
                   class="position-absolute top-0 right-0 ma-1 z-10" @click.stop="toggleExpand(file.id)"></v-btn>
@@ -367,20 +435,47 @@ onUnmounted(() => {
                   <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
                     preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
                   <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
-                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{ formatDuration(file.duration) }}</div>
-                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white" size="large">mdi-play-circle-outline</v-icon></div>
+                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{
+                    formatDuration(file.duration) }}</div>
+                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white"
+                      size="large">mdi-play-circle-outline</v-icon></div>
                 </div>
 
                 <div class="flex-grow-1 overflow-hidden d-flex flex-column pr-4">
-                  <span class="text-subtitle-2 font-weight-bold text-truncate d-block" :title="file.name">{{ file.name }}</span>
+                  <template v-if="editingId === file.id">
+                    <div class="d-flex align-center w-100 mb-1 mt-3">
+                      <v-text-field v-model="editName" density="compact" variant="outlined" hide-details autofocus
+                        @keyup.enter="saveEdit(file)" @keyup.esc="cancelEdit"></v-text-field>
+                      <v-btn icon="mdi-check" color="success" size="small" variant="text"
+                        @click.stop="saveEdit(file)"></v-btn>
+                      <v-btn icon="mdi-close" color="error" size="small" variant="text"
+                        @click.stop="cancelEdit"></v-btn>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="d-flex align-center justify-space-between w-100 mt-3">
+                      <span class="text-subtitle-2 font-weight-bold text-truncate d-block cursor-text"
+                        :title="file.name" @dblclick="startEdit(file)">
+                        {{ file.name }}
+                      </span>
+                      <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
+                        :color="file.isFavorite ? 'error' : 'medium-emphasis'" @click.stop="toggleFavorite(file)"
+                        density="compact"></v-btn>
+                    </div>
+                  </template>
+
                   <div class="d-flex gap-2 mt-auto">
                     <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
                       :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
                       class="flex-grow-1 px-0" @click.stop="handleProjectFile(file)">
                       {{ projectedFile?.id === file.id ? 'Projetando...' : 'Projetar' }}
                     </v-btn>
-                    <v-btn size="small" :icon="mediaStore.fixedMedia?.id === file.id ? 'mdi-pin-off' : 'mdi-pin'" :color="mediaStore.fixedMedia?.id === file.id ? 'success' : 'secondary'" :variant="mediaStore.fixedMedia?.id === file.id ? 'flat' : 'outlined'" @click.stop="handleSetFixed(file)"></v-btn>
-                    <v-btn size="small" color="error" variant="text" icon="mdi-delete" @click.stop="confirmDeletePrompt(file)"></v-btn>
+                    <v-btn size="small" :icon="mediaStore.fixedMedia?.id === file.id ? 'mdi-pin-off' : 'mdi-pin'"
+                      :color="mediaStore.fixedMedia?.id === file.id ? 'success' : 'secondary'"
+                      :variant="mediaStore.fixedMedia?.id === file.id ? 'flat' : 'outlined'"
+                      @click.stop="handleSetFixed(file)"></v-btn>
+                    <v-btn size="small" color="error" variant="text" icon="mdi-delete"
+                      @click.stop="confirmDeletePrompt(file)"></v-btn>
                   </div>
                 </div>
               </div>
@@ -399,14 +494,32 @@ onUnmounted(() => {
 
                   <v-icon v-if="file.isVideo" color="white" size="small"
                     class="position-absolute bottom-0 left-0 ma-1 text-shadow">mdi-video</v-icon>
-                  <v-icon v-if="file.isFavorite" color="error" size="small"
-                    class="position-absolute top-0 right-0 ma-1">mdi-heart</v-icon>
+
+                  <v-btn size="x-small" icon class="position-absolute top-0 right-0 ma-1"
+                    :color="file.isFavorite ? 'error' : 'rgba(0,0,0,0.5)'" variant="flat"
+                    style="color: white !important" @click.stop="toggleFavorite(file)">
+                    <v-icon size="small">{{ file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline' }}</v-icon>
+                  </v-btn>
                 </div>
-                
+
                 <div class="pa-2 bg-surface text-center">
-                  <div class="text-caption font-weight-medium text-truncate" :title="file.name">{{ file.name }}</div>
+                  <template v-if="editingId === file.id">
+                    <div class="d-flex align-center w-100">
+                      <v-text-field v-model="editName" density="compact" variant="underlined" hide-details autofocus
+                        @keyup.enter="saveEdit(file)" @keyup.esc="cancelEdit"></v-text-field>
+                      <v-btn icon="mdi-check" color="success" size="x-small" variant="text"
+                        @click.stop="saveEdit(file)"></v-btn>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="text-caption font-weight-medium text-truncate cursor-text" :title="file.name"
+                      @dblclick="startEdit(file)">
+                      {{ file.name }}
+                    </div>
+                  </template>
                 </div>
               </div>
+
             </v-card>
           </transition-group>
         </div>
@@ -418,6 +531,7 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
+
   <v-dialog v-model="previewDialog" max-width="800">
     <v-card class="bg-black">
       <v-toolbar color="transparent" theme="dark" density="compact">
@@ -469,6 +583,14 @@ onUnmounted(() => {
       </v-card-actions>
     </v-card>
   </v-dialog>
+  <v-snackbar v-model="showSaveAlert" color="success" elevation="24" rounded="pill" :timeout="3000">
+    <v-icon start icon="mdi-check-circle"></v-icon>
+    Renomeado para **{{ newNameFile }}** com sucesso!
+
+    <template v-slot:actions>
+      <v-btn variant="text" @click="showSaveAlert = false">Fechar</v-btn>
+    </template>
+  </v-snackbar>
 </template>
 
 <style scoped>
@@ -538,12 +660,15 @@ onUnmounted(() => {
 
 .media-grid {
   display: grid;
+  overflow-x: hidden;
+  width: 100%;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 12px;
 }
 
 .grid-item-expanded {
   grid-column: 1 / -1;
+  max-width: 100vw;
 }
 
 .square-preview {
@@ -552,6 +677,6 @@ onUnmounted(() => {
 }
 
 .text-shadow {
-  text-shadow: 0px 1px 3px rgba(0,0,0,0.8);
+  text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.8);
 }
 </style>

@@ -2,9 +2,10 @@
 import { ref, computed, watch, nextTick} from 'vue';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { useSongCacheStore } from '../../stores/songCacheStore';
+import type { SongCache } from '../../stores/songCacheStore'
 
 const props = defineProps<{
-  songs: Array<{ _id: string, fullName: string }>;
+  songs: Array<SongCache>;
   selectedId: string | null;
 }>();
 
@@ -120,14 +121,14 @@ const toggleSearch = () => {
       <v-list density="compact" class="pa-2" nav>
         <v-list-item
           v-for="song in filteredSongs" 
-          :id="'song-item-' + song._id"
-          :key="song._id" 
-          :value="song._id"
-          :active="selectedId === song._id" 
+          :id="'song-item-' + song.id"
+          :key="song.id" 
+          :value="song.id"
+          :active="selectedId === song.id" 
           color="primary" 
           rounded="lg" 
           class="mb-1 border"
-          @click="musicStore.selectSong(song._id)"
+          @click="musicStore.selectSong(song)"
         >
           <v-list-item-title class="text-body-2 font-weight-medium">
             {{ song.fullName }}
