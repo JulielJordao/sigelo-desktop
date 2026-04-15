@@ -5,10 +5,13 @@ import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/m
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
+import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { message } from '@tauri-apps/plugin-dialog';
 
 const configStore = useConfigStore();
 const youtubeStore = useYoutubeStore()
+
+const statusPresStore = useStatusPresentationStore();
 const conf = configStore.settings;
 
 const mediaStore = useMediaStore();
@@ -31,7 +34,7 @@ const sortDesc = ref(false);
 
 const previewDialog = ref(false);
 const previewFile = ref<MediaFile | null>(null);
-const isProjecting = ref(false);
+const isProjecting = computed(()=> { return statusPresStore.status.isPresentation && statusPresStore.status.isPresentation === 'Media'});
 const projectedFile = ref<MediaFile | null>(null);
 
 const isPlaying = ref(true);
@@ -49,13 +52,13 @@ const handleProjectFile = async (file: MediaFile) => {
   // CORREÇÃO 1: Força a janela a aparecer
   try {
     await invoke('prepare_projection_window', { targetMonitor: conf.selectedMonitor });
+    statusPresStore.setNewPresentation('Media')
   } catch (err) {
     console.error("Erro ao preparar janela de projeção:", err);
   }
 
   await emit('project-media', file);
   projectedFile.value = file;
-  isProjecting.value = true;
   isPlaying.value = true;
 };
 
@@ -83,7 +86,7 @@ const toggleVolume = async () => {
 const handleSetFixed = async (file: MediaFile) => {
   if (file.id === mediaStore.fixedMedia?.id) {
     await emit('set-fixed-media', null);
-    await emit('clear-projection')
+    statusPresStore.clean()
     mediaStore.setFixedMedia(null);
   } else {
     await emit('set-fixed-media', file);
@@ -93,8 +96,7 @@ const handleSetFixed = async (file: MediaFile) => {
 
 // Crie um botão "Limpar Tela" na sua interface e dispare isso para terminar a apresentação:
 const clearPresentationScreen = async () => {
-  await emit('clear-projection'); // Isso vai acionar o Fundo Fixo na outra janela
-  isProjecting.value = false;
+  statusPresStore.clean() // Isso vai acionar o Fundo Fixo na outra janela
   projectedFile.value = null
 };
 
@@ -403,7 +405,7 @@ onUnmounted(() => {
                     <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
                       :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
                       class="flex-grow-1" @click="handleProjectFile(file)">
-                      {{ projectedFile?.id === file.id ? 'Projetando...' : 'Projetar' }}
+                      {{ projectedFile?.id === file.id && isProjecting ? 'Projetando...' : 'Projetar' }}
                     </v-btn>
                     <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin"
                       @click.stop="handleSetFixed(file)"></v-btn>
@@ -468,7 +470,7 @@ onUnmounted(() => {
                     <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
                       :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
                       class="flex-grow-1 px-0" @click.stop="handleProjectFile(file)">
-                      {{ projectedFile?.id === file.id ? 'Projetando...' : 'Projetar' }}
+                      {{ projectedFile?.id === file.id && isProjecting ? 'Projetando...' : 'Projetar' }}
                     </v-btn>
                     <v-btn size="small" :icon="mediaStore.fixedMedia?.id === file.id ? 'mdi-pin-off' : 'mdi-pin'"
                       :color="mediaStore.fixedMedia?.id === file.id ? 'success' : 'secondary'"

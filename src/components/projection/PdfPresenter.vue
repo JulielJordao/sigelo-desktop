@@ -8,6 +8,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { useConfigStore } from '../../stores/useConfigStore';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { useMenuStore } from '../../stores/menuStore';
+import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 
 import { type } from '@tauri-apps/plugin-os';
 
@@ -18,6 +19,7 @@ const menuStore = useMenuStore();
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const configStore = useConfigStore();
+const statusPresStore = useStatusPresentationStore();
 const conf = configStore.settings;
 
 interface PdfPage {
@@ -32,7 +34,7 @@ const fileName = ref('');
 
 const pages = ref<PdfPage[]>([]);
 const currentPage = ref<number>(1);
-const isProjecting = ref(false);
+const isProjecting = computed(()=> { return statusPresStore.status.isPresentation && statusPresStore.status.isPresentation === 'Pdf'});
 
 const displayMode = ref<'normal' | 'stretch' | 'complete' | 'document'>('normal');
 const zoomLevel = ref<number>(100);
@@ -113,7 +115,7 @@ defineExpose({ openPdfFile });
 
 const projectCurrentPage = async () => {
   if (!activePage.value) return;
-  isProjecting.value = true;
+
 
   const p = activePage.value;
   let wrapperBgColor = '#000000';
@@ -146,16 +148,14 @@ const projectCurrentPage = async () => {
   try {
 
     await invoke('update_projection', { html: htmlPayload, targetMonitor: conf.selectedMonitor });
-    isProjecting.value = true;
+    statusPresStore.setNewPresentation('Pdf')
   } catch (error) {
     console.error("Erro ao projetar PDF:", error);
-    isProjecting.value = false;
   }
 };
 
 const stopProjection = async () => {
-  isProjecting.value = false;
-  try { await invoke('stop_projection'); } catch (e) { }
+  await statusPresStore.clean()
 };
 
 // NOVO: Captura a rolagem e envia para a janela de projeção

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
 import { ask } from '@tauri-apps/plugin-dialog';
-import { emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
@@ -12,6 +11,7 @@ import ModalSavePreset from '../presets/modalSavePreset.vue';
 import ModalSelectPreset from '../presets/modalSelectPreset.vue';
 
 import { useMusicPresentationStore } from '../../stores/presentationStore';
+import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import type { Slide } from '../../stores/presentationStore';
 
 // Importação das Abas Separadas
@@ -23,12 +23,15 @@ import TabEstrutura from '../tabs/TabEstrutura.vue';
 
 const configStore = useConfigStore();
 const infoPresentationStore = usePresentationStore(); // INSTANCIANDO O STORE
+const statusPresStore = useStatusPresentationStore();
 
 const songInfo = useMusicPresentationStore();
 
+const fixarTema = ref(false)
+
 const lyric = ref<string>('');
 const currentTab = ref('slides');
-const isProjecting = ref(false);
+const isProjecting = computed(() => { return statusPresStore.status.isPresentation && statusPresStore.status.isPresentation === 'Slides' });
 const currentSlideIndex = ref<number>(0);
 // const previewContainer = ref<HTMLElement | null>(null);
 
@@ -295,19 +298,15 @@ const projectCurrentSlide = async () => {
             html: JSON.stringify(slidePayload),
             targetMonitor: conf.selectedMonitor || null
         });
-        isProjecting.value = true;
+        statusPresStore.setNewPresentation('Slides')
+        currentTab.value = "slides"
     } catch (error) {
         console.error("Erro ao projetar o slide:", error);
     }
 };
 
 const stopProjection = async () => {
-    isProjecting.value = false;
-    try {
-        await emit('clear-projection');
-    } catch (error) {
-        console.error("Erro ao parar a projeção:", error);
-    }
+    await statusPresStore.clean()
 };
 
 const handleKeydown = async (e: KeyboardEvent) => {
@@ -329,6 +328,11 @@ const handleKeydown = async (e: KeyboardEvent) => {
             }
             break;
         case 'Escape':
+            if (currentSlideIndex.value === songSlides.value.length - 1) {
+                stopProjection();
+                break;
+            }
+
             const confirmed = await ask('Deseja realmente encerrar a apresentação?', {
                 title: 'Sigelo',
                 kind: 'warning',
@@ -474,7 +478,9 @@ const updateCurrentPreset = async () => {
                         <v-divider class="mb-2"></v-divider>
                     </template>
 
-                    <v-list-item class="text-red-darken-3" v-if="infoPresentationStore.presets.length > 0 && infoPresentationStore.currentPreset?.id" prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
+                    <v-list-item class="text-red-darken-3"
+                        v-if="infoPresentationStore.presets.length > 0 && infoPresentationStore.currentPreset?.id"
+                        prepend-icon="mdi-content-save" title="Atualizar Tema Atual"
                         :disabled="!infoPresentationStore.currentPresetId" @click="updateCurrentPreset">
                         <template v-slot:subtitle>
                             Salva alterações no tema selecionado
@@ -537,6 +543,7 @@ const updateCurrentPreset = async () => {
                     </v-tooltip>
 
                     <v-divider vertical class="my-2" v-if="infoPresentationStore.currentPreset"></v-divider>
+
                     <v-tabs v-model="currentTab" bg-color="surface" density="compact" class="flex-grow-1"
                         color="primary">
                         <v-tab value="slides"><v-icon start>mdi-presentation-play</v-icon>Slides</v-tab>
@@ -544,8 +551,31 @@ const updateCurrentPreset = async () => {
                         <v-tab value="fundo"><v-icon start>mdi-image-outline</v-icon>Fundo</v-tab>
                         <v-tab value="texto"><v-icon start>mdi-format-text</v-icon>Texto</v-tab>
                         <v-tab value="posicao"><v-icon start>mdi-crosshairs-gps</v-icon>Posição</v-tab>
-
                     </v-tabs>
+
+                    <v-divider vertical class="my-2"></v-divider>
+                    <div class="px-4 d-flex align-center">
+                        <v-tooltip text="Vincular este tema permanentemente a esta música" location="bottom"
+                            open-delay="300">
+                            <template v-slot:activator="{ props }">
+                                <div v-bind="props" class="d-flex align-center">
+                                    <v-switch v-model="fixarTema" color="primary" density="compact" hide-details inset>
+                                        <template v-slot:label>
+                                            <v-icon size="small" class="mr-2 transition-swing"
+                                                :color="fixarTema ? 'primary' : 'medium-emphasis'">
+                                                {{ fixarTema ? 'mdi-pin' : 'mdi-pin-outline' }}
+                                            </v-icon>
+
+                                            <span class="text-body-2 transition-swing"
+                                                :class="fixarTema ? 'font-weight-medium text-primary' : 'text-medium-emphasis'">
+                                                Fixar Tema
+                                            </span>
+                                        </template>
+                                    </v-switch>
+                                </div>
+                            </template>
+                        </v-tooltip>
+                    </div>
                 </div>
 
                 <v-card-text class="flex-grow-1 overflow-hidden pa-0 d-flex flex-column">
@@ -586,13 +616,7 @@ const updateCurrentPreset = async () => {
     <ModalSelectPreset v-model="isPresetModalOpen"></ModalSelectPreset>
     <ModalSavePreset v-model="isSavePresetOpen"></ModalSavePreset>
 
-    <v-snackbar
-        v-model="showSaveAlert"
-        color="success"
-        elevation="24"
-        rounded="pill"
-        :timeout="3000"
-        >
+    <v-snackbar v-model="showSaveAlert" color="success" elevation="24" rounded="pill" :timeout="3000">
         <v-icon start icon="mdi-check-circle"></v-icon>
         Preset **{{ infoPresentationStore.currentPreset?.name }}** atualizado com sucesso!
 
