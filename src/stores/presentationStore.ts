@@ -160,14 +160,11 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
     const response = await routes.song().list(selectedGroupId.value, isCacheEmpty ? undefined : songCacheStore.listLastDataUpdated[selectedGroupId.value]);
 
     if (Array.isArray(response?.songs) && (!response?.isUpdated || songCacheStore.listSongGroups[indexOf].songs.length === 0)) {
-      console.log("hasToReload")
       const list = response.songs as Song[];
 
       const sortedSongs = [...list].sort((a, b) => {
         return a.fullName.localeCompare(b.fullName, 'pt-BR', { sensitivity: 'base' });
       });
-
-      console.log(list)
 
       const fullName = rawGroups.value.find(it => it._id == selectedGroupId.value)?.name ?? ''
       songCacheStore.changeCacheInfo({
@@ -188,7 +185,6 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt)
 
     } else {
-       console.log("notReload")
       // songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt)
       loadSongs(songCacheStore.listSongGroups[indexOf].songs)
     }
@@ -203,14 +199,11 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       await fetchLyric();
     } else {
       songCacheStore.selectedSong = song;
-      rawLyric.value = song.lyric === "" ? " " : song.lyric;
+      rawLyric.value = song.lyric === "" ? "" : song.lyric;
     }
-
   };
 
   const setCustomSong = async (song: Song) => {
-
-    
 
     if (Array.isArray(song.files)) {
       const list: SongFile[] = song.files;
@@ -259,7 +252,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       }
     } else {
       rawLyric.value = "";
-    }
+    } 
   };
 
   return {

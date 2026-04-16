@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
-import { ref, computed, shallowRef } from 'vue';
+import { ref, computed, shallowRef, watch } from 'vue';
 import { load } from '@tauri-apps/plugin-store';
 import type { Store } from '@tauri-apps/plugin-store';
+import { useMusicPresentationStore } from './presentationStore';
 
 // ==========================================
 // 1. TIPAGENS REUTILIZÁVEIS E ESTRITAS
@@ -50,15 +51,21 @@ export interface Preset {
     textStyles: TextStylesState;
 }
 
+interface SavedPresetBySong {
+  [key: string]: string | null;
+}
+
 // ==========================================
 // 2. O STORE
 // ==========================================
 export const usePresentationStore = defineStore('presentation', () => {
 
     // --- ESTADO (STATE) ---
+    const songInfoStore = useMusicPresentationStore()
     const presets = ref<Preset[]>([]);
     const currentPresetId = ref<string | null>(null);
     const tauriStore = shallowRef<Store | null>(null);
+    const savedPresetBySong = ref<SavedPresetBySong>({}) 
     const isLoaded = ref(false)
     const currentPresetIsLoaded = ref(false)
 
@@ -88,6 +95,39 @@ export const usePresentationStore = defineStore('presentation', () => {
 
     const autoFontSize = ref(false);
 
+    const setCurrentPresetId = (value: string | null) => {
+        currentPresetId.value = value
+    }
+
+    watch(savedPresetBySong, async (newValue)=> {
+        if(tauriStore.value && isLoaded.value) {
+            const pureData = JSON.parse(JSON.stringify(newValue));
+            await tauriStore.value.set('default_by_song', pureData)
+            await tauriStore.value.save(); 
+        }
+    }, { deep: true });
+
+    const setPresetBySongId = async(id: string, value: string | null) => {
+        savedPresetBySong.value[id] = value 
+    }
+
+    // Caso o usuário tenha um tema padrão, mas altere o tema o switch tem que ficar off.
+    const isSelectedPresetDefaultBySong = computed(() => {
+
+        if(songInfoStore.activeSong?.id) {
+            const id = savedPresetBySong.value[songInfoStore.activeSong.id]
+
+            if(savedPresetBySong.value[songInfoStore.activeSong.id] && currentPresetId.value != id) {
+                return true
+            } else {
+                return false
+            }
+        } else {
+            return false
+        }
+    
+    
+    })
 
     // --- AÇÕES (ACTIONS) ---
 
@@ -155,7 +195,6 @@ export const usePresentationStore = defineStore('presentation', () => {
 
         // Encontra o índice do preset atual na lista
         const index = presets.value.findIndex(p => p.id === currentPresetId.value);
-        console.log(index)
         if (index !== -1) {
             // Usa o clone profundo para atualizar os dados desconectando da reatividade
             presets.value[index].lastSaved = new Date()
@@ -200,12 +239,17 @@ export const usePresentationStore = defineStore('presentation', () => {
     const loadPresets = async() => {
         const instance = await load('presets.json', { 
             autoSave: false, 
-            defaults: { app_presets: [], default_preset: {} } 
+            defaults: { app_presets: [], default_preset: {}, default_by_song: {} } 
         });
         
         const storeData = await instance.get<Preset[]>('app_presets');
+
+        const defaultBySongs = await instance.get<SavedPresetBySong>('default_by_song')
+
+        if(defaultBySongs) {
+            savedPresetBySong.value = defaultBySongs
+        }   
         
-        isLoaded.value = true;
         tauriStore.value = instance; 
 
         if(!currentPresetIsLoaded.value) {
@@ -216,13 +260,23 @@ export const usePresentationStore = defineStore('presentation', () => {
             presets.value = storeData;
             currentPresetId.value = storeData[0]?.id
         }
+
         
+        isLoaded.value = true;
     }
+
+    const removeEspecificId = (id: string) => {
+        Object.keys(savedPresetBySong.value).forEach(key => {
+            if (savedPresetBySong.value[key] === id) {
+                savedPresetBySong.value[key] = null;
+            }
+        });
+    };
 
     const deletePreset = async(id: string) => {
         const index = presets.value.findIndex(it => it.id == id)
         presets.value.splice(index, 1)
-
+        removeEspecificId(id)
         await savePersistencePresets()
     }
 
@@ -234,8 +288,13 @@ export const usePresentationStore = defineStore('presentation', () => {
         textStyles,
         autoFontSize,
         currentPreset,
+        savedPresetBySong,
+        isSelectedPresetDefaultBySong,
 
         // Funções
+        setPresetBySongId,
+        
+        setCurrentPresetId,
         applyGeralToAll,
         updateActivePreset,
         saveCurrentAsPreset,

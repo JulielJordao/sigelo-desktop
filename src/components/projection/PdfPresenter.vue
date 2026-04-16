@@ -20,7 +20,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const configStore = useConfigStore();
 const statusPresStore = useStatusPresentationStore();
-const conf = configStore.settings;
 
 interface PdfPage {
   pageNumber: number;
@@ -146,9 +145,10 @@ const projectCurrentPage = async () => {
   `;
 
   try {
+    await statusPresStore.setNewPresentation('Pdf', configStore.settings.selectedMonitor)
 
-    await invoke('update_projection', { html: htmlPayload, targetMonitor: conf.selectedMonitor });
-    statusPresStore.setNewPresentation('Pdf')
+    await invoke('update_projection', { html: htmlPayload, targetMonitor: configStore.settings.selectedMonitor });
+    
   } catch (error) {
     console.error("Erro ao projetar PDF:", error);
   }

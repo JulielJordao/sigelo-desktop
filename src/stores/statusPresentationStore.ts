@@ -1,8 +1,10 @@
 import { emit } from '@tauri-apps/api/event';
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
 
-export type TypeApresentation = 'Media' | 'Slides' | 'Pdf' | 'none' | 'Timer';
+import { ref } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+
+export type TypeApresentation = 'Media' | 'Slides' | 'Pdf' | 'none' | 'Timer' | 'Biblia';
 
 interface StatusPresentation {
   isRunning: Boolean,
@@ -13,7 +15,15 @@ interface StatusPresentation {
 export const useStatusPresentationStore = defineStore('statusPresentation', () => {
   const status = ref<StatusPresentation>({ isRunning: false, hasFixedMedia: false, isPresentation: "none" })
 
-  const setNewPresentation = (type: TypeApresentation) => {
+  const setNewPresentation = async (type: TypeApresentation, selectedMonitor: string) => {
+    if(status.value.isPresentation == 'none') {
+      try {
+        await invoke('prepare_projection_window', { targetMonitor: selectedMonitor })
+      } catch (err) {
+        console.log(err)
+        return
+      }
+    }
     status.value.isPresentation = type;
     status.value.isRunning = true
   }

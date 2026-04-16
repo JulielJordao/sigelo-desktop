@@ -27,7 +27,7 @@ const statusPresStore = useStatusPresentationStore();
 
 const songInfo = useMusicPresentationStore();
 
-const fixarTema = ref(false)
+const fixedTheme = ref(false)
 
 const lyric = ref<string>('');
 const currentTab = ref('slides');
@@ -45,9 +45,18 @@ const screenRatio = computed(() => screenResolution.value.width / screenResoluti
 // AQUI ESTÁ O SEGREDO: Atalhos para os valores do Store para facilitar a leitura no componente principal
 const design = computed(() => infoPresentationStore.design);
 const textStyles = computed(() => infoPresentationStore.textStyles);
+const setNewDefaultThemeBySong = ref(true)
 
 // --- PROCESSAMENTO DOS SLIDES (MANTIDO) ---
 watch(() => songInfo.activeSong, () => { currentSlideIndex.value = 0; });
+
+watch(() => infoPresentationStore.isSelectedPresetDefaultBySong, (newValue) => {
+    if(newValue) {
+        setNewDefaultThemeBySong.value = false; 
+        fixedTheme.value = false
+    } else {
+    setNewDefaultThemeBySong.value = true
+}})
 
 const parseSlides = function (rawText: string, targetLines: number = 4, maxLines: number = 5) {
     const lines = rawText.split('\n')
@@ -251,7 +260,7 @@ const projectCurrentSlide = async () => {
     if (!songInfo.activeSong) return;
 
     const style = currentActiveStyle.value;
-    const conf = configStore.settings;
+    const conf = {...configStore.settings};
     const text = currentSlideText.value;
     const currentDesign = design.value;
 
@@ -293,12 +302,14 @@ const projectCurrentSlide = async () => {
     };
 
     try {
+        await statusPresStore.setNewPresentation('Slides', conf.selectedMonitor)
+
         // Converte o objeto para string e envia no campo 'html' (o Rust não liga para o conteúdo)
         await invoke('update_projection', {
             html: JSON.stringify(slidePayload),
             targetMonitor: conf.selectedMonitor || null
         });
-        statusPresStore.setNewPresentation('Slides')
+        
         currentTab.value = "slides"
     } catch (error) {
         console.error("Erro ao projetar o slide:", error);
@@ -309,7 +320,18 @@ const stopProjection = async () => {
     await statusPresStore.clean()
 };
 
+const isClean = computed(() => songInfo.rawLyric == '')
+
 const handleKeydown = async (e: KeyboardEvent) => {
+    if(!isClean.value) {
+        if (e.shiftKey && e.key === 'F5') {
+            currentSlideIndex.value = 0
+            projectCurrentSlide()
+        } else if (e.key === 'F5' && !isProjecting.value) {
+            projectCurrentSlide()
+        }
+    }
+
     if (!isProjecting.value) return; // Só funciona se a projeção estiver rodando
 
     switch (e.key) {
@@ -390,12 +412,36 @@ const formatFullDate = (date: Date | string) => {
 };
 
 watch(() => songInfo.rawLyric, (newValue) => {
-
+    isLoadedDefaultTheme.value = false
     lyric.value = newValue;
     checkEstrutura()
 
     songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide);
+
+    if(songInfo.activeSong?.id && newValue != "") {
+        
+       const presetId = infoPresentationStore.savedPresetBySong[songInfo.activeSong.id]
+       fixedTheme.value = !!presetId
+
+       if(presetId){
+            infoPresentationStore.setCurrentPresetId(presetId)
+            infoPresentationStore.applyPreset(presetId)
+       }
+       
+       isLoadedDefaultTheme.value = true
+    }
 });
+
+const isLoadedDefaultTheme = ref(false)
+
+watch(fixedTheme, () => {
+
+    if(songInfo.activeSong?.id && isLoadedDefaultTheme.value && setNewDefaultThemeBySong.value) {
+        infoPresentationStore.setPresetBySongId(songInfo.activeSong.id, fixedTheme.value ? infoPresentationStore.currentPresetId : null)
+    } else {
+        setNewDefaultThemeBySong.value = true
+    }
+})
 
 const checkEstrutura = () => {
     if (songInfo.rawLyric) {
@@ -448,7 +494,7 @@ const updateCurrentPreset = async () => {
 
             <v-spacer></v-spacer>
 
-            <v-menu location="bottom end" v-if="songInfo.rawLyric != ''">
+            <v-menu location="bottom end" v-if="!isClean">
                 <template v-slot:activator="{ props: menuProps }">
                     <v-tooltip text="Opções de Salvamento" location="bottom">
                         <template v-slot:activator="{ props: tooltipProps }">
@@ -515,13 +561,13 @@ const updateCurrentPreset = async () => {
             </v-tooltip>
 
             <v-btn v-if="songInfo.activeSong && !isProjecting" color="primary" variant="flat" size="small"
-                prepend-icon="mdi-play" @click="projectCurrentSlide">Projetar</v-btn>
+                prepend-icon="mdi-play" @click="projectCurrentSlide" :disabled="isClean">Projetar</v-btn>
 
             <v-btn v-if="songInfo.activeSong && isProjecting" color="error" variant="flat" size="small"
                 prepend-icon="mdi-stop" @click="stopProjection">Parar Apresentação</v-btn>
         </v-toolbar>
 
-        <div v-if="songInfo.activeSong?.id" class="d-flex flex-column flex-grow-1 overflow-hidden">
+        <div v-if="songInfo.activeSong?.id && !isClean" class="d-flex flex-column flex-grow-1 overflow-hidden">
 
             <div class="bg-black d-flex align-center justify-center relative flex-shrink-0 preview-wrapper">
                 <SlidePreview :design="design" :textStyle="currentActiveStyle" :text="currentSlideText"
@@ -559,15 +605,15 @@ const updateCurrentPreset = async () => {
                             open-delay="300">
                             <template v-slot:activator="{ props }">
                                 <div v-bind="props" class="d-flex align-center">
-                                    <v-switch v-model="fixarTema" color="primary" density="compact" hide-details inset>
+                                    <v-switch v-model="fixedTheme" color="primary" density="compact" hide-details inset>
                                         <template v-slot:label>
                                             <v-icon size="small" class="mr-2 transition-swing"
-                                                :color="fixarTema ? 'primary' : 'medium-emphasis'">
-                                                {{ fixarTema ? 'mdi-pin' : 'mdi-pin-outline' }}
+                                                :color="fixedTheme ? 'primary' : 'medium-emphasis'">
+                                                {{ fixedTheme ? 'mdi-pin' : 'mdi-pin-outline' }}
                                             </v-icon>
 
                                             <span class="text-body-2 transition-swing"
-                                                :class="fixarTema ? 'font-weight-medium text-primary' : 'text-medium-emphasis'">
+                                                :class="fixedTheme ? 'font-weight-medium text-primary' : 'text-medium-emphasis'">
                                                 Fixar Tema
                                             </span>
                                         </template>
@@ -610,7 +656,7 @@ const updateCurrentPreset = async () => {
 
         <div v-else class="flex-grow-1 d-flex flex-column align-center justify-center text-medium-emphasis">
             <v-icon icon="mdi-projector-screen-outline" size="64" class="mb-4 text-disabled"></v-icon>
-            <h3 class="font-weight-medium">Selecione uma música no repertório</h3>
+            <h3 class="font-weight-medium">{{ !songInfo.activeSong?.id ? 'Selecione uma música no repertório' : 'Música sem letra cadastrada'}}</h3>
         </div>
     </div>
     <ModalSelectPreset v-model="isPresetModalOpen"></ModalSelectPreset>

@@ -7,8 +7,10 @@ import FontSelector from '../utils/FontSelector.vue';
 import { api } from '../../routes/index'
 import { emit as emitTauri } from '@tauri-apps/api/event'
 import { calculateMaxFontSize, getMaxCharsFromSlides, getMaxLinesFromSlides } from '../../utils/projection';
+import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 
 const configStore = useConfigStore();
+const statusPresStore = useStatusPresentationStore();
 const emit = defineEmits(['project', 'close']);
 
 const currentTab = ref('texto');
@@ -260,7 +262,8 @@ const projectCurrentSlide = async () => {
   }
 };
 
-const startProjection = () => {
+const startProjection = async () => {
+  await statusPresStore.setNewPresentation('Biblia', configStore.settings.selectedMonitor)
   currentSlideIndex.value = 0;
   step.value = 'projecting';
   projectCurrentSlide();
@@ -277,7 +280,7 @@ const prevSlide = () => { if (currentSlideIndex.value > 0) { currentSlideIndex.v
 
 // Teclas de atalho exclusivas para quando a bíblia está projetando
 const handleKeydown = (e: KeyboardEvent) => {
-  if (step.value !== 'projecting') return;
+  if (step.value !== 'projecting' && statusPresStore.status.isPresentation === 'Biblia') return;
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextSlide();
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prevSlide();
   if (e.key === 'Escape') stopProjection();
@@ -377,7 +380,7 @@ defineExpose({ open, close });
           <v-progress-circular indeterminate color="primary"></v-progress-circular>
         </div>
 
-        <div v-else-if="step === 'view' && fetchedData" class="d-flex flex-column h-100">
+        <div v-else-if="(step === 'view' || step === 'projecting' && statusPresStore.status.isPresentation !== 'Biblia') && fetchedData" class="d-flex flex-column h-100">
 
           <div class="flex-shrink-0 px-4 pt-4">
             <div class="d-flex align-center justify-space-between mb-2">
@@ -457,7 +460,7 @@ defineExpose({ open, close });
 
         </div>
 
-        <div v-else-if="step === 'projecting'" class="d-flex flex-column h-100 pa-4">
+        <div v-else-if="step === 'projecting' && statusPresStore.status.isPresentation === 'Biblia'" class="d-flex flex-column h-100 pa-4">
 
           <v-card color="surface" variant="outlined"
             class="pa-3 mb-4 text-center border-primary border-opacity-100 flex-shrink-0"

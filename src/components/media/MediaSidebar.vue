@@ -51,8 +51,7 @@ const handleProjectFile = async (file: MediaFile) => {
 
   // CORREÇÃO 1: Força a janela a aparecer
   try {
-    await invoke('prepare_projection_window', { targetMonitor: conf.selectedMonitor });
-    statusPresStore.setNewPresentation('Media')
+    await statusPresStore.setNewPresentation('Media', conf.selectedMonitor)
   } catch (err) {
     console.error("Erro ao preparar janela de projeção:", err);
   }
