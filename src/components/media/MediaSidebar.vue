@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore';
-import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
