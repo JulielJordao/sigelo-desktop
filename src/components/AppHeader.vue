@@ -6,10 +6,12 @@ import { listen, emit as tauriEmit } from '@tauri-apps/api/event';
 import { useMediaStore } from '../stores/mediaStore';
 import { useMenuStore } from '../stores/menuStore';
 import { useYoutubeStore } from '../stores/useYoutubeStore';
+import { useConnectionStore } from '../stores/statusConnectionStore';
 //import { convertFileSrc } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
 import ModalAbout from "./ModalAbout.vue"
 
+const connectionStore = useConnectionStore()
 const menuStore = useMenuStore();
 const mediaStore = useMediaStore();
 const youtubeStore = useYoutubeStore();
@@ -101,6 +103,7 @@ onUnmounted(() => {
     v-if="menuStore.menuOpened !== 'PdfPresenter'">
     <div data-tauri-drag-region class="drag-layer"></div>
     <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
+    
     <v-tooltip text="Sobre o Sigelo" location="bottom">
       <template v-slot:activator="{ props }">
         <v-btn 
@@ -114,9 +117,41 @@ onUnmounted(() => {
         ></v-btn>
       </template>
     </v-tooltip>
+    
     <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 
     <div class="z-10 d-flex align-center" :class="isMac ? '' : 'mr-4'">
+      
+      <v-tooltip location="bottom">
+        <template v-slot:activator="{ props }">
+          <div 
+            v-bind="props" 
+            class="d-flex align-center mr-4 transition-swing"
+            style="cursor: default;"
+          >
+            <v-icon
+              :icon="connectionStore.hasInternet ? 'mdi-wifi' : (connectionStore.isNetworkConnected ? 'mdi-wifi-alert' : 'mdi-wifi-off')"
+              :color="connectionStore.hasInternet ? 'success' : (connectionStore.isNetworkConnected ? 'warning' : 'error')"
+              size="small"
+            ></v-icon>
+            
+            <v-expand-x-transition>
+              <span 
+                v-if="!connectionStore.hasInternet" 
+                class="text-caption ml-2 font-weight-medium transition-swing text-no-wrap" 
+                :class="connectionStore.isNetworkConnected ? 'text-warning' : 'text-error'"
+              >
+                {{ connectionStore.isNetworkConnected ? 'Sem Internet' : 'Offline' }}
+              </span>
+            </v-expand-x-transition>
+          </div>
+        </template>
+        <span>
+          {{ connectionStore.hasInternet ? 'Conectado à Internet' : (connectionStore.isNetworkConnected ? 'Conectado à rede local (Sem Internet)' : 'Desconectado da rede') }}
+        </span>
+      </v-tooltip>
+      <v-divider vertical class="mx-3 h-50 align-self-center opacity-50"></v-divider>
+
       <v-btn-group v-if="youtubeStore.cachedVideos.length > 0" color="error" variant="tonal" density="comfortable"
         class="rounded-pill overflow-hidden mr-3">
         <v-menu location="bottom end" transition="slide-y-transition" :close-on-content-click="false">
@@ -169,34 +204,15 @@ onUnmounted(() => {
                   <v-icon size="x-small" class="mr-1">mdi-harddisk</v-icon>
                   {{ video.size_mb }} MB
                 </v-list-item-subtitle>
-
-                <!--
-                <template v-slot:append>
-                  <div class="d-flex align-center gap-1">
-                    <v-tooltip text="Projetar como Fundo" location="top">
-                      <template v-slot:activator="{ props }">
-                        <v-btn v-bind="props" icon="mdi-play-box-outline" variant="text" color="primary" size="small"
-                          @click="projectYoutubeVideo(video)"></v-btn>
-                      </template>
-                    </v-tooltip>
-
-                    <v-tooltip text="Excluir do Cache" location="top">
-                      <template v-slot:activator="{ props }">
-                        <v-btn v-bind="props" icon="mdi-trash-can-outline" variant="text" color="error" size="small"
-                          @click="youtubeStore.deleteVideo(video.name)"></v-btn>
-                      </template>
-                    </v-tooltip>
-                  </div>
-                </template> -->
               </v-list-item>
             </v-list>
           </v-card>
         </v-menu>
       </v-btn-group>
+
       <v-btn-group v-if="mediaStore.fixedMedia" :color="isFixedActive ? 'success' : 'grey-darken-2'"
         class="overflow-hidden rounded mr-3" density="comfortable" variant="flat">
         <v-menu location="bottom end" :close-on-content-click="false" transition="slide-y-transition">
-
           <template v-slot:activator="{ props }">
             <v-btn v-bind="props" :icon="isFixedActive ? 'mdi-pin' : 'mdi-pin-off'"
               title="Gerenciar Fundo Fixo"></v-btn>
@@ -284,12 +300,10 @@ onUnmounted(() => {
     <modal-about v-model="showAboutDialog"></modal-about>
 
     <div v-if="!isMac" class="window-controls z-10 d-flex align-center">
-    <v-btn icon="mdi-minus" variant="text" size="small" class="window-btn" @click="minimize"></v-btn>
-    
-    <v-btn icon="mdi-crop-square" variant="text" size="small" class="window-btn" @click="toggleMaximize"></v-btn>
-    
-    <v-btn icon="mdi-close" variant="text" size="small" class="window-btn btn-close" @click="close"></v-btn>
-  </div>
+      <v-btn icon="mdi-minus" variant="text" size="small" class="window-btn" @click="minimize"></v-btn>
+      <v-btn icon="mdi-crop-square" variant="text" size="small" class="window-btn" @click="toggleMaximize"></v-btn>
+      <v-btn icon="mdi-close" variant="text" size="small" class="window-btn btn-close" @click="close"></v-btn>
+    </div>
   </v-app-bar>
 </template>
 

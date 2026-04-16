@@ -6,6 +6,7 @@ import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
 import { useSongCacheStore } from './songCacheStore';
 import type { SongCache } from './songCacheStore';
+import { useConnectionStore } from './statusConnectionStore';
 
 export interface Slide {
   label: string;
@@ -40,6 +41,7 @@ export interface SongGroup {
 
 export const useMusicPresentationStore = defineStore('musicPresentation', () => {
   // --- ESTADOS ---
+  const connectionStore = useConnectionStore()
   const songCacheStore = useSongCacheStore()
   const showSidebarLists = ref(true);
   const isLoading = ref(false);
@@ -96,26 +98,40 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   };
 
   const fetchGroups = async () => {
-    const response = await routes.songGroup().get();
-    rawGroups.value = [];
-    if (Array.isArray(response?.response)) {
-      rawGroups.value = response.response;
+    // 1. OFFLINE-FIRST: Preenche a interface imediatamente usando o cache
+    if (songCacheStore.listSongGroups.length > 0) {
+      // Mapeamos para manter a mesma estrutura de variável que a API entrega (_id e name)
+      rawGroups.value = songCacheStore.listSongGroups.map(it => ({
+        _id: it.id,
+        name: it.label
+      }));
+    }
 
-      if (songCacheStore.listSongGroups.length === 0) {
-        response.response.forEach((it: SongGroup) => {
-          songCacheStore.listSongGroups.push({ id: it._id, label: it.name, songs: [] })
-        })
-      }
-      else {
-        response.response.forEach((it: SongGroup) => {
-          const indexOf = songCacheStore.listSongGroups.findIndex(group => group.id === it._id)
-          if (indexOf == -1) {
-            songCacheStore.listSongGroups.push({ id: it._id, label: it.name, songs: [] })
+    // 2. Se não tem internet confirmada, paramos por aqui (a UI já tem o cache)
+    // OBS: Use a variável correta da sua connectionStore (hasInternet ou isNetworkConnected)
+    if (!connectionStore.isNetworkConnected) return;
+
+    // 3. Sincronização em Background: Tenta atualizar com a API
+    try {
+      const response = await routes.songGroup().get();
+
+      if (Array.isArray(response?.response)) {
+        // Atualiza a tela com os dados fresquinhos do servidor
+        rawGroups.value = response.response;
+
+        // Sincroniza o Cache silenciosamente
+        response.response.forEach((it: any) => { // Ajuste o 'any' para 'SongGroup'
+          const groupInCache = songCacheStore.listSongGroups.find(g => g.id === it._id);
+          if (!groupInCache) {
+            songCacheStore.listSongGroups.push({ id: it._id, label: it.name, songs: [] });
           } else {
-            songCacheStore.listSongGroups[indexOf].label = it.name
+            groupInCache.label = it.name;
           }
-        })
+        });
+        // NOTA: Se o songCacheStore precisar de um .save() no Tauri, chame-o aqui.
       }
+    } catch (error) {
+      console.warn("API de grupos falhou (Offline ou erro de rede). Usando apenas cache.");
     }
   };
 
@@ -131,65 +147,70 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   };
 
   const fetchSongs = async () => {
-    let isListLoaded = false
-    const indexOf = songCacheStore.listSongGroups.findIndex(it => selectedGroupId.value === it.id)
+    if (!selectedGroupId.value) return;
 
-    const loadSongs = async (listSongs: SongCache[]) => {
-      if (!isListLoaded) {
-        songs.value = listSongs.map((it) => {
-          return {
-            id: it.id,
-            songGroupId: it.songGroupId,
-            fullName: it.fullName,
-            lyric: it.lyric
-          }
-        })
-        isListLoaded = true
-      }
+    const groupIndex = songCacheStore.listSongGroups.findIndex(it => selectedGroupId.value === it.id);
+    if (groupIndex === -1) return;
+
+    const groupCache = songCacheStore.listSongGroups[groupIndex];
+
+    // Função local para atualizar a reatividade da tela de forma limpa
+    const updateUI = (listSongs: any[]) => {
+      songs.value = listSongs.map((it) => ({
+        id: it.id,
+        songGroupId: it.songGroupId,
+        fullName: it.fullName,
+        lyric: it.lyric
+      }));
+    };
+
+    // 1. OFFLINE-FIRST: Carrega as músicas do cache instantaneamente
+    const hasCache = groupCache.songs && groupCache.songs.length > 0;
+    if (hasCache) {
+      updateUI(groupCache.songs);
     }
 
-    let isCacheEmpty = false
+    // 2. Validação de internet
+    if (!connectionStore.isNetworkConnected) return;
 
-    if (songCacheStore.listSongGroups[indexOf].songs.length > 0) {
-      loadSongs(songCacheStore.listSongGroups[indexOf].songs)
-    } else {
-      // caso o usuário limpe o arquivo de cache do sistema
-      isCacheEmpty = true
-    }
+    // 3. Atualização em background via API
+    try {
+      // Se já temos cache, passamos a data para a API não devolver tudo atoa
+      const lastUpdate = hasCache ? songCacheStore.listLastDataUpdated[selectedGroupId.value] : undefined;
+      const response = await routes.song().list(selectedGroupId.value, lastUpdate);
 
-    const response = await routes.song().list(selectedGroupId.value, isCacheEmpty ? undefined : songCacheStore.listLastDataUpdated[selectedGroupId.value]);
+      // Se a API diz que atualizou OU se não tínhamos nada no cache
+      if (response && Array.isArray(response.songs) && (!response.isUpdated || !hasCache)) {
+        const list = response.songs; // Ajuste para list = response.songs as Song[] se necessário
 
-    if (Array.isArray(response?.songs) && (!response?.isUpdated || songCacheStore.listSongGroups[indexOf].songs.length === 0)) {
-      const list = response.songs as Song[];
+        const sortedSongs = [...list].sort((a, b) => {
+          return a.fullName.localeCompare(b.fullName, 'pt-BR', { sensitivity: 'base' });
+        });
 
-      const sortedSongs = [...list].sort((a, b) => {
-        return a.fullName.localeCompare(b.fullName, 'pt-BR', { sensitivity: 'base' });
-      });
+        const groupName = rawGroups.value.find(it => it._id === selectedGroupId.value)?.name ?? '';
 
-      const fullName = rawGroups.value.find(it => it._id == selectedGroupId.value)?.name ?? ''
-      songCacheStore.changeCacheInfo({
-        id: selectedGroupId.value, label: fullName, songs: sortedSongs.map(it => {
-          return {
+        // Atualiza os metadados no cache
+        songCacheStore.changeCacheInfo({
+          id: selectedGroupId.value,
+          label: groupName,
+          songs: sortedSongs.map(it => ({
             songGroupId: selectedGroupId.value,
             id: it._id,
             fullName: it.fullName,
-            lyric: ""
-          }
-        })
-      })
+            lyric: "" // O getCacheLyrics preencherá isso
+          }))
+        });
 
-      await songCacheStore.getCacheLyrics(selectedGroupId.value)
+        // Baixa as letras atualizadas
+        await songCacheStore.getCacheLyrics(selectedGroupId.value);
+        songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt);
 
-      await loadSongs(songCacheStore.listSongGroups[indexOf].songs)
-
-      songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt)
-
-    } else {
-      // songCacheStore.setLastUpdate(selectedGroupId.value, response.songsUpdatedAt)
-      loadSongs(songCacheStore.listSongGroups[indexOf].songs)
+        // Agora que o cache está 100% atualizado com a API, atualizamos a tela
+        updateUI(songCacheStore.listSongGroups[groupIndex].songs);
+      }
+    } catch (error) {
+      console.warn("Falha ao sincronizar músicas com a API. Mantendo cache.");
     }
-    
-
   };
 
   const selectSong = async (song: SongCache) => {
@@ -214,19 +235,19 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
         const fetchedLyric = await routes.proxy(url);
         rawLyric.value = fetchedLyric.content;
         customSong.value = {
-            songGroupId: song.songGroupId, 
-            id: song._id, 
-            fullName: song.fullName,
-            lyric: fetchedLyric.content
+          songGroupId: song.songGroupId,
+          id: song._id,
+          fullName: song.fullName,
+          lyric: fetchedLyric.content
         };
-        
+
         songCacheStore.selectedSong.lyric = rawLyric.value
       } else {
         customSong.value = {
-            songGroupId: song.songGroupId, 
-            id: song._id, 
-            fullName: song.fullName,
-            lyric: ''
+          songGroupId: song.songGroupId,
+          id: song._id,
+          fullName: song.fullName,
+          lyric: ''
         };
         rawLyric.value = "";
       }
@@ -236,23 +257,51 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   }
 
   const fetchLyric = async () => {
-    const songId = [selectedSongId.value];
-    const filesResponse = await routes.files().getListBySongId(songId);
-
-    if (Array.isArray(filesResponse?.response)) {
-      const list: SongFile[] = filesResponse.response;
-      const lyricFile = list.find(it => it.type == "Letra");
-
-      if (lyricFile?._id) {
-        const url = getLinkFiles(lyricFile.fileName);
-        const fetchedLyric = await routes.proxy(url);
-        rawLyric.value = fetchedLyric.content;
-      } else {
-        rawLyric.value = "";
-      }
-    } else {
+    if (!selectedSongId.value || !selectedGroupId.value) {
       rawLyric.value = "";
-    } 
+      return;
+    }
+
+    // 1. OFFLINE-FIRST: Verifica se a letra já existe no cache e devolve na hora
+    const groupCache = songCacheStore.listSongGroups.find(g => g.id === selectedGroupId.value);
+    const songInCache = groupCache?.songs.find(s => s.id === selectedSongId.value);
+
+    if (songInCache && songInCache.lyric && songInCache.lyric.trim() !== "") {
+      rawLyric.value = songInCache.lyric;
+      return; // Retorna cedo. Letra em cache não precisa bater na API novamente!
+    }
+
+    // 2. Se não tem no cache e não tem internet, avisa o usuário
+    if (!connectionStore.isNetworkConnected) {
+      rawLyric.value = "";
+      return;
+    }
+
+    // 3. Fallback: Se por acaso a letra sumiu do cache, tenta baixar via API
+    try {
+      const songId = [selectedSongId.value];
+      const filesResponse = await routes.files().getListBySongId(songId);
+
+      if (Array.isArray(filesResponse?.response)) {
+        const lyricFile = filesResponse.response.find((it: any) => it.type === "Letra");
+
+        if (lyricFile?._id) {
+          const url = getLinkFiles(lyricFile.fileName);
+          const fetchedLyric = await routes.proxy(url);
+          rawLyric.value = fetchedLyric.content;
+
+          // Salva a letra recém-baixada no cache para a próxima vez!
+          if (songInCache) {
+            songInCache.lyric = fetchedLyric.content;
+          }
+        } else {
+          rawLyric.value = "";
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao baixar letra da API:", error);
+      rawLyric.value = "Falha ao carregar a letra.";
+    }
   };
 
   return {

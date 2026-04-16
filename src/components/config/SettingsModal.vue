@@ -213,6 +213,18 @@ const saveAndClose = () => {
     configStore.closeDialog();
 }
 
+const listShortcuts = [
+  { label: "Avançar / Voltar Slide", keys: "Setas (← / →)"},
+  { label: "Projetar Letra", keys: "F5"},
+  { label: "Projetar Letra do Início", keys: "Shift + F5"},
+  { label: "Finalizar Apresentação", keys: "Esc"},
+
+
+ // { label: "Limpar Fundo", keys: "F2"},
+  //{ label: "Tela Preta", keys: "F3"},
+  //{ label: "Exibir Logo", keys: "F4"},
+]
+
 onMounted(async ()=> {
   await presentationStore.loadPresets()
   //presentationStore.presets.forEach(it => themeOptions.push(it.name))
@@ -357,12 +369,8 @@ defineExpose({ openDialog })
                   <th class="text-left font-weight-bold">Atalho Padrão</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr><td>Avançar / Voltar Slide</td><td><v-chip size="small" variant="outlined">Setas (← / →)</v-chip></td></tr>
-                <tr><td>Limpar Texto (Clear Text)</td><td><v-chip size="small" variant="outlined">F1</v-chip></td></tr>
-                <tr><td>Limpar Fundo (Clear BG)</td><td><v-chip size="small" variant="outlined">F2</v-chip></td></tr>
-                <tr><td>Tela Preta (Blackout)</td><td><v-chip size="small" variant="outlined">F3</v-chip></td></tr>
-                <tr><td>Exibir Logo</td><td><v-chip size="small" variant="outlined">F4</v-chip></td></tr>
+              <tbody v-for="shortcut in listShortcuts">
+                <tr><td>{{ shortcut.label }}</td><td><v-chip size="small" variant="outlined">{{ shortcut.keys }}</v-chip></td></tr>
               </tbody>
             </v-table>
           </v-window-item>

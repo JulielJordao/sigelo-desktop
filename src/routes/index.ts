@@ -1,5 +1,6 @@
 import { fetch } from '@tauri-apps/plugin-http';
 import { invoke } from "@tauri-apps/api/core"
+import { useConnectionStore } from '../stores/statusConnectionStore';
 
 // Interfaces básicas para tipagem
 interface ApiResponse<T = any> {
@@ -13,12 +14,51 @@ interface ApiResponse<T = any> {
 }
 
 // 1. Configurações de URL
-const isDev = import.meta.env.DEV;
+//const isDev = import.meta.env.DEV;
 //const url_base = "http://localhost:3000/" 
-const url_base = isDev   ? "http://localhost:3000/"   : "https://meu-app-backend-f9867824586e.herokuapp.com/";
-//const url_base = "https://meu-app-backend-f9867824586e.herokuapp.com/"
+//const url_base = isDev   ? "http://localhost:3000/"   : "https://meu-app-backend-f9867824586e.herokuapp.com/";
+const url_base = "https://meu-app-backend-f9867824586e.herokuapp.com/"
 
 const baseUrl = `${url_base}api/`;
+
+const safeFetch = async (url: string, options: RequestInit): Promise<Response> => {
+  const connectionStore = useConnectionStore();
+
+  try {
+    const response = await fetch(url, options);
+
+    // SUCESSO! Chegamos no servidor. A rede está viva.
+    if (!connectionStore.hasInternet || !connectionStore.isNetworkConnected) {
+      connectionStore.hasInternet = true;
+      connectionStore.isNetworkConnected = true;
+    }
+
+    // Se a API responder com erro (ex: 400, 404, 500), nós passamos isso para a frente
+    if (!response.ok) {
+      throw response;
+    }
+
+    return response;
+
+  } catch (error) {
+    // 1. Verificamos se foi um erro da API (O throw response que fizemos acima)
+    if (error instanceof Response) {
+      throw error; // A internet funcionou, foi só um erro do servidor. Deixa passar.
+    }
+
+    // 2. SE NÃO FOI UMA RESPONSE, É QUEDA DE REDE (cabo puxado, Wi-Fi desligado, etc).
+    console.warn("safeFetch: A requisição não conseguiu sair do computador.", error);
+
+    // Derruba a interface IMEDIATAMENTE (fica vermelho)
+    connectionStore.forceOffline();
+
+    // Dispara uma verificação em background. 
+    // Se a internet não caiu (foi só a API local que desligou), a barra volta ao normal sozinha.
+    connectionStore.validateConnection();
+
+    throw new Error("NETWORK_ERROR");
+  }
+};
 
 // 2. Helpers de Utilitários
 const getLinkFiles = (filename: string): string => {
@@ -69,50 +109,48 @@ const getValidateMessage = async (response: any, status: number): Promise<ApiRes
   return data;
 };
 
-// 4. Métodos Base de Requisicao (Generics)
-const getData = async <T = any>(url: string, useToken : string, body: any = null): Promise<T> => {
+export const getData = async <T = any>(url: string, useToken: string, body: any = null): Promise<T> => {
   const method = body ? "POST" : "GET";
 
-  const response = await fetch(url, {
+  const response = await safeFetch(url, {
     method,
     headers: getDefaultHeaders(),
     ...withAuth(useToken),
     ...(body ? { body: JSON.stringify(body) } : {})
   });
-  if (!response.ok) throw response;
+  
   return await response.json();
 };
 
-const deleteData = async (url: string, useToken: string): Promise<Response> => {
-  const response = await fetch(url, {
-    
+export const deleteData = async (url: string, useToken: string): Promise<Response> => {
+  const response = await safeFetch(url, {
     method: "DELETE",
     headers: getDefaultHeaders(),
     ...withAuth(useToken)
   });
-  if (!response.ok) throw response;
-  return response;
+  
+  return response; // DELETE geralmente não retorna JSON, então devolvemos o response puro
 };
 
-const createData = async <T = any>(url: string, useToken: string, body: any): Promise<T> => {
-  const response = await fetch(url, {
+export const createData = async <T = any>(url: string, useToken: string, body: any): Promise<T> => {
+  const response = await safeFetch(url, {
     method: "POST",
     headers: getDefaultHeaders(),
     ...withAuth(useToken),
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw response;
+  
   return await response.json();
 };
 
-const updateData = async <T = any>(url: string, useToken: string, body: any): Promise<T> => {
-  const response = await fetch(url, {
+export const updateData = async <T = any>(url: string, useToken: string, body: any): Promise<T> => {
+  const response = await safeFetch(url, {
     method: "PUT",
     headers: getDefaultHeaders(),
     ...withAuth(useToken),
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw response;
+  
   return await response.json();
 };
 
@@ -298,7 +336,10 @@ export const api = {
   },
 
   bibleApi: async (book: string, chapter: number, rangeParam: string) => {
-    const response = await fetch(`${baseUrl}bible/${book}/${chapter}/${rangeParam}`);
+    const response = await safeFetch(`${baseUrl}bible/${book}/${chapter}/${rangeParam}`, {
+      method: 'GET',
+      headers: getDefaultHeaders()
+    });
     if (!response.ok) throw new Error(`Erro na API: ${response.status}`);
     return response.json();
   },
