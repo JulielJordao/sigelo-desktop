@@ -166,6 +166,7 @@ export const useUserStore = defineStore('user', () => {
         isLoaded,     // Exponha o isLoaded para a tela de Splash
         profileImage, // Sempre bom expor o que vai ser usado na UI
         fullName,
+        syncUserWithApi,
         init,
         logout
     }

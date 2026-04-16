@@ -53,6 +53,8 @@ const login = async () => {
   const response = await userRoute.login(email.value, password.value)
 
   if (response.success) {
+    userStore.syncUserWithApi()
+    
     redirect()
   } else {
     errLogin.value = response.msg
