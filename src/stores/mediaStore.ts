@@ -129,8 +129,6 @@ export const useMediaStore = defineStore('media', () => {
             const filePath = await join(youtubeFolder, entry.name);
             const fileStat = await stat(filePath);
 
-            const tags = ['YouTube']
-
             files.push({
               id: entry.name,
               // Remove qualquer uma das extensões suportadas para o nome de exibição ficar limpo

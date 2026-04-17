@@ -32,6 +32,7 @@ const emit = defineEmits<{
 
 // Formatação local do tempo
 const formatDuration = (seconds?: number) => {
+    console.log(props)
     if (!seconds) return '--:--';
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = Math.floor(seconds % 60).toString().padStart(2, '0');
