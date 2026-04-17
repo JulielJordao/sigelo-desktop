@@ -18,6 +18,7 @@
         "width": 1600,
         "height": 1000,
         "decorations": true,
+        "resizable": true,
         "titleBarStyle": "Overlay",
         "transparent": false,
         "hiddenTitle": true,
@@ -29,6 +30,7 @@
         "label": "projection",
         "title": "Sigelo - Projeção",
         "url": "/projection", 
+        "resizable": true,
         "visible": false, 
         "fullscreen": false,
         "alwaysOnTop": true

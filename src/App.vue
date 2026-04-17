@@ -46,6 +46,12 @@ const handleExportAction = (type: String) => {
   // ex: exportToPPTX();
 };
 
+if (import.meta.env.PROD) {
+  document.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+  });
+}
+
 onMounted(async () => {
   const appWindow = getCurrentWindow();
   await fontStore.loadDefaultFonts();

@@ -600,7 +600,7 @@ const updateCurrentPreset = async () => {
                     </v-tabs>
 
                     <v-divider vertical class="my-2"></v-divider>
-                    <div class="px-4 d-flex align-center">
+                    <div class="px-4 d-flex align-center" v-if="infoPresentationStore.currentPreset">
                         <v-tooltip text="Vincular este tema permanentemente a esta música" location="bottom"
                             open-delay="300">
                             <template v-slot:activator="{ props }">

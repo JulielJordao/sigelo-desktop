@@ -11,6 +11,10 @@ import { useConnectionStore } from '../stores/statusConnectionStore';
 import { invoke } from '@tauri-apps/api/core';
 import ModalAbout from "./ModalAbout.vue"
 
+import { exit } from '@tauri-apps/plugin-process'
+
+import { ask } from '@tauri-apps/plugin-dialog';
+
 const connectionStore = useConnectionStore()
 const menuStore = useMenuStore();
 const mediaStore = useMediaStore();
@@ -81,7 +85,10 @@ const emit = defineEmits<{
   (e: 'export', type: 'pptx' | 'pdf'): void;
 }>();
 
-const minimize = () => appWindow.minimize();
+const minimize = async () => {
+  await appWindow.minimize();
+};
+
 const toggleMaximize = async () => {
   try {
     // Pergunta ao sistema operacional se a janela JÁ está maximizada
@@ -96,7 +103,21 @@ const toggleMaximize = async () => {
     console.error("Erro ao tentar maximizar a janela:", error);
   }
 };
-const close = () => appWindow.close();
+const close = async () => {
+  // O 'ask' retorna um booleano (true se o usuário clicar em 'Sim/Yes')
+  const confirm = await ask('Tem certeza que deseja fechar o Sigelo?', {
+    title: 'Sair do Sistema',
+    kind: 'warning',
+    okLabel: 'Sair',
+    cancelLabel: 'Cancelar'
+  });
+
+  if (confirm) {
+    // Isso emite um sinal nativo de "SIGKILL" para o Windows
+    // Ele destrói a WebView, limpa a memória RAM e fecha o arquivo .exe
+    await exit(0); 
+  }
+};
 
 // Listeners nativos do menu do OS
 let unlistenImport: () => void;
