@@ -124,25 +124,32 @@ export const useSongCacheStore = defineStore('songCache', () => {
         } else {
             listSongGroups.value.push(songGroups);
         }
+
+        await saveInfo(listSongGroups.value);
     }
 
     const getCacheLyrics = async (songGroupId: string) => {
         try {
             const lyrics = await api.songGroup().getOfflineLyrics(songGroupId) as Record<string, string>;
-            const indexOf = listSongGroups.value.findIndex(it => it.id === songGroupId);
-            console.log(lyrics["6993a1a07c2b24ac7df77d6f"])
-            console.log("newCache")
-            if (indexOf != -1) {
-                if (listSongGroups.value[indexOf].songs) {
-                    listSongGroups.value[indexOf].songs.forEach(it => {
-                        if (lyrics[it.id]) {
-                            it.lyric = lyrics[it.id];
-                            it.songGroupId = songGroupId;
-                        }
-                    });
-                }
+            
 
-                saveInfo(listSongGroups.value)
+            if (!lyrics) {
+                console.warn("Nenhuma letra retornada da API.");
+                return; 
+            }
+
+            const indexOf = listSongGroups.value.findIndex(it => it.id === songGroupId);
+
+            if (indexOf != -1 && listSongGroups.value[indexOf].songs) {
+                listSongGroups.value[indexOf].songs.forEach(it => {
+                    if (lyrics[it.id]) {
+                        it.lyric = lyrics[it.id];
+                        it.songGroupId = songGroupId;
+                    }
+                });
+                
+
+               await saveInfo(listSongGroups.value)
             }
 
         } catch (error) {
