@@ -131,8 +131,7 @@ export const useUserStore = defineStore('user', () => {
         settings.value = {}
         
         if (tauriStore) {
-            await tauriStore.set('user_profile', null);
-            await tauriStore.save();
+            await saveUser()
         }
     }
 

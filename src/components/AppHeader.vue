@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { onMounted, onUnmounted, ref, watch, computed } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { type } from '@tauri-apps/plugin-os';
 import { listen, emit as tauriEmit } from '@tauri-apps/api/event';
@@ -26,6 +26,10 @@ const showAboutDialog = ref(false)
 watch(() => mediaStore.fixedMedia, (newVal) => {
   if (newVal) isFixedActive.value = true;
 });
+
+const optionsIsVisible = computed(() => {
+  return menuStore.menuOpened != 'Login'
+})
 
 const toggleFixedMedia = async () => {
   isFixedActive.value = !isFixedActive.value;
@@ -261,9 +265,9 @@ onUnmounted(() => {
       </v-btn-group>
 
       <v-btn-group color="primary" variant="outlined" density="comfortable" divided
-        class="rounded-pill overflow-hidden bg-surface-light">
+        class="rounded-pill overflow-hidden bg-surface-light" v-if="optionsIsVisible">
 
-        <v-menu location="bottom end" transition="slide-y-transition">
+        <v-menu location="bottom end" transition="slide-y-transition" >
           <template v-slot:activator="{ props: menuProps }">
             <v-tooltip text="Importar..." location="bottom">
               <template v-slot:activator="{ props: tooltipProps }">

@@ -106,6 +106,7 @@ const openPdfFile = async () => {
     menuStore.toggleMenu(menuStore.oldMenuOpened);
     isOpen.value = false;
   } finally {
+    
     isLoading.value = false;
   }
 };
@@ -174,6 +175,12 @@ const handleScroll = async (e: Event) => {
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (!isOpen.value) return;
+
+  // Não está funcionando
+  if (e.key === 'Escape') {
+    if(isProjecting) { stopProjection()} else {isOpen.value = true}
+  }
+  
   if (e.key === 'ArrowRight') {
     if (currentPage.value < pages.value.length) currentPage.value++;
   } else if (e.key === 'ArrowLeft') {
@@ -184,6 +191,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     if (e.key === 'ArrowUp' && currentPage.value > 1) currentPage.value--;
   }
 };
+
 window.addEventListener('keydown', handleKeydown);
 
 watch(currentPage, () => {
@@ -193,6 +201,14 @@ watch(currentPage, () => {
 watch([displayMode, zoomLevel], () => {
   if (isProjecting.value) projectCurrentPage();
 });
+
+watch(isOpen, () => {
+  if(menuStore.menuOpened === 'PdfPresenter') {
+      console.log("watch")
+      menuStore.toggleMenu(menuStore.oldMenuOpened)
+      if(isProjecting) stopProjection();
+  }
+})
 </script>
 
 <template>
@@ -260,7 +276,7 @@ watch([displayMode, zoomLevel], () => {
           <v-divider vertical class="mx-2 my-2"></v-divider>
 
           <v-btn color="bg-surface-light" variant="text" prepend-icon="mdi-arrow-left" class="rounded-pill text-none"
-            @click="isOpen = false; menuStore.toggleMenu(menuStore.oldMenuOpened)">
+            @click="isOpen = false">
             Voltar
           </v-btn>
         </div>

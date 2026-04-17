@@ -9,12 +9,14 @@ import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o 
 
 import { useMenuStore } from '../stores/menuStore';
 import { useConfigStore } from '../stores/useConfigStore';
+import { useUserStore } from '../stores/userStore';
 
 
 import { useTheme } from 'vuetify';
 
 const theme = useTheme();
 
+const userStore = useUserStore()
 const menuStore = useMenuStore();
 const configStore = useConfigStore();
 
@@ -55,7 +57,8 @@ const logout = async () => {
   });
 
   if (confirmed) {
-    localStorage.removeItem('userToken');
+    await userStore.logout()
+    menuStore.toggleMenu('Login')
     router.push('/');
   }
 

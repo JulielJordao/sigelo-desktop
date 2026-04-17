@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import iconTheme from '../assets/icon_theme.svg'
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { message } from "@tauri-apps/plugin-dialog"
 import routes from "../routes/index"
 import { useUserStore } from "../stores/userStore";
+import { useMenuStore } from '../stores/menuStore';
 
 const router = useRouter();
 const userRoute = routes.user();
 const userStore = useUserStore();
+const menuStore = useMenuStore();
 
 // Estados da Interface
 const isChecking = ref(true); // Começa como true para não piscar o login
@@ -21,6 +23,7 @@ const errLogin = ref("");
 const redirect = () => {
   const jaViOnboarding = localStorage.getItem("hideOnboarding") === "true";
   if (!jaViOnboarding) {
+    menuStore.toggleMenu('Onboarding')
     router.push("/onboarding");
   } else {
     router.push("/musicas");
@@ -32,6 +35,7 @@ const checkAuthStatus = async () => {
   try {
     await userStore.init();
     
+    console.log(userStore.userId)
     if (userStore.userId && userStore.userId !== "") {
       redirect();
       // Não mudamos o isChecking para false aqui, pois a tela já vai mudar
@@ -53,7 +57,7 @@ const login = async () => {
   const response = await userRoute.login(email.value, password.value)
 
   if (response.success) {
-    userStore.syncUserWithApi()
+    await userStore.syncUserWithApi()
     
     redirect()
   } else {
@@ -64,6 +68,8 @@ const login = async () => {
 const goWithoutAccount = async () => {
   await message('Não implementado! Acesse as funções via login!', { title: 'Aviso', kind: 'warning' });
 }
+
+onMounted(() => {})
 </script>
 
 <template>
@@ -124,15 +130,15 @@ const goWithoutAccount = async () => {
 
         <div class="d-flex align-center my-8 no-drag opacity-70">
           <v-divider></v-divider>
-          <span class="mx-4 text-caption text-grey-darken-1 font-weight-medium text-uppercase tracking-widest text-no-wrap">
+          <span class="mx-4 text-caption font-weight-medium text-uppercase tracking-widest text-no-wrap">
             ou continue com
           </span>
           <v-divider></v-divider> 
         </div>
 
         <v-btn block variant="outlined" color="grey-darken-2" @click="goWithoutAccount" size="large"
-          class="text-none font-weight-medium rounded-lg no-drag border-opacity-50 hover-bg-light">
-          <v-icon start icon="mdi-server-network" color="grey-darken-1" class="mr-2"></v-icon>
+          class="text-none font-weight-medium rounded-lg no-drag border-opacity-50 hover-bg-light bg-surface-light">
+          <v-icon start icon="mdi-server-network" color="primary" class="mr-2"></v-icon>
            Acesso sem conta
         </v-btn>
 
