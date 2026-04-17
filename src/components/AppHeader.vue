@@ -82,7 +82,20 @@ const emit = defineEmits<{
 }>();
 
 const minimize = () => appWindow.minimize();
-const toggleMaximize = () => appWindow.toggleMaximize();
+const toggleMaximize = async () => {
+  try {
+    // Pergunta ao sistema operacional se a janela JÁ está maximizada
+    const isMaximized = await appWindow.isMaximized();
+    
+    if (isMaximized) {
+      await appWindow.unmaximize();
+    } else {
+      await appWindow.maximize();
+    }
+  } catch (error) {
+    console.error("Erro ao tentar maximizar a janela:", error);
+  }
+};
 const close = () => appWindow.close();
 
 // Listeners nativos do menu do OS

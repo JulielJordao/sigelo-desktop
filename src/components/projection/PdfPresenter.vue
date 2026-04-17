@@ -33,7 +33,7 @@ const fileName = ref('');
 
 const pages = ref<PdfPage[]>([]);
 const currentPage = ref<number>(1);
-const isProjecting = computed(()=> { return statusPresStore.status.isPresentation && statusPresStore.status.isPresentation === 'Pdf'});
+const isProjecting = computed(() => { return statusPresStore.status.isPresentation && statusPresStore.status.isPresentation === 'Pdf' });
 
 const displayMode = ref<'normal' | 'stretch' | 'complete' | 'document'>('normal');
 const zoomLevel = ref<number>(100);
@@ -106,7 +106,7 @@ const openPdfFile = async () => {
     menuStore.toggleMenu(menuStore.oldMenuOpened);
     isOpen.value = false;
   } finally {
-    
+
     isLoading.value = false;
   }
 };
@@ -149,7 +149,7 @@ const projectCurrentPage = async () => {
     await statusPresStore.setNewPresentation('Pdf', configStore.settings.selectedMonitor)
 
     await invoke('update_projection', { html: htmlPayload, targetMonitor: configStore.settings.selectedMonitor });
-    
+
   } catch (error) {
     console.error("Erro ao projetar PDF:", error);
   }
@@ -178,9 +178,11 @@ const handleKeydown = (e: KeyboardEvent) => {
 
   // Não está funcionando
   if (e.key === 'Escape') {
-    if(isProjecting) { stopProjection()} else {isOpen.value = true}
+    if (isProjecting) {
+      stopProjection()
+    }
   }
-  
+
   if (e.key === 'ArrowRight') {
     if (currentPage.value < pages.value.length) currentPage.value++;
   } else if (e.key === 'ArrowLeft') {
@@ -203,16 +205,16 @@ watch([displayMode, zoomLevel], () => {
 });
 
 watch(isOpen, () => {
-  if(menuStore.menuOpened === 'PdfPresenter') {
-      console.log("watch")
-      menuStore.toggleMenu(menuStore.oldMenuOpened)
-      if(isProjecting) stopProjection();
+  if (menuStore.menuOpened === 'PdfPresenter') {
+    console.log("watch")
+    menuStore.toggleMenu(menuStore.oldMenuOpened)
+    if (isProjecting) stopProjection();
   }
 })
 </script>
 
 <template>
-  <v-dialog v-model="isOpen" fullscreen transition="dialog-bottom-transition">
+  <v-dialog v-model="isOpen" fullscreen persistent no-click-animation class="dialog-bottom-transition">
     <v-card class="bg-background d-flex flex-column rounded-0">
 
       <v-toolbar density="compact" color="surface" elevation="1" class="border-b px-2">
@@ -232,33 +234,44 @@ watch(isOpen, () => {
 
           <v-slide-x-transition>
             <div v-if="displayMode === 'document'"
-              class="d-flex align-center bg-grey-lighten-4 rounded-pill px-2 mr-2 border" style="height: 34px;">
-              <v-btn icon="mdi-minus" variant="text" size="x-small" density="comfortable"
+              class="d-flex align-center bg-surface-light rounded-pill px-3 mr-3 border transition-all"
+              style="height: 36px;">
+              <v-btn icon="mdi-minus" variant="text" size="small" density="compact" color="medium-emphasis"
                 @click="zoomLevel = Math.max(50, zoomLevel - 25)"></v-btn>
-              <span class="text-caption font-weight-bold mx-1" style="min-width: 40px; text-align: center;">{{ zoomLevel
-                }}%</span>
-              <v-btn icon="mdi-plus" variant="text" size="x-small" density="comfortable"
+
+              <span class="text-caption font-weight-bold mx-2" style="min-width: 45px; text-align: center;">
+                {{ zoomLevel }}%
+              </span>
+
+              <v-btn icon="mdi-plus" variant="text" size="small" density="compact" color="medium-emphasis"
                 @click="zoomLevel = Math.min(300, zoomLevel + 25)"></v-btn>
             </div>
           </v-slide-x-transition>
 
-          <v-btn-toggle v-model="displayMode" mandatory density="compact" color="primary" variant="outlined"
-            class="rounded-pill bg-white" style="height: 34px;">
+          <v-btn-toggle v-model="displayMode" mandatory divided density="comfortable" color="primary" variant="outlined"
+            class="rounded-pill bg-surface-light" style="height: 36px;">
             <v-tooltip text="Normal (Mantém proporção)" location="bottom">
-              <template v-slot:activator="{ props }"><v-btn v-bind="props" value="normal"
-                  icon="mdi-aspect-ratio"></v-btn></template>
+              <template v-slot:activator="{ props }">
+                <v-btn v-bind="props" value="normal" icon="mdi-aspect-ratio" class="px-2"></v-btn>
+              </template>
             </v-tooltip>
+
             <v-tooltip text="Estender (Preenche e distorce)" location="bottom">
-              <template v-slot:activator="{ props }"><v-btn v-bind="props" value="stretch"
-                  icon="mdi-stretch-to-page-outline"></v-btn></template>
+              <template v-slot:activator="{ props }">
+                <v-btn v-bind="props" value="stretch" icon="mdi-stretch-to-page-outline" class="px-2"></v-btn>
+              </template>
             </v-tooltip>
+
             <v-tooltip text="Completar (Cor da Borda Lateral)" location="bottom">
-              <template v-slot:activator="{ props }"><v-btn v-bind="props" value="complete"
-                  icon="mdi-format-color-fill"></v-btn></template>
+              <template v-slot:activator="{ props }">
+                <v-btn v-bind="props" value="complete" icon="mdi-format-color-fill" class="px-2"></v-btn>
+              </template>
             </v-tooltip>
+
             <v-tooltip text="Documento Vertical (A4 e Rolagem)" location="bottom">
-              <template v-slot:activator="{ props }"><v-btn v-bind="props" value="document"
-                  icon="mdi-text-box-search-outline"></v-btn></template>
+              <template v-slot:activator="{ props }">
+                <v-btn v-bind="props" value="document" icon="mdi-text-box-search-outline" class="px-2"></v-btn>
+              </template>
             </v-tooltip>
           </v-btn-toggle>
 
