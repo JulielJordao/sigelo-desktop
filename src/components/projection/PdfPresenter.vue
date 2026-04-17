@@ -259,9 +259,9 @@ watch([displayMode, zoomLevel], () => {
 
           <v-divider vertical class="mx-2 my-2"></v-divider>
 
-          <v-btn color="grey-darken-2" variant="text" prepend-icon="mdi-close" class="rounded-pill text-none"
+          <v-btn color="bg-surface-light" variant="text" prepend-icon="mdi-arrow-left" class="rounded-pill text-none"
             @click="isOpen = false; menuStore.toggleMenu(menuStore.oldMenuOpened)">
-            Fechar
+            Voltar
           </v-btn>
         </div>
       </v-toolbar>

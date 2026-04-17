@@ -179,6 +179,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       const lastUpdate = hasCache ? songCacheStore.listLastDataUpdated[selectedGroupId.value] : undefined;
       const response = await routes.song().list(selectedGroupId.value, lastUpdate);
 
+      console.log("isUpdated", response?.isUpdated)
       // Se a API diz que atualizou OU se não tínhamos nada no cache
       if (response && Array.isArray(response.songs) && (!response.isUpdated || !hasCache)) {
         const list = response.songs; // Ajuste para list = response.songs as Song[] se necessário

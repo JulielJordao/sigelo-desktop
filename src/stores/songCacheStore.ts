@@ -130,8 +130,8 @@ export const useSongCacheStore = defineStore('songCache', () => {
         try {
             const lyrics = await api.songGroup().getOfflineLyrics(songGroupId) as Record<string, string>;
             const indexOf = listSongGroups.value.findIndex(it => it.id === songGroupId);
-
-
+            console.log(lyrics["6993a1a07c2b24ac7df77d6f"])
+            console.log("newCache")
             if (indexOf != -1) {
                 if (listSongGroups.value[indexOf].songs) {
                     listSongGroups.value[indexOf].songs.forEach(it => {

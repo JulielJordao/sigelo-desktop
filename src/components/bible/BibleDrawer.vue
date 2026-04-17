@@ -452,7 +452,7 @@ defineExpose({ open, close });
             </v-window>
           </div>
 
-          <div class="flex-shrink-0 pa-4 border-t bg-white">
+          <div class="flex-shrink-0 pa-4 border-t bg-surface-light">
             <v-btn block color="success" size="large" prepend-icon="mdi-projector" @click="startProjection">
               Iniciar Projeção
             </v-btn>
@@ -462,7 +462,7 @@ defineExpose({ open, close });
 
         <div v-else-if="step === 'projecting' && statusPresStore.status.isPresentation === 'Biblia'" class="d-flex flex-column h-100 pa-4">
 
-          <v-card color="surface" variant="outlined"
+          <v-card color="surface-variant" variant="outlined"
             class="pa-3 mb-4 text-center border-primary border-opacity-100 flex-shrink-0"
             style="border-width: 2px !important;">
             <div class="text-caption text-primary font-weight-bold text-uppercase mb-1">Slide {{ currentSlideIndex + 1
@@ -494,11 +494,11 @@ defineExpose({ open, close });
             </v-row>
           </div>
 
-          <div class="pt-3 border-t flex-shrink-0 bg-white text-center">
+          <div class="pt-3 border-t flex-shrink-0 bg-surface-light text-center">
             <v-btn block color="error" variant="flat" prepend-icon="mdi-stop" @click="stopProjection">
               Parar Apresentação
             </v-btn>
-            <span class="text-caption text-grey mt-2 d-inline-block">(Use ← e → para navegar, Esc para sair)</span>
+            <span class="text-caption text-primary-variant mt-2 d-inline-block">(Use ← e → para navegar, Esc para sair)</span>
           </div>
         </div>
 

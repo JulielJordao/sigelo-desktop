@@ -6,6 +6,7 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { message } from '@tauri-apps/plugin-dialog';
+import MediaListItem from './MediaListItem.vue';
 
 const configStore = useConfigStore();
 const youtubeStore = useYoutubeStore()
@@ -352,66 +353,36 @@ onUnmounted(() => {
 
         <div v-if="viewMode === 'list'" class="pt-2">
           <v-slide-y-transition group>
-            <v-card v-for="file in filteredAndSortedFiles" :key="file.id" v-click-outside="{
-              handler: () => { if (editingId === file.id) cancelEdit() },
-              closeConditional: () => editingId === file.id
-            }" class="mb-3 border-sm rounded-lg" elevation="0" hover>
-              <div class="d-flex pa-2">
-                <div
-                  class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
-                  @click="openPreview(file)">
-                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
-                    preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
-                  <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
-                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{
-                    formatDuration(file.duration) }}</div>
-                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white"
-                      size="large">mdi-play-circle-outline</v-icon></div>
-                </div>
-
-                <div class="flex-grow-1 overflow-hidden d-flex flex-column">
-
-                  <div class="d-flex justify-space-between align-start w-100">
-                    <template v-if="editingId === file.id">
-                      <div class="d-flex align-center w-100 mr-2">
-                        <v-text-field v-model="editName" density="compact" variant="outlined" hide-details autofocus
-                          @keyup.enter="saveEdit(file)" @keyup.esc="cancelEdit"></v-text-field>
-                        <v-btn icon="mdi-check" color="success" size="x-small" variant="text"
-                          @click.stop="saveEdit(file)"></v-btn>
-                        <v-btn icon="mdi-close" color="error" size="x-small" variant="text"
-                          @click.stop="cancelEdit"></v-btn>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <span class="text-subtitle-2 font-weight-bold text-truncate d-block flex-grow-1 cursor-text"
-                        :title="file.name" @dblclick="startEdit(file)">
-                        {{ file.name }}
-                      </span>
-                      <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
-                        :color="file.isFavorite ? 'error' : 'medium-emphasis'" @click="toggleFavorite(file)"
-                        density="compact" class="flex-shrink-0 ml-1"></v-btn>
-                    </template>
-                  </div>
-
-                  <div class="d-flex align-center mt-1">
-                    <v-chip size="x-small" color="primary" variant="flat" class="mr-1">{{ file.category }}</v-chip>
-                    <v-icon size="x-small" :icon="file.isVideo ? 'mdi-video' : 'mdi-image'"
-                      class="mr-1 text-medium-emphasis"></v-icon>
-                  </div>
-                  <v-spacer></v-spacer>
-                  <div class="d-flex gap-2 mt-3">
-                    <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
-                      :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
-                      class="flex-grow-1" @click="handleProjectFile(file)">
-                      {{ projectedFile?.id === file.id && isProjecting ? 'Projetando...' : 'Projetar' }}
-                    </v-btn>
-                    <v-btn size="small" color="secondary" variant="outlined" icon="mdi-pin"
-                      @click.stop="handleSetFixed(file)"></v-btn>
-                    <v-btn size="small" color="error" variant="text" icon="mdi-delete"
-                      @click.stop="confirmDeletePrompt(file)"></v-btn>
-                  </div>
-                </div>
-              </div>
+            <v-card 
+              v-for="file in filteredAndSortedFiles" 
+              :key="file.id" 
+              v-click-outside="{
+                handler: () => { if (editingId === file.id) cancelEdit() },
+                closeConditional: () => editingId === file.id
+              }" 
+              class="mb-3 border-sm rounded-lg" 
+              elevation="0" 
+              hover
+            >
+              <MediaListItem 
+                :file="file"
+                :is-projecting="isProjecting"
+                :projected-file-id="projectedFile?.id"
+                :fixed-media-id="mediaStore.fixedMedia?.id"
+                :editing-id="editingId"
+                v-model:edit-name="editName"
+                :is-grid-expanded="false"
+                
+                @open-preview="openPreview"
+                @toggle-favorite="toggleFavorite"
+                @project="handleProjectFile"
+                @set-fixed="handleSetFixed"
+                @delete="confirmDeletePrompt"
+                @start-edit="startEdit"
+                @save-edit="saveEdit"
+                @cancel-edit="cancelEdit"
+                @video-loaded="onVideoLoaded"
+              />
             </v-card>
           </v-slide-y-transition>
         </div>
@@ -425,60 +396,27 @@ onUnmounted(() => {
               :class="['border-sm rounded-lg overflow-hidden transition-all bg-surface', expandedId === file.id ? 'grid-item-expanded' : 'cursor-pointer']"
               elevation="0" hover @click="expandedId !== file.id && toggleExpand(file.id)">
 
-              <div v-if="expandedId === file.id" class="d-flex pa-2 position-relative bg-surface-light">
-                <v-btn icon="mdi-chevron-up" size="x-small" variant="text"
-                  class="position-absolute top-0 right-0 ma-1 z-10" @click.stop="toggleExpand(file.id)"></v-btn>
-
-                <div
-                  class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
-                  @click.stop="openPreview(file)">
-                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
-                    preload="metadata" @loadedmetadata="onVideoLoaded($event, file)"></video>
-                  <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
-                  <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">{{
-                    formatDuration(file.duration) }}</div>
-                  <div v-if="file.isVideo" class="play-overlay"><v-icon color="white"
-                      size="large">mdi-play-circle-outline</v-icon></div>
-                </div>
-
-                <div class="flex-grow-1 overflow-hidden d-flex flex-column pr-4">
-                  <template v-if="editingId === file.id">
-                    <div class="d-flex align-center w-100 mb-1 mt-3">
-                      <v-text-field v-model="editName" density="compact" variant="outlined" hide-details autofocus
-                        @keyup.enter="saveEdit(file)" @keyup.esc="cancelEdit"></v-text-field>
-                      <v-btn icon="mdi-check" color="success" size="small" variant="text"
-                        @click.stop="saveEdit(file)"></v-btn>
-                      <v-btn icon="mdi-close" color="error" size="small" variant="text"
-                        @click.stop="cancelEdit"></v-btn>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="d-flex align-center justify-space-between w-100 mt-3">
-                      <span class="text-subtitle-2 font-weight-bold text-truncate d-block cursor-text"
-                        :title="file.name" @dblclick="startEdit(file)">
-                        {{ file.name }}
-                      </span>
-                      <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
-                        :color="file.isFavorite ? 'error' : 'medium-emphasis'" @click.stop="toggleFavorite(file)"
-                        density="compact"></v-btn>
-                    </div>
-                  </template>
-
-                  <div class="d-flex gap-2 mt-auto">
-                    <v-btn size="small" :color="projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
-                      :prepend-icon="projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
-                      class="flex-grow-1 px-0" @click.stop="handleProjectFile(file)">
-                      {{ projectedFile?.id === file.id && isProjecting ? 'Projetando...' : 'Projetar' }}
-                    </v-btn>
-                    <v-btn size="small" :icon="mediaStore.fixedMedia?.id === file.id ? 'mdi-pin-off' : 'mdi-pin'"
-                      :color="mediaStore.fixedMedia?.id === file.id ? 'success' : 'secondary'"
-                      :variant="mediaStore.fixedMedia?.id === file.id ? 'flat' : 'outlined'"
-                      @click.stop="handleSetFixed(file)"></v-btn>
-                    <v-btn size="small" color="error" variant="text" icon="mdi-delete"
-                      @click.stop="confirmDeletePrompt(file)"></v-btn>
-                  </div>
-                </div>
-              </div>
+              <MediaListItem 
+                v-if="expandedId === file.id"
+                :file="file"
+                :is-projecting="isProjecting"
+                :projected-file-id="projectedFile?.id"
+                :fixed-media-id="mediaStore.fixedMedia?.id"
+                :editing-id="editingId"
+                v-model:edit-name="editName"
+                :is-grid-expanded="true"
+                
+                @open-preview="openPreview"
+                @toggle-favorite="toggleFavorite"
+                @project="handleProjectFile"
+                @set-fixed="handleSetFixed"
+                @delete="confirmDeletePrompt"
+                @collapse="toggleExpand"
+                @start-edit="startEdit"
+                @save-edit="saveEdit"
+                @cancel-edit="cancelEdit"
+                @video-loaded="onVideoLoaded"
+              />
 
               <div v-else class="d-flex flex-column h-100 position-relative">
                 <div v-if="projectedFile?.id === file.id"
