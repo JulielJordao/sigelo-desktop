@@ -24,7 +24,7 @@ const isOpen = computed({
 // A mágica acontece aqui: reage em tempo real à digitação
 const searchResults = computed(() => {
   // Se o campo estiver vazio, não mostra nada
-  if (!searchQuery.value || searchQuery.value.trim() === '') {
+  if (!searchQuery.value.toLowerCase() || searchQuery.value.trim().toLowerCase() === '') {
     return []
   }
   return songStore.getSearchResult(searchQuery.value)

@@ -284,8 +284,8 @@ onUnmounted(() => {
 
               <v-divider class="mb-3"></v-divider>
 
-              <div class="d-flex gap-2">
-                <v-btn :color="isFixedActive ? 'warning' : 'success'" variant="tonal" size="small" class="flex-grow-1"
+              <div class="d-flex gap-22">
+                <v-btn :color="isFixedActive ? 'warning' : 'success'" variant="tonal" size="small" class="flex-grow-1 mr-2 mt-1"
                   :prepend-icon="isFixedActive ? 'mdi-eye-off' : 'mdi-eye'" @click="toggleFixedMedia">
                   {{ isFixedActive ? 'Ocultar' : 'Exibir' }}
                 </v-btn>

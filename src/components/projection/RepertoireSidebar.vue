@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import SearchSongModal from '../songs/SearchSongModal.vue';
 import type { SongGroupCache } from '../../stores/songCacheStore';
+import { useMenuStore } from '../../stores/menuStore';
+
+const menuStore = useMenuStore()
 
 defineProps<{
   groups: Array<SongGroupCache>;
@@ -16,9 +19,20 @@ const emit = defineEmits<{
   (e: 'select', id: string): void
 }>();
 
+const handleKeydown = (e: KeyboardEvent) => {
+  if(menuStore.menuOpened === 'Media' || menuStore.menuOpened === 'Songs') {
+    if(e.shiftKey && e.key === 'F'){
+      isSearchModalOpen.value = true
+    }
+  }
+}
+
 const isSearchModalOpen = ref(false)
 const currentGroupId = ref('')
 
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+})
 </script>
 
 <template>

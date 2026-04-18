@@ -215,6 +215,8 @@ const saveAndClose = () => {
 
 const listShortcuts = [
   { label: "Avançar / Voltar Slide", keys: "Setas (← / →)"},
+  { label: "Pesquisa rápida de músicas", keys: "Shift + F"},
+  { label: "Abertura rápida da bíblia", keys: "Shift + B"},
   { label: "Projetar Letra", keys: "F5"},
   { label: "Projetar Letra do Início", keys: "Shift + F5"},
   { label: "Finalizar Apresentação", keys: "Esc"},
