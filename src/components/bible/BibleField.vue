@@ -85,7 +85,7 @@ watch(input, (newVal) => {
 
   // 3. LOGICA DE PONTUAÇÃO E INTERVALO (Mc 3 -> Mc 3:2-7)
   if (selectedBook.value) {
-    const bookAbbr = selectedBook.value.abbr;
+    //const bookAbbr = selectedBook.value.abbr;
     
     // CASO A: Mc 3 + Espaço -> Mc 3:
     if (stage.value === 'chapter' && newVal.endsWith(' ')) {
@@ -278,7 +278,7 @@ function addReference(): void {
 }
 
 /* ---------------- AUXILIARES ---------------- */
-const isFloating = computed(() => isFocused.value || input.value || references.value.length > 0)
+//const isFloating = computed(() => isFocused.value || input.value || references.value.length > 0)
 
 function formatRef(r: BibleReference) {
   let str = `${r.book} ${r.chapter}`

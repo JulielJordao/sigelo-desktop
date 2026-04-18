@@ -14,7 +14,7 @@ import { useUserStore } from '../stores/userStore';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import { useTheme } from 'vuetify';
-import { BibleRef } from 'types/bibleRef';
+import { BibleRef } from '../types/bibleRef';
 
 const theme = useTheme();
 

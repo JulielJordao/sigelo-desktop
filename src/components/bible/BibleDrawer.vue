@@ -9,10 +9,6 @@ import { emit as emitTauri } from '@tauri-apps/api/event'
 import { calculateMaxFontSize, getMaxCharsFromSlides, getMaxLinesFromSlides } from '../../utils/projection';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 
-interface Book {
-
-}
-
 const configStore = useConfigStore();
 const statusPresStore = useStatusPresentationStore();
 const emit = defineEmits(['project', 'close']);
