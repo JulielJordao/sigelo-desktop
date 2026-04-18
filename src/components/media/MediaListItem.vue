@@ -3,6 +3,7 @@ import { ref } from "vue"
 import type { MediaFile } from '../../stores/mediaStore'; // Ajuste o caminho se necessário
 import TagEditModal from "./TagEditModal.vue"
 import { useMediaStore } from "../../stores/mediaStore";
+//import { useMenuStore } from "../../stores/menuStore";
 
 const mediaStore = useMediaStore()
 

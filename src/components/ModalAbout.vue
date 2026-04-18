@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import iconTheme from '../assets/icon_theme.svg'
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 // Importe as dependências que você já tem (menuStore, youtubeStore, etc...)
 
 // APIs Nativas do Tauri para versão e links externos
@@ -8,6 +8,9 @@ import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-shell';
 // import { check } from '@tauri-apps/plugin-updater'; // Caso use o plugin de auto-update do Tauri no futuro
 
+import { useMenuStore } from '../stores/menuStore';
+
+const menuStore = useMenuStore()
 const appVersion = ref('Carregando...');
 
 const props = defineProps({
@@ -29,7 +32,7 @@ onMounted(async () => {
   try {
     appVersion.value = await getVersion();
   } catch (e) {
-    appVersion.value = '0.8.15';
+    appVersion.value = '0.8.17';
   }
 });
 
@@ -46,6 +49,10 @@ const checkForUpdates = async () => {
   // Por enquanto, você pode redirecionar para a página de downloads:
   //await open('https://sigelo.cloud/downloads');
 };
+
+watch(showAboutDialog, () => {
+  menuStore.setShiftShortcutLocked(showAboutDialog.value)
+})
 </script>
 
 <template>

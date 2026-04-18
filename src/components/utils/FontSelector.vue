@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { useFontStore } from '../../stores/useFontStore';
+import { useMenuStore } from '../../stores/menuStore'; // Ajuste o caminho se necessário
 
+const menuStore = useMenuStore();
 const props = defineProps<{
     modelValue: string | null | undefined; 
 }>();
 
 const emit = defineEmits(['update:modelValue']);
-
 const fontStore = useFontStore();
 
 onMounted(async () => {
-    // 1. Carrega as fontes que você colocou na pasta src/fonts
     if (fontStore.allFonts.length === 0) {
         await fontStore.loadDefaultFonts();
     }
-    
-    // 2. Carrega as fontes do disco instaladas pelo usuário
     if (fontStore.customFonts.length === 0) {
         await fontStore.loadCustomFonts();
     }
@@ -25,6 +23,27 @@ onMounted(async () => {
 const updateValue = (val: string | null) => {
     emit('update:modelValue', val);
 };
+
+// --- CONTROLE DE FOCO E ATALHOS ---
+const isFocused = ref(false);
+
+const handleFocus = () => {
+    isFocused.value = true;
+    menuStore.setShiftShortcutLocked(true); // Bloqueia o atalho ao entrar no campo
+};
+
+const handleBlur = () => {
+    isFocused.value = false;
+    menuStore.setShiftShortcutLocked(false); // Libera o atalho ao sair do campo
+};
+
+// Regra de Segurança: Se o componente for destruído enquanto estiver focado,
+// garantimos que o atalho não fique preso para sempre.
+onUnmounted(() => {
+    if (isFocused.value) {
+        menuStore.setShiftShortcutLocked(false);
+    }
+});
 </script>
 
 <template>
@@ -37,6 +56,8 @@ const updateValue = (val: string | null) => {
         <v-autocomplete 
             :model-value="props.modelValue" 
             @update:model-value="updateValue"
+            @focus="handleFocus"
+            @blur="handleBlur"
             :items="fontStore.allFonts" 
             item-title="title" 
             item-value="value" 
@@ -71,7 +92,7 @@ const updateValue = (val: string | null) => {
                                 {{ item.title }}
                             </span>
                             
-                            <v-chip v-if="item.isCustom" size="x-small" color="success" variant="flat" class="ml-2">
+                            <v-chip v-if="item.isCustom || item.isCustom" size="x-small" color="success" variant="flat" class="ml-2">
                                 Instalada
                             </v-chip>
                         </div>

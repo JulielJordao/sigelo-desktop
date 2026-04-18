@@ -2,6 +2,9 @@
 import { ref, computed, watch } from 'vue';
 import type { BibleRef } from '../../types/bibleRef';
 import BibleSelector from './BibleField.vue'; // Ajuste o caminho do seu seletor
+import { useMenuStore } from '../../stores/menuStore';
+
+const menuStore = useMenuStore()
 
 const props = defineProps<{
   modelValue: boolean; // Controla se a modal está aberta (v-model)
@@ -33,6 +36,10 @@ watch(currentSelection, (newVal) => {
     close(); // Fecha a modal após a seleção
   }
 });
+
+watch(isOpen, () => {
+  menuStore.setShiftShortcutLocked(isOpen.value)
+})
 </script>
 
 <template>
@@ -45,8 +52,8 @@ watch(currentSelection, (newVal) => {
   >
     <v-card class="glass-modal" rounded="xl" elevation="24">
       
-      <v-toolbar color="transparent" density="compact" class="px-2 pt-1" border="none">
-        <v-icon color="primary" class="mr-3 opacity-80">mdi-book-open-page-variant</v-icon>
+      <v-toolbar color="transparent" density="compact" class="px-2 mb-2 pt-1 bg-surface-light" border="none">
+        <v-icon color="primary" class="ml-3 mr-2 opacity-80">mdi-book-open-page-variant</v-icon>
         <v-toolbar-title class="text-subtitle-1 font-weight-bold opacity-80">
           Abertura Rápida
         </v-toolbar-title>

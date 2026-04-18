@@ -3,6 +3,9 @@ import { ref, computed, watch } from 'vue';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
 import { useMediaStore } from '../../stores/mediaStore';
+import { useMenuStore } from '../../stores/menuStore';
+
+const menuStore = useMenuStore()
 
 const props = defineProps({
   modelValue: Boolean
@@ -140,6 +143,10 @@ const closeModal = () => {
         isOpen.value = false;
     }
 };
+
+watch(isOpen, () => {
+  menuStore.setShiftShortcutLocked(isOpen.value)
+})
 </script>
 
 <template>

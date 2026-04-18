@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useConfigStore } from '../../stores/useConfigStore'; 
 import { invoke } from '@tauri-apps/api/core';
@@ -7,12 +7,14 @@ import { appLocalDataDir, join } from '@tauri-apps/api/path';
 import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { useTheme } from 'vuetify';
 import { usePresentationStore } from '../../stores/usePresentationStore';
+import { useMenuStore  } from '../../stores/menuStore';
 
 const presentationStore = usePresentationStore()
 const theme = useTheme();
 
 const configStore = useConfigStore();
 const { isDialogOpen, settings } = storeToRefs(configStore);
+const menuStore = useMenuStore()
 
 const toggleTheme = () => {
   localSettings.value.isDarkMode = !localSettings.value.isDarkMode
@@ -233,6 +235,11 @@ onMounted(async ()=> {
 })
 
 defineExpose({ openDialog })
+
+watch(isDialogOpen, () => {
+  menuStore.setShiftShortcutLocked(isDialogOpen.value)
+})
+
 </script>
 
 <template>

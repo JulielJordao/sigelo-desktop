@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useSongCacheStore } from '../../stores/songCacheStore' // Ajuste o caminho conforme seu projeto
+import { useMenuStore } from "../../stores/menuStore"
+
+const menuStore = useMenuStore()
 
 // Props e Emits para controlar a abertura/fechamento e retornar a música escolhida
 const props = defineProps({
@@ -38,17 +41,24 @@ const selectSong = (song: any) => {
   searchQuery.value = ''
   isOpen.value = false
 }
+
+watch(isOpen, () => {
+  menuStore.setShiftShortcutLocked(isOpen.value)
+})
 </script>
 
 <template>
   <v-dialog v-model="isOpen" max-width="600" transition="dialog-bottom-transition">
     <v-card rounded="lg">
-      <v-card-title class="d-flex align-center bg-surface-light px-4 py-3 border-b">
-        <v-icon icon="mdi-magnify" class="mr-2" color="primary"></v-icon>
-        Buscar Música no Cache
+      <v-toolbar color="transparent" density="compact" class="bg-surface-light px-2 pt-1" border="none">
+        <v-icon color="primary" class="ml-3 mr-2 opacity-80">mdi-magnify</v-icon>
+        <v-toolbar-title class="text-subtitle-1 font-weight-bold opacity-80">
+          Buscar Rápida
+        </v-toolbar-title>
         <v-spacer></v-spacer>
-        <v-btn icon="mdi-close" variant="text" size="small" @click="isOpen = false"></v-btn>
-      </v-card-title>
+        <v-chip size="x-small" variant="text" class="mr-2 text-medium-emphasis">ESC</v-chip>
+        <v-btn icon="mdi-close" variant="text" size="small" color="medium-emphasis" @click="isOpen = false"></v-btn>
+      </v-toolbar>
 
       <v-card-text class="pa-4">
         <v-text-field

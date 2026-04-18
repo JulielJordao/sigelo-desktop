@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useMediaStore } from '../../stores/mediaStore';
+import { useMenuStore } from '../../stores/menuStore';
+
+const menuStore = useMenuStore()
 
 const props = defineProps<{
   modelValue: boolean; // Controla se o modal está aberto
@@ -36,6 +39,7 @@ watch(() => props.modelValue, (isNowOpen) => {
     // Converte a string separada por vírgula em array limpo
     localTags.value = currentTagsString
   }
+  menuStore.setShiftShortcutLocked(isNowOpen)
 });
 
 // --- 2. LÓGICA DE FILTRAGEM (Passos 1, 3 e 4) ---

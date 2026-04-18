@@ -3,6 +3,9 @@ import { computed, ref, watch } from 'vue'
 import { usePresentationStore } from '../../stores/usePresentationStore'
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import SlidePreview from '../preview/SlidePreview.vue'
+import { useMenuStore } from '../../stores/menuStore';
+
+const menuStore = useMenuStore()
 
 const props = defineProps({
     modelValue: {
@@ -85,6 +88,7 @@ watch(isPresetModalOpen, (newVal) => {
         isDeleteMode.value = false;
         cancelEditing();
     }
+    menuStore.setShiftShortcutLocked(newVal)
 });
 </script>
 

@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { usePresentationStore } from '../../stores/usePresentationStore'
+import { useMenuStore } from '../../stores/menuStore'
+
+const menuStore = useMenuStore()
 
 // Props e Emits para controlar a abertura/fechamento e retornar a música escolhida
 const props = defineProps({
@@ -31,6 +34,10 @@ const emit = defineEmits(['update:modelValue'])
 const isSavePresetOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
+})
+
+watch(isSavePresetOpen, () => {
+  menuStore.setShiftShortcutLocked(isSavePresetOpen.value)
 })
 
 </script>

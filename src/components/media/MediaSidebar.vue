@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch} from 'vue';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import { useMenuStore } from "../../stores/menuStore"
 import { message } from '@tauri-apps/plugin-dialog';
 import MediaListItem from './MediaListItem.vue';
 
+const menuStore = useMenuStore()
 const configStore = useConfigStore();
 const youtubeStore = useYoutubeStore()
 
@@ -250,6 +252,20 @@ onUnmounted(() => {
   activeListeners.forEach(unlisten => unlisten());
   activeListeners = []; // Zera a lista
 });
+
+watch(previewDialog, () => {
+  menuStore.setShiftShortcutLocked(previewDialog.value)
+})
+
+watch(deleteDialog, () => {
+  menuStore.setShiftShortcutLocked(deleteDialog.value)
+})
+
+watch(editName, (value) => {
+  const isEditing = (value && value != "") ? true : false
+  menuStore.setShiftShortcutLocked(isEditing)
+})
+
 </script>
 
 <template>
