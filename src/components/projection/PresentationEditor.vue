@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
 import { getMaxLinesFromSlides, calculateMaxFontSize } from '../../utils/projection';
+import { emit as tauriEmit } from '@tauri-apps/api/event';
 
 import SlidePreview from '../preview/SlidePreview.vue';
 import ModalSavePreset from '../presets/modalSavePreset.vue';
@@ -12,6 +13,7 @@ import ModalSelectPreset from '../presets/modalSelectPreset.vue';
 
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import { useMenuStore } from '../../stores/menuStore';
 import type { Slide } from '../../stores/presentationStore';
 
 // Importação das Abas Separadas
@@ -20,7 +22,10 @@ import TabBackground from '../tabs/TabBackground.vue';
 import TabText from '../tabs/TabText.vue';
 import TabPosition from '../tabs/TabPosition.vue';
 import TabEstrutura from '../tabs/TabEstrutura.vue';
+import QuickBibleModal from '../bible/QuickBibleModal.vue';
+import { BibleRef } from '../../types/bibleRef';
 
+const menuStore = useMenuStore();
 const configStore = useConfigStore();
 const infoPresentationStore = usePresentationStore(); // INSTANCIANDO O STORE
 const statusPresStore = useStatusPresentationStore();
@@ -36,6 +41,7 @@ const currentSlideIndex = ref<number>(0);
 // const previewContainer = ref<HTMLElement | null>(null);
 
 const isPresetModalOpen = ref(false)
+const isQuickBibleOpen = ref(false)
 
 
 // TO REMOVE
@@ -323,6 +329,16 @@ const stopProjection = async () => {
 const isClean = computed(() => songInfo.rawLyric == '')
 
 const handleKeydown = async (e: KeyboardEvent) => {
+
+    if(menuStore.menuOpened !== 'PdfPresenter' && !menuStore.isShiftShortcutLocked ) {
+        if(e.shiftKey && e.key === 'B'){
+            // Necessário para não abrir a modal com o valor b por causa do autofocus
+            setTimeout(() => {
+                isQuickBibleOpen.value = true
+            }, 50)
+        }
+    }
+
     if(!isClean.value) {
         if (e.shiftKey && e.key === 'F5') {
             currentSlideIndex.value = 0
@@ -433,6 +449,11 @@ watch(() => songInfo.rawLyric, (newValue) => {
 });
 
 const isLoadedDefaultTheme = ref(false)
+
+const openBible = (bibleRef: BibleRef) => {
+    console.log("tauri-emit")
+    tauriEmit('open-bible', bibleRef)
+}
 
 watch(fixedTheme, () => {
 
@@ -661,6 +682,7 @@ const updateCurrentPreset = async () => {
     </div>
     <ModalSelectPreset v-model="isPresetModalOpen"></ModalSelectPreset>
     <ModalSavePreset v-model="isSavePresetOpen"></ModalSavePreset>
+    <QuickBibleModal v-model="isQuickBibleOpen" @openReference="openBible"></QuickBibleModal>
 
     <v-snackbar v-model="showSaveAlert" color="success" elevation="24" rounded="pill" :timeout="3000">
         <v-icon start icon="mdi-check-circle"></v-icon>

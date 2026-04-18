@@ -20,8 +20,10 @@ const emit = defineEmits<{
 }>();
 
 const handleKeydown = (e: KeyboardEvent) => {
-  if(menuStore.menuOpened === 'Media' || menuStore.menuOpened === 'Songs') {
-    if(e.shiftKey && e.key === 'F'){
+  if(menuStore.isShiftShortcutLocked) return 
+
+  if((menuStore.menuOpened === 'Media' || menuStore.menuOpened === 'Songs')) {
+    if(e.shiftKey && e.key.toUpperCase() === 'F'  ){
       isSearchModalOpen.value = true
     }
   }

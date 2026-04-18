@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick, watch, onUnmounted } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
@@ -204,11 +204,11 @@ watch([displayMode, zoomLevel], () => {
   if (isProjecting.value) projectCurrentPage();
 });
 
-watch(isOpen, () => {
+watch(isOpen, (value) => {
+  menuStore.setShiftShortcutLocked(isOpen.value)
   if (menuStore.menuOpened === 'PdfPresenter') {
-    console.log("watch")
     menuStore.toggleMenu(menuStore.oldMenuOpened)
-    if (isProjecting) stopProjection();
+    if (isProjecting) stopProjection(); 
   }
 })
 </script>

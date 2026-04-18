@@ -9,6 +9,10 @@ import { emit as emitTauri } from '@tauri-apps/api/event'
 import { calculateMaxFontSize, getMaxCharsFromSlides, getMaxLinesFromSlides } from '../../utils/projection';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 
+interface Book {
+
+}
+
 const configStore = useConfigStore();
 const statusPresStore = useStatusPresentationStore();
 const emit = defineEmits(['project', 'close']);
@@ -52,6 +56,19 @@ const filteredBooks = computed(() => {
   return bibleData.filter(book => normalize(book.name).includes(query) || normalize(book.abbr).includes(query));
 });
 
+const getBookByAbbr = (abbr: string) => {
+  const book = bibleData.find(it => it.abbr === abbr)
+
+  return book?.name ?? ""
+}
+
+const getBookChapters = (abbr: string) => {
+  const book = bibleData.find(it => it.abbr === abbr)
+
+  console.log(getBookChapters)
+  return book?.chapters ?? ""
+}
+
 const onSearchEnter = () => { if (filteredBooks.value.length === 1) selectBook(filteredBooks.value[0]); };
 
 const totalVersesInChapter = computed(() => {
@@ -94,16 +111,23 @@ const bibleSlides = computed(() => {
 const open = async (reference?: { abbr: string, chapter: number, verses?: string }) => {
   isOpen.value = true;
   if (reference) {
+    const abbr = reference.abbr
+    selectedBook.value = {name: getBookByAbbr(abbr), abbr:abbr, chapters: getBookChapters(abbr)}
     step.value = 'loading';
+    
     if (!reference.verses) {
-      await fetchBibleText(reference.abbr, true);
+      selectedBook
+      selectedChapter.value = reference.chapter;
+      await fetchBibleText(abbr, true);
+      step.value = 'view'
     } else {
       const splitVerse = reference.verses.split("-")
       if (splitVerse.length > 1) {
         verseStart.value = Number.parseInt(splitVerse[0])
         verseEnd.value = Number.parseInt(splitVerse[1])
 
-        await fetchBibleText(reference.abbr, true);
+        await fetchBibleText(abbr, false);
+        step.value = 'view'
       }
     }
 
@@ -131,6 +155,7 @@ const resetSelection = () => { selectedBook.value = null; fetchedData.value = nu
 const fetchBibleText = async (abbr: string, wholeChapter: boolean) => {
   step.value = 'loading';
   try {
+    console.log("abbr", abbr)
     const normalizedAbbr = abbr.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const verses = wholeChapter ? `1-${totalVersesInChapter.value}` : `${verseStart.value}-${verseEnd.value}`
     const response = await api.bibleApi(normalizedAbbr, selectedChapter.value, verses)
