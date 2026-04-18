@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { usePresentationStore } from '../../stores/usePresentationStore';
-import { useMediaStore, type MediaFile } from '../../stores/mediaStore'; 
+import { useMediaStore, type MediaFile } from '../../stores/mediaStore';
 
 const store = usePresentationStore();
 const mediaStore = useMediaStore();
@@ -39,9 +39,78 @@ const selectColor = (hex: string) => {
 
 // Computed para saber se uma cor customizada (diferente de preto e branco) está selecionada
 const isCustomColor = computed(() => {
-    return store.design.bgType === 'color' && 
-           store.design.bgColor !== '#000000' && 
-           store.design.bgColor !== '#FFFFFF';
+    return store.design.bgType === 'color' &&
+        store.design.bgColor !== '#000000' &&
+        store.design.bgColor !== '#FFFFFF';
+});
+// --- CONTROLE DE FILTRO E PESQUISA ---
+const selectedTag = ref<string | null>(null);
+const isSearchOpen = ref(false);
+const tagSearchQuery = ref('');
+
+// Lista de Tags Processada (Filtrada pela pesquisa e Ordenada)
+const displayTags = computed(() => {
+    let tags = mediaStore.allTags || [];
+
+    // 1. Filtra as tags se o usuário estiver digitando na pesquisa
+    if (tagSearchQuery.value) {
+        const q = tagSearchQuery.value.toLowerCase();
+        tags = tags.filter(tag => tag.toLowerCase().includes(q));
+    }
+
+    // 2. Ordena garantindo que a TAG ATIVA seja SEMPRE a primeira do array (índice 0)
+    return [...tags].sort((a, b) => {
+        if (a === selectedTag.value) return -1;
+        if (b === selectedTag.value) return 1;
+        return a.localeCompare(b); // Ordena o resto em ordem alfabética
+    });
+});
+
+// Ação de Selecionar / Deselecionar Tag
+const toggleSelectTag = (tag: string) => {
+    if (selectedTag.value === tag) {
+        selectedTag.value = null; // Clicou na mesma tag? Remove o filtro.
+    } else {
+        selectedTag.value = tag;
+        // Ao selecionar, fecha a barra de pesquisa automaticamente
+        isSearchOpen.value = false;
+        tagSearchQuery.value = '';
+    }
+};
+
+// Captura o Tab e o Enter na Pesquisa
+const handleSearchKeydown = (e: KeyboardEvent) => {
+    if ((e.key === 'Enter' || e.key === 'Tab') && displayTags.value.length === 1) {
+        e.preventDefault(); // Impede o Tab de pular para outro botão da tela
+        toggleSelectTag(displayTags.value[0]);
+    } else if (e.key === 'Escape') {
+        isSearchOpen.value = false;
+        tagSearchQuery.value = '';
+    }
+};
+
+// Lista de Mídias (Filtrada e com o item Selecionado sempre fixado no topo)
+const displayThemeFiles = computed(() => {
+    // Verifica qual é a URL da mídia atualmente selecionada no tema
+    const selectedMediaUrl = store.design.bgType === 'saved' ? store.design.bgMedia : null;
+
+    // 1. Isola o arquivo selecionado (se existir)
+    const selectedFile = mediaStore.themeFiles.find(f => f.url === selectedMediaUrl);
+
+    // 2. Separa os outros arquivos para aplicar o filtro
+    let otherFiles = mediaStore.themeFiles.filter(f => f.url !== selectedMediaUrl);
+
+    // 3. Aplica o filtro de tags apenas nos outros arquivos
+    if (selectedTag.value) {
+        otherFiles = otherFiles.filter(file => {
+            const fileTags = mediaStore.tagsByFiles[file.id];
+            // Como você corrigiu para Array de Strings, usamos o .includes direto!
+            return fileTags && fileTags.includes(selectedTag.value!);
+        });
+    }
+
+    // 4. Junta tudo: O selecionado SEMPRE em primeiro, seguido do resto filtrado
+    return selectedFile ? [selectedFile, ...otherFiles] : otherFiles;
 });
 </script>
 
@@ -52,15 +121,13 @@ const isCustomColor = computed(() => {
             <div class="d-flex gap-2 mb-6">
                 <v-tooltip text="Fundo Preto" location="bottom">
                     <template v-slot:activator="{ props }">
-                        <v-card 
-                            v-bind="props" 
-                            width="60" height="60" color="#000000"
+                        <v-card v-bind="props" width="60" height="60" color="#000000"
                             class="cursor-pointer transition-all"
                             :class="[store.design.bgType === 'color' && store.design.bgColor === '#000000' ? 'selected-item' : 'border']"
-                            @click="selectColor('#000000')"
-                        >
+                            @click="selectColor('#000000')">
                             <div class="w-100 h-100 d-flex align-center justify-center">
-                                <v-icon v-if="store.design.bgType === 'color' && store.design.bgColor === '#000000'" color="white" size="small">mdi-check</v-icon>
+                                <v-icon v-if="store.design.bgType === 'color' && store.design.bgColor === '#000000'"
+                                    color="white" size="small">mdi-check</v-icon>
                             </div>
                         </v-card>
                     </template>
@@ -68,15 +135,13 @@ const isCustomColor = computed(() => {
 
                 <v-tooltip text="Fundo Branco" location="bottom">
                     <template v-slot:activator="{ props }">
-                        <v-card 
-                            v-bind="props" 
-                            width="60" height="60" color="#FFFFFF"
+                        <v-card v-bind="props" width="60" height="60" color="#FFFFFF"
                             class="cursor-pointer transition-all"
                             :class="[store.design.bgType === 'color' && store.design.bgColor === '#FFFFFF' ? 'selected-item' : 'border']"
-                            @click="selectColor('#FFFFFF')"
-                        >
+                            @click="selectColor('#FFFFFF')">
                             <div class="w-100 h-100 d-flex align-center justify-center">
-                                <v-icon v-if="store.design.bgType === 'color' && store.design.bgColor === '#FFFFFF'" color="black" size="small">mdi-check</v-icon>
+                                <v-icon v-if="store.design.bgType === 'color' && store.design.bgColor === '#FFFFFF'"
+                                    color="black" size="small">mdi-check</v-icon>
                             </div>
                         </v-card>
                     </template>
@@ -84,22 +149,15 @@ const isCustomColor = computed(() => {
 
                 <v-tooltip text="Cor Personalizada" location="bottom">
                     <template v-slot:activator="{ props }">
-                        <v-card 
-                            v-bind="props" 
-                            width="60" height="60"
+                        <v-card v-bind="props" width="60" height="60"
                             :color="isCustomColor ? store.design.bgColor : 'surface-variant'"
                             class="cursor-pointer position-relative d-flex align-center justify-center transition-all"
-                            :class="[isCustomColor ? 'selected-item' : 'border']"
-                        >
+                            :class="[isCustomColor ? 'selected-item' : 'border']">
                             <v-icon :color="isCustomColor ? 'white' : 'primary'">mdi-palette</v-icon>
-                            
-                            <input 
-                                type="color" 
-                                v-model="store.design.bgColor" 
+
+                            <input type="color" v-model="store.design.bgColor"
                                 @input="store.design.bgType = 'color'; store.design.bgMedia = ''"
-                                class="position-absolute top-0 left-0 w-100 h-100 cursor-pointer" 
-                                style="opacity: 0;"
-                            >
+                                class="position-absolute top-0 left-0 w-100 h-100 cursor-pointer" style="opacity: 0;">
                         </v-card>
                     </template>
                 </v-tooltip>
@@ -114,49 +172,105 @@ const isCustomColor = computed(() => {
             </v-radio-group>
         </v-col>
 
-        <v-col cols="12" md="8" class="d-flex flex-column">
-            <p class="text-caption font-weight-bold mb-2">Galeria de Mídia</p>
-            
+        <v-col cols="12" md="8" class="d-flex flex-column h-100">
+
+            <div class="d-flex align-center mb-3 w-100 overflow-hidden bg-surface-light rounded-lg pa-1 border"
+                style="min-height: 48px;">
+
+                <div class="d-flex align-center flex-shrink-0 px-2 text-caption font-weight-bold text-medium-emphasis">
+                    <v-icon size="small" class="mr-1">mdi-image-multiple</v-icon>
+                    Galeria
+                </div>
+
+                <div class="d-flex align-center mx-2" style="height: 100%;">
+                    <v-divider vertical style="opacity: 0.4; border-width: 1.5px; height: 24px;"></v-divider>
+                </div>
+
+                <v-expand-x-transition>
+                    <v-text-field v-if="isSearchOpen" v-model="tagSearchQuery" autofocus density="compact"
+                        variant="solo" flat hide-details placeholder="Pesquisar..." prepend-inner-icon="mdi-magnify"
+                        @keydown="handleSearchKeydown" @blur="!tagSearchQuery && (isSearchOpen = false)"
+                        class="flex-shrink-0 mx-2 search-pill border" rounded="pill" bg-color="surface"
+                        style="max-width: 180px;">
+                        <template v-slot:append-inner v-if="displayTags.length === 1 && tagSearchQuery">
+                            <v-fade-transition>
+                                <v-chip size="x-small" color="primary" variant="tonal" class="ml-1 font-weight-bold"
+                                    style="height: 20px;">Enter</v-chip>
+                            </v-fade-transition>
+                        </template>
+                    </v-text-field>
+
+                    <v-btn v-else icon="mdi-magnify" variant="text" size="small" color="medium-emphasis"
+                        class="flex-shrink-0 mx-1" @click="isSearchOpen = true"></v-btn>
+                </v-expand-x-transition>
+
+                <div class="d-flex align-center overflow-x-auto hide-scrollbar gap-2 flex-grow-1 px-1 py-1"
+                    style="scroll-behavior: smooth;">
+                    <v-chip v-for="tag in displayTags" :key="tag" :color="selectedTag === tag ? 'primary' : 'surface'"
+                        :variant="selectedTag === tag ? 'flat' : 'elevated'" elevation="1"
+                        class="cursor-pointer font-weight-medium flex-shrink-0 transition-all" size="small"
+                        @click="toggleSelectTag(tag)">
+                        <v-icon start size="x-small" v-if="selectedTag === tag">mdi-check-circle</v-icon>
+                        {{ tag }}
+                    </v-chip>
+
+                    <div v-if="displayTags.length === 0" class="text-caption text-medium-emphasis mx-2 font-italic">
+                        Nenhuma tag encontrada
+                    </div>
+                </div>
+
+                <v-scale-transition>
+                    <v-btn v-if="selectedTag" icon="mdi-close" variant="text" size="x-small" color="error"
+                        class="flex-shrink-0 ml-1 mr-1" title="Limpar Filtro" @click="selectedTag = null"></v-btn>
+                </v-scale-transition>
+            </div>
+
             <div class="d-flex flex-wrap gap-2 overflow-y-auto pb-2" style="max-height: 100%;">
-                
+
                 <v-tooltip text="Usar imagem ou vídeo externo" location="top">
                     <template v-slot:activator="{ props }">
-                        <v-card 
-                            v-bind="props"
-                            width="100" height="70" color="surface-variant" 
-                            class="d-flex flex-column align-center justify-center cursor-pointer transition-all" 
-                            :class="[store.design.bgType === 'upload' ? 'selected-item' : 'border']"
-                            @click="fileInput?.click()"
-                        >
-                            <v-icon>mdi-upload</v-icon>
-                            <input type="file" ref="fileInput" class="d-none" accept="image/*,video/*" @change="handleFileUpload">
+                        <v-card v-bind="props" width="100" height="70" color="surface-light"
+                            class="d-flex flex-column align-center justify-center cursor-pointer transition-all border-dashed"
+                            :class="[store.design.bgType === 'upload' ? 'selected-item' : '']"
+                            @click="fileInput?.click()">
+                            <v-icon color="medium-emphasis">mdi-upload</v-icon>
+                            <input type="file" ref="fileInput" class="d-none" accept="image/*,video/*"
+                                @change="handleFileUpload">
                         </v-card>
                     </template>
                 </v-tooltip>
 
-                <v-card v-if="mediaStore.isLoading" width="100" height="70" class="d-flex align-center justify-center bg-grey-lighten-3 border">
+                <v-card v-if="mediaStore.isLoading" width="100" height="70"
+                    class="d-flex align-center justify-center bg-surface-variant border">
                     <v-progress-circular indeterminate size="24" color="primary"></v-progress-circular>
                 </v-card>
 
-                <v-card 
-                    v-for="file in mediaStore.themeFiles" 
-                    :key="file.id" 
-                    width="100" height="70" 
-                    class="cursor-pointer position-relative overflow-hidden transition-all" 
+                <v-card v-for="file in displayThemeFiles" :key="file.id" width="100" height="70"
+                    class="cursor-pointer position-relative overflow-hidden transition-all"
                     :class="[store.design.bgType === 'saved' && store.design.bgMedia === file.url ? 'selected-item' : 'border']"
-                    @click="selectLocalMedia(file)"
-                >
-                    <video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted preload="metadata"></video>
+                    @click="selectLocalMedia(file)">
+                    <video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="`${file.url}#t=0.5`"
+                        class="w-100 h-100 object-cover" muted preload="metadata"></video>
                     <v-img v-else :src="file.url" cover height="100%"></v-img>
 
-                    <div v-if="file.isVideo" class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center" style="background: rgba(0,0,0,0.3);">
+                    <div v-if="file.isVideo"
+                        class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center"
+                        style="background: rgba(0,0,0,0.3);">
                         <v-icon color="white" size="small">mdi-video</v-icon>
                     </div>
 
-                    <div v-if="store.design.bgType === 'saved' && store.design.bgMedia === file.url" class="position-absolute top-0 right-0 ma-1 bg-primary rounded-circle d-flex align-center justify-center" style="width: 18px; height: 18px; z-index: 10;">
+                    <div v-if="store.design.bgType === 'saved' && store.design.bgMedia === file.url"
+                        class="position-absolute top-0 right-0 ma-1 bg-primary rounded-circle d-flex align-center justify-center"
+                        style="width: 18px; height: 18px; z-index: 10;">
                         <v-icon color="white" size="10">mdi-check</v-icon>
                     </div>
                 </v-card>
+
+                <div v-if="displayThemeFiles.length === 0 && !mediaStore.isLoading"
+                    class="w-100 d-flex flex-column align-center justify-center py-4 opacity-60">
+                    <v-icon size="large" class="mb-2">mdi-image-search-outline</v-icon>
+                    <span class="text-caption">Nenhuma mídia encontrada com esta tag.</span>
+                </div>
 
             </div>
         </v-col>
@@ -164,12 +278,14 @@ const isCustomColor = computed(() => {
 </template>
 
 <style scoped>
-.gap-2 { 
-    gap: 8px; 
+.gap-2 {
+    gap: 8px;
 }
+
 .object-cover {
     object-fit: cover;
 }
+
 .transition-all {
     transition: all 0.2s ease-in-out;
 }
@@ -177,8 +293,26 @@ const isCustomColor = computed(() => {
 /* Nova classe de Borda Indicativa */
 .selected-item {
     outline: 3px solid rgb(var(--v-theme-primary));
-    outline-offset: -3px; /* Joga a borda para dentro do card, evitando quebra do layout Flex */
-    transform: scale(0.95); /* Dá um pequeno efeito de rebaixamento */
+    outline-offset: -3px;
+    /* Joga a borda para dentro do card, evitando quebra do layout Flex */
+    transform: scale(0.95);
+    /* Dá um pequeno efeito de rebaixamento */
     box-shadow: 0 4px 8px rgba(var(--v-theme-primary), 0.3) !important;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.hide-scrollbar {
+    -ms-overflow-style: none;
+    /* IE e Edge */
+    scrollbar-width: none;
+    /* Firefox */
+}
+
+/* Deixa o botão de upload com aparência de área de drop/ação */
+.border-dashed {
+    border: 1px dashed rgba(var(--v-theme-on-surface), 0.3) !important;
 }
 </style>

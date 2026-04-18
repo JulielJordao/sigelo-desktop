@@ -124,8 +124,6 @@ export const useSongCacheStore = defineStore('songCache', () => {
         } else {
             listSongGroups.value.push(songGroups);
         }
-
-        await saveInfo(listSongGroups.value);
     }
 
     const getCacheLyrics = async (songGroupId: string) => {
