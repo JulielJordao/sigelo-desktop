@@ -7,6 +7,7 @@ mod state;
 mod youtube;
 mod pdf;
 mod offline;
+mod notice;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -70,6 +71,9 @@ pub fn run() {
             crate::youtube::youtube::open_youtube_cache_folder,
             crate::pdf::generate_pdf::generate_pdf,
             crate::offline::lyrics::get_offline_lyrics_safe,
+            crate::notice::notice::save_notice_settings,
+            crate::notice::notice::load_notice_settings,
+            crate::notice::notice::sync_notice_playback,
             is_online
         ])
         .on_window_event(|window, event| {

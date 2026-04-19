@@ -73,6 +73,9 @@
         },
         {
           "event": "open-bible"
+        },
+        {
+          "event": "sync-notice-playback"
         }
       ]
     },
@@ -99,6 +102,15 @@
         },
         {
           "event": "open-bible"
+        }, 
+        {
+          "event": "sync-notice-playback"
+        },
+        {
+          "event": "update-notice-settings"
+        },
+        {
+          "event": "save-notice-settings"
         }
       ]
     },
