@@ -67,7 +67,11 @@ const getBookChapters = (abbr: string) => {
   return book?.chapters ?? ""
 }
 
-const onSearchEnter = () => { if (filteredBooks.value.length === 1) selectBook(filteredBooks.value[0]); };
+const onSearchEnter = () => { if (
+  filteredBooks.value.length === 1) 
+  selectBook(filteredBooks.value[0]); 
+  menuStore.setShiftShortcutLocked(false)
+};
 
 const totalVersesInChapter = computed(() => {
   if (!selectedBook.value) return 1;
