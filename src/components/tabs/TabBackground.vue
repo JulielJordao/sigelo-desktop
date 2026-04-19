@@ -1,18 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch, onUpdated, onUnmounted } from 'vue';
 import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMediaStore, type MediaFile } from '../../stores/mediaStore';
+import { useMenuStore } from "../../stores/menuStore";
 
+const menuStore = useMenuStore()
 const store = usePresentationStore();
 const mediaStore = useMediaStore();
+const scrollContainer = ref<HTMLDivElement | null>(null)
+let resizeObserver: ResizeObserver | null = null;
 
 const fileInput = ref<HTMLInputElement | null>(null);
 
-onMounted(() => {
-    if (mediaStore.themeFiles?.length === 0) {
-        mediaStore.loadMedia();
-    }
-});
 
 // --- SELEÇÃO DE MÍDIA ---
 const selectLocalMedia = (file: MediaFile) => {
@@ -112,6 +111,61 @@ const displayThemeFiles = computed(() => {
     // 4. Junta tudo: O selecionado SEMPRE em primeiro, seguido do resto filtrado
     return selectedFile ? [selectedFile, ...otherFiles] : otherFiles;
 });
+
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+
+const checkScroll = () => {
+    if (!scrollContainer.value) return
+    const { scrollLeft, scrollWidth, clientWidth } = scrollContainer.value
+
+    // Mostra seta esquerda se rolou mais de 1px
+    canScrollLeft.value = scrollLeft > 1
+    // Mostra seta direita se ainda há espaço para rolar
+    canScrollRight.value = Math.ceil(scrollLeft + clientWidth) < scrollWidth - 1
+}
+
+const scroll = (amount: number) => {
+    if (scrollContainer.value) {
+        scrollContainer.value.scrollLeft += amount
+        setTimeout(checkScroll, 300) // Verifica após a animação suave
+    }
+}
+
+onMounted(() => {
+    if (mediaStore.themeFiles?.length === 0) {
+        mediaStore.loadMedia();
+    }
+
+    checkScroll(); // Checa na primeira montagem
+
+    if (scrollContainer.value) {
+        resizeObserver = new ResizeObserver(() => {
+            // Envolvemos a checagem no requestAnimationFrame
+            window.requestAnimationFrame(() => {
+                checkScroll();
+            });
+        });
+        resizeObserver.observe(scrollContainer.value);
+    }
+});
+
+onUnmounted(() => {
+    // É importante limpar o observador quando sair da tela para não pesar a memória
+    if (resizeObserver) {
+        resizeObserver.disconnect();
+    }
+});
+
+onUpdated(checkScroll)
+
+watch(() => [displayTags.value, isSearchOpen.value, selectedTag.value], () => {
+    setTimeout(checkScroll, 100) // Pequeno delay para o DOM renderizar
+}, { deep: true })
+
+watch(isSearchOpen, () => {
+    menuStore.setShiftShortcutLocked(isSearchOpen.value)
+})
 </script>
 
 <template>
@@ -182,48 +236,82 @@ const displayThemeFiles = computed(() => {
                     Galeria
                 </div>
 
-                <div class="d-flex align-center mx-2" style="height: 100%;">
+                <div class="d-flex align-center mx-1" style="height: 100%;">
                     <v-divider vertical style="opacity: 0.4; border-width: 1.5px; height: 24px;"></v-divider>
                 </div>
 
                 <v-expand-x-transition>
-                    <v-text-field v-if="isSearchOpen" v-model="tagSearchQuery" autofocus density="compact"
-                        variant="solo" flat hide-details placeholder="Pesquisar..." prepend-inner-icon="mdi-magnify"
-                        @keydown="handleSearchKeydown" @blur="!tagSearchQuery && (isSearchOpen = false)"
-                        class="flex-shrink-0 mx-2 search-pill border" rounded="pill" bg-color="surface"
-                        style="max-width: 180px;">
-                        <template v-slot:append-inner v-if="displayTags.length === 1 && tagSearchQuery">
-                            <v-fade-transition>
-                                <v-chip size="x-small" color="primary" variant="tonal" class="ml-1 font-weight-bold"
-                                    style="height: 20px;">Enter</v-chip>
-                            </v-fade-transition>
-                        </template>
-                    </v-text-field>
+                    <div class="d-flex align-center flex-shrink-0 px-1">
+                        <v-text-field v-if="isSearchOpen" v-model="tagSearchQuery" autofocus density="compact"
+                            variant="solo" flat hide-details placeholder="Pesquisar..." prepend-inner-icon="mdi-magnify"
+                            @keydown="handleSearchKeydown" @blur="!tagSearchQuery && (isSearchOpen = false);"
+                            class="search-pill border align-center" rounded="pill" bg-color="surface"
+                            style="width: 180px;">
+                            <template v-slot:append-inner v-if="displayTags.length === 1 && tagSearchQuery">
+                                <v-fade-transition>
+                                    <v-chip size="x-small" color="primary" variant="tonal" class="ml-1 font-weight-bold"
+                                        style="height: 20px;">Enter</v-chip>
+                                </v-fade-transition>
+                            </template>
+                        </v-text-field>
 
-                    <v-btn v-else icon="mdi-magnify" variant="text" size="small" color="medium-emphasis"
-                        class="flex-shrink-0 mx-1" @click="isSearchOpen = true"></v-btn>
+                        <v-btn v-else icon="mdi-magnify" variant="text" size="small" color="medium-emphasis"
+                            @click="isSearchOpen = true"></v-btn>
+                    </div>
                 </v-expand-x-transition>
 
-                <div class="d-flex align-center overflow-x-auto hide-scrollbar gap-2 flex-grow-1 px-1 py-1"
-                    style="scroll-behavior: smooth;">
-                    <v-chip v-for="tag in displayTags" :key="tag" :color="selectedTag === tag ? 'primary' : 'surface'"
-                        :variant="selectedTag === tag ? 'flat' : 'elevated'" elevation="1"
-                        class="cursor-pointer font-weight-medium flex-shrink-0 transition-all" size="small"
-                        @click="toggleSelectTag(tag)">
-                        <v-icon start size="x-small" v-if="selectedTag === tag">mdi-check-circle</v-icon>
-                        {{ tag }}
-                    </v-chip>
+                <div class="d-flex align-center mx-1" style="height: 100%;">
+                    <v-divider vertical style="opacity: 0.4; border-width: 1.5px; height: 24px;"></v-divider>
+                </div>
 
-                    <div v-if="displayTags.length === 0" class="text-caption text-medium-emphasis mx-2 font-italic">
-                        Nenhuma tag encontrada
+                <v-expand-x-transition>
+                    <div v-if="selectedTag" class="d-flex align-center flex-shrink-0 pr-1">
+                        <v-chip color="primary" variant="flat" elevation="1" class="font-weight-medium mx-1"
+                            size="small" @click="selectedTag = null">
+                            <v-icon start size="x-small">mdi-check-circle</v-icon>
+                            {{ selectedTag }}
+                        </v-chip>
+
+                        <div class="d-flex align-center ml-1" style="height: 100%;">
+                            <v-divider vertical style="opacity: 0.4; border-width: 1.5px; height: 24px;"></v-divider>
+                        </div>
                     </div>
+                </v-expand-x-transition>
+
+                <div class="d-flex align-center flex-grow-1 overflow-hidden" style="min-width: 0;">
+
+                    <v-btn v-show="canScrollLeft" icon="mdi-chevron-left" variant="text" size="small"
+                        class="flex-shrink-0" @click="scroll(-200)"></v-btn>
+
+                    <div ref="scrollContainer"
+                        class="d-flex align-center overflow-x-auto hide-scrollbar flex-grow-1 px-1"
+                        style="scroll-behavior: smooth; min-height: 32px;" @scroll="checkScroll">
+
+                        <div v-if="displayTags.length === 0" class="text-caption text-medium-emphasis mx-2 font-italic">
+                            Nenhuma tag encontrada
+                        </div>
+
+                        <template v-for="tag in displayTags" :key="tag">
+                            <v-chip v-if="selectedTag !== tag" color="surface" variant="elevated" elevation="1"
+                                class="cursor-pointer font-weight-medium flex-shrink-0 transition-all mx-1" size="small"
+                                @click="toggleSelectTag(tag)">
+                                {{ tag }}
+                            </v-chip>
+                        </template>
+                    </div>
+
+                    <v-btn v-show="canScrollRight" icon="mdi-chevron-right" variant="text" size="small"
+                        class="flex-shrink-0" @click="scroll(200)"></v-btn>
+
                 </div>
 
                 <v-scale-transition>
                     <v-btn v-if="selectedTag" icon="mdi-close" variant="text" size="x-small" color="error"
                         class="flex-shrink-0 ml-1 mr-1" title="Limpar Filtro" @click="selectedTag = null"></v-btn>
                 </v-scale-transition>
+
             </div>
+
 
             <div class="d-flex flex-wrap gap-2 overflow-y-auto pb-2" style="max-height: 100%;">
 
