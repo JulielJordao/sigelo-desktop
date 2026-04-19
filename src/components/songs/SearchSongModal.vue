@@ -24,8 +24,17 @@ const isOpen = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
+const enableEnterKey = computed(() => {
+  const search = searchResults.value
+  if (search.length === 1) {
+    return search[0].songs.length === 1
+  }
+  return false
+})
+
 // A mágica acontece aqui: reage em tempo real à digitação
 const searchResults = computed(() => {
+  if (!searchQuery.value) return []
   // Se o campo estiver vazio, não mostra nada
   if (!searchQuery.value.toLowerCase() || searchQuery.value.trim().toLowerCase() === '') {
     return []
@@ -34,12 +43,21 @@ const searchResults = computed(() => {
 })
 
 // Função para quando o usuário clicar em uma música da lista
-const selectSong = (song: any) => { 
+const selectSong = (song: any) => {
   songStore.setSelectedSong(song)
-  
+
   // Limpa a busca e fecha a modal
   searchQuery.value = ''
   isOpen.value = false
+}
+
+const applySong = (e: KeyboardEvent) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    if (enableEnterKey.value) {
+      selectSong(searchResults.value[0].songs[0])
+    }
+  }
 }
 
 watch(isOpen, () => {
@@ -61,49 +79,38 @@ watch(isOpen, () => {
       </v-toolbar>
 
       <v-card-text class="pa-4">
-        <v-text-field
-          v-model="searchQuery"
-          label="Digite o nome da música..."
-          variant="outlined"
-          density="comfortable"
-          hide-details
-          clearable
-          autofocus
-          class="mb-4"
-        ></v-text-field>
+        <v-text-field v-model="searchQuery" label="Digite o nome da música..." variant="outlined" density="comfortable"
+          hide-details clearable @keydown="applySong" autofocus class="mb-4">
+          <template v-slot:append-inner v-if="enableEnterKey">
+            <v-fade-transition>
+              <v-chip size="x-small" color="grey" variant="tonal">Enter</v-chip>
+            </v-fade-transition>
+          </template>
+        </v-text-field>
 
         <v-list v-if="searchResults.length > 0" lines="one" class="border rounded-lg">
           <template v-for="group in searchResults" :key="group.id">
-            
+
             <v-list-subheader class="font-weight-bold text-primary bg-surface-light">
               {{ group.label }}
             </v-list-subheader>
 
-            <v-list-item
-              v-for="song in group.songs"
-              :key="song.id"
-              :title="song.fullName"
-              class="cursor-pointer transition-swing"
-              hover
-              @click="selectSong(song)"
-            >
+            <v-list-item v-for="song in group.songs" :key="song.id" :title="song.fullName"
+              class="cursor-pointer transition-swing" hover @click="selectSong(song)">
               <template v-slot:prepend>
                 <v-icon icon="mdi-music-note-outline" size="small" color="grey"></v-icon>
               </template>
             </v-list-item>
-            
+
             <v-divider></v-divider>
           </template>
         </v-list>
 
-        <div 
-          v-else-if="searchQuery" 
-          class="d-flex flex-column align-center justify-center py-8 text-medium-emphasis"
-        >
+        <div v-else-if="searchQuery" class="d-flex flex-column align-center justify-center py-8 text-medium-emphasis">
           <v-icon icon="mdi-file-search-outline" size="large" class="mb-2"></v-icon>
           <span>Nenhuma música encontrada para "<b>{{ searchQuery }}</b>"</span>
         </div>
-        
+
         <div v-else class="d-flex flex-column align-center justify-center py-8 text-disabled">
           <v-icon icon="mdi-keyboard-outline" size="large" class="mb-2"></v-icon>
           <span>Comece a digitar para buscar...</span>

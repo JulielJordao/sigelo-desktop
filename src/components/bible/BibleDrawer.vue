@@ -8,7 +8,9 @@ import { api } from '../../routes/index'
 import { emit as emitTauri } from '@tauri-apps/api/event'
 import { calculateMaxFontSize, getMaxCharsFromSlides, getMaxLinesFromSlides } from '../../utils/projection';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import { useMenuStore } from "../../stores/menuStore"
 
+const menuStore = useMenuStore()
 const configStore = useConfigStore();
 const statusPresStore = useStatusPresentationStore();
 const emit = defineEmits(['project', 'close']);
@@ -108,9 +110,9 @@ const open = async (reference?: { abbr: string, chapter: number, verses?: string
   isOpen.value = true;
   if (reference) {
     const abbr = reference.abbr
-    selectedBook.value = {name: getBookByAbbr(abbr), abbr:abbr, chapters: getBookChapters(abbr)}
+    selectedBook.value = { name: getBookByAbbr(abbr), abbr: abbr, chapters: getBookChapters(abbr) }
     step.value = 'loading';
-    
+
     if (!reference.verses) {
       selectedBook
       selectedChapter.value = reference.chapter;
@@ -141,7 +143,7 @@ const close = () => {
 const selectBook = (book: any) => { selectedBook.value = book; searchQuery.value = ''; step.value = 'chapter'; };
 const selectChapter = (chapterIndex: number) => { selectedChapter.value = chapterIndex; verseStart.value = 1; verseEnd.value = totalVersesInChapter.value; step.value = 'verse'; };
 const confirmVerses = () => {
- // let versesStr = verseStart.value === verseEnd.value ? `${verseStart.value}` : `${verseStart.value}-${verseEnd.value}`;
+  // let versesStr = verseStart.value === verseEnd.value ? `${verseStart.value}` : `${verseStart.value}-${verseEnd.value}`;
   fetchBibleText(selectedBook.value.abbr, false);
 };
 const selectWholeChapter = () => fetchBibleText(selectedBook.value.abbr, true);
@@ -333,6 +335,14 @@ watch(maxBibleFontSize, (newMax) => {
 });
 
 defineExpose({ open, close });
+
+const handleBlur = () => {
+  menuStore.setShiftShortcutLocked(false)
+}
+
+const handleFocus = () => {
+  menuStore.setShiftShortcutLocked(true)
+}
 </script>
 
 <template>
@@ -353,9 +363,11 @@ defineExpose({ open, close });
       <div class="flex-grow-1 overflow-hidden">
 
         <div v-if="step === 'book'" class="d-flex flex-column h-100 pa-4">
-          <v-text-field v-model="searchQuery" @keyup.enter="onSearchEnter" prepend-inner-icon="mdi-magnify"
-            label="Buscar livro (ex: Gn, Mateus)..." variant="outlined" density="compact" color="primary" hide-details
-            class="mb-4 flex-shrink-0" autofocus></v-text-field>
+          <div class="max-h-10">
+            <v-text-field v-model="searchQuery" @keyup.enter="onSearchEnter" prepend-inner-icon="mdi-magnify"
+              label="Buscar livro (ex: Gn, Mateus)..." variant="outlined" density="compact" color="primary" hide-details
+              class="mb-4 " autofocus @focus="handleFocus" @blur="handleBlur"></v-text-field>
+          </div>
           <v-list density="compact" class="pa-0 overflow-y-auto flex-grow-1">
             <v-list-item v-for="book in filteredBooks" :key="book.abbr" :title="book.name"
               append-icon="mdi-chevron-right" @click="selectBook(book)" class="border-b"></v-list-item>
@@ -401,14 +413,16 @@ defineExpose({ open, close });
           <v-progress-circular indeterminate color="primary"></v-progress-circular>
         </div>
 
-        <div v-else-if="(step === 'view' || step === 'projecting' && statusPresStore.status.isPresentation !== 'Biblia') && fetchedData" class="d-flex flex-column h-100">
+        <div
+          v-else-if="(step === 'view' || step === 'projecting' && statusPresStore.status.isPresentation !== 'Biblia') && fetchedData"
+          class="d-flex flex-column h-100">
 
           <div class="flex-shrink-0 px-4 pt-4">
             <div class="d-flex align-center justify-space-between mb-2">
               <div class="d-flex align-center">
                 <v-btn icon="mdi-arrow-left" variant="text" size="small" class="mr-1" @click="step = 'verse'"></v-btn>
                 <span class="text-h6 font-weight-bold text-primary">{{ fetchedData.book }} {{ fetchedData.chapter
-                }}</span>
+                  }}</span>
               </div>
 
               <v-tooltip text="Nova Busca" location="bottom">
@@ -481,16 +495,17 @@ defineExpose({ open, close });
 
         </div>
 
-        <div v-else-if="step === 'projecting' && statusPresStore.status.isPresentation === 'Biblia'" class="d-flex flex-column h-100 pa-4">
+        <div v-else-if="step === 'projecting' && statusPresStore.status.isPresentation === 'Biblia'"
+          class="d-flex flex-column h-100 pa-4">
 
           <v-card color="surface-variant" variant="outlined"
             class="pa-3 mb-4 text-center border-primary border-opacity-100 flex-shrink-0"
             style="border-width: 2px !important;">
             <div class="text-caption text-primary font-weight-bold text-uppercase mb-1">Slide {{ currentSlideIndex + 1
-            }} de {{
+              }} de {{
                 bibleSlides.length }}</div>
             <div class="text-subtitle-1 font-weight-medium text-truncate">{{ bibleSlides[currentSlideIndex]?.reference
-            }}</div>
+              }}</div>
           </v-card>
 
           <v-card
@@ -519,7 +534,8 @@ defineExpose({ open, close });
             <v-btn block color="error" variant="flat" prepend-icon="mdi-stop" @click="stopProjection">
               Parar Apresentação
             </v-btn>
-            <span class="text-caption text-primary-variant mt-2 d-inline-block">(Use ← e → para navegar, Esc para sair)</span>
+            <span class="text-caption text-primary-variant mt-2 d-inline-block">(Use ← e → para navegar, Esc para
+              sair)</span>
           </div>
         </div>
 

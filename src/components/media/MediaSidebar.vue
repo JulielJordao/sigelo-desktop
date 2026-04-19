@@ -266,6 +266,14 @@ watch(editName, (value) => {
   menuStore.setShiftShortcutLocked(isEditing)
 })
 
+const handleBlur = () => {
+  menuStore.setShiftShortcutLocked(false)
+}
+
+const handleFocus = () => {
+  menuStore.setShiftShortcutLocked(true)
+}
+
 </script>
 
 <template>
@@ -310,7 +318,9 @@ watch(editName, (value) => {
 
         <div class="px-3 pb-3">
           <v-text-field v-model="searchQuery" density="compact" variant="solo-filled" flat hide-details
-            placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2"></v-text-field>
+            placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2"
+            @focus="handleFocus"
+            @blur="handleBlur"></v-text-field>
           <div class="d-flex align-center gap-2">
             <v-btn-toggle v-model="activeFilter" color="primary" mandatory density="compact" variant="outlined"
               class="flex-grow-1">

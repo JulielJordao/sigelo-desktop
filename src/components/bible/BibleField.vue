@@ -86,7 +86,7 @@ watch(input, (newVal) => {
   // 3. LOGICA DE PONTUAÇÃO E INTERVALO (Mc 3 -> Mc 3:2-7)
   if (selectedBook.value) {
     //const bookAbbr = selectedBook.value.abbr;
-    
+
     // CASO A: Mc 3 + Espaço -> Mc 3:
     if (stage.value === 'chapter' && newVal.endsWith(' ')) {
       const parts = newVal.trim().split(' ');
@@ -104,7 +104,7 @@ watch(input, (newVal) => {
     // CASO B: Detecção de Versículos e Hífen (Intervalos)
     // Regex para capturar padrões como ":2", ":2-", ":2-7"
     const verseMatch = newVal.match(/:(\d+)(-(\d+)?)?$/);
-    
+
     if (verseMatch) {
       const vStart = parseInt(verseMatch[1]);
       const hasHyphen = newVal.includes('-');
@@ -113,7 +113,7 @@ watch(input, (newVal) => {
       // Valida e define o Versículo Inicial
       if (vStart > 0 && vStart <= maxVerse.value) {
         verseStart.value = vStart;
-        
+
         if (hasHyphen) {
           stage.value = 'verseEnd';
           // Se houver um número após o hífen, valida como Versículo Final
@@ -137,7 +137,7 @@ function selectBook(book: BibleBook) {
   selectedBook.value = book
   stage.value = "chapter"
   input.value = book.abbr + " "
-  inputRef.value?.focus() 
+  inputRef.value?.focus()
 }
 
 function selectChapter(chapter: number) {
@@ -172,9 +172,9 @@ function confirmReference() {
   }
 
   if (props.single) {
-    references.value = [newRef] 
+    references.value = [newRef]
   } else {
-    references.value.push(newRef) 
+    references.value.push(newRef)
   }
 
   errorMessage.value = ""
@@ -214,12 +214,12 @@ function parseInput(text: string): BibleReference | null {
 
   if (parts.length < 2) return null
 
-  if(parts[0].length == 1 && /[0-9]/.test(parts[0])) {
+  if (parts[0].length == 1 && /[0-9]/.test(parts[0])) {
     parts[0] += ` ${parts[1]}`
     parts.splice(1, 1)
   }
 
-  if(parts[0].toLowerCase() === "salmo") {
+  if (parts[0].toLowerCase() === "salmo") {
     parts[0] = "Salmos"
   }
 
@@ -263,8 +263,8 @@ function addReference(): void {
     errorMessage.value = "Referência inválida"
     return
   }
-  
-  stage.value = "book" 
+
+  stage.value = "book"
 
   if (props.single) {
     references.value = [parsed]
@@ -321,23 +321,23 @@ function handleKey(e: KeyboardEvent): void {
     return
   }
 
-    if (e.key === "Enter") {
-        e.preventDefault();
+  if (e.key === "Enter") {
+    e.preventDefault();
 
-        // Se o usuário digitou algo como "Mc 3:2-7" e deu Enter
-        if (selectedBook.value && selectedChapter.value && verseStart.value) {
-        // O confirmReference já usa verseStart e verseEnd que o watch atualizou
-        confirmReference();
-        return;
-        }
+    // Se o usuário digitou algo como "Mc 3:2-7" e deu Enter
+    if (selectedBook.value && selectedChapter.value && verseStart.value) {
+      // O confirmReference já usa verseStart e verseEnd que o watch atualizou
+      confirmReference();
+      return;
+    }
 
-        // Autocomplete de livro se houver apenas um na lista
-        if (showSelector.value && stage.value === "book" && filteredBooks.value.length === 1) {
-        selectBook(filteredBooks.value[0]);
-        return;
-        }
+    // Autocomplete de livro se houver apenas um na lista
+    if (showSelector.value && stage.value === "book" && filteredBooks.value.length === 1) {
+      selectBook(filteredBooks.value[0]);
+      return;
+    }
 
-        addReference();
+    addReference();
   }
 
   if (e.key === "ArrowLeft" && inputRef.value?.selectionStart === 0 && references.value.length > 0) {
@@ -355,7 +355,7 @@ function clearSelection() {
   if (selectedChip.value !== null) selectedChip.value = null
 }
 
-const containerRef = ref<HTMLElement | null>(null)
+// const containerRef = ref<HTMLElement | null>(null)
 
 function handleBlur() {
   isFocused.value = false
@@ -387,139 +387,87 @@ function cycleDisplayMode() {
 
 <template>
   <div ref="containerRef" class="w-100 position-relative">
-    
-    <v-text-field
-      ref="inputRef"
-      v-model="input"
-      :label="references.length === 0 ? (label || 'Referência Bíblica') : ''"
-      variant="outlined"
-      color="primary"
-      bg-color="surface"
-      :error="error"
-      :error-messages="error ? errorMessage : ''"
-      autofocus
-      hide-details="auto"
-      class="text-body-1 font-weight-medium"
-      @focus="isFocused = true; showSelector = true; error = false"
-      @blur="handleBlur"
-      @keydown="handleKey"
-      @input="clearSelection"
-    >
+
+    <v-text-field ref="inputRef" v-model="input" :label="references.length === 0 ? (label || 'Referência Bíblica') : ''"
+      variant="outlined" color="primary" bg-color="surface" :error="error" :error-messages="error ? errorMessage : ''"
+      autofocus hide-details="auto" class="text-body-1 font-weight-medium"
+      @focus="isFocused = true; showSelector = true; error = false" @blur="handleBlur" @keydown="handleKey"
+      @input="clearSelection">
       <template v-slot:prepend-inner v-if="references.length > 0">
-        <v-chip
-          v-for="(r, i) in references"
-          :key="i"
-          closable
-          size="small"
+        <v-chip v-for="(r, i) in references" :key="i" closable size="small"
           :color="selectedChip === i ? 'primary' : 'surface-variant'"
-          :variant="selectedChip === i ? 'flat' : 'elevated'"
-          elevation="1"
-          class="font-weight-bold mr-2 my-1 transition-all"
-          @click.stop="selectedChip = i"
-          @click:close="references.splice(i, 1); emit('update:modelValue', references); selectedChip = null"
-        >
+          :variant="selectedChip === i ? 'flat' : 'elevated'" elevation="1"
+          class="font-weight-bold mr-2 my-1 transition-all" @click.stop="selectedChip = i"
+          @click:close="references.splice(i, 1); emit('update:modelValue', references); selectedChip = null">
           {{ formatRef(r) }}
         </v-chip>
       </template>
     </v-text-field>
 
     <v-expand-transition>
-      <v-card 
-        v-if="showSelector"
-        elevation="0" 
-        class="w-100 mt-2 rounded-lg border bg-surface"
-        style="display: flex; flex-direction: column;"
-      >
+      <v-card v-if="showSelector" elevation="0" class="w-100 mt-2 rounded-lg border bg-surface"
+        style="display: flex; flex-direction: column;">
         <div class="d-flex align-center justify-space-between pa-2 border-b bg-surface-light flex-shrink-0">
           <div>
-            <v-btn 
-              v-if="stage !== 'book'" 
-              variant="text" 
-              size="small" 
-              color="primary" 
-              prepend-icon="mdi-arrow-left"
-              @mousedown.prevent="goBack"
-            >
+            <v-btn v-if="stage !== 'book'" variant="text" size="small" color="primary" prepend-icon="mdi-arrow-left"
+              @mousedown.prevent="goBack">
               Voltar
             </v-btn>
           </div>
-          
+
           <v-chip v-if="stage !== 'book'" size="small" variant="tonal" class="font-weight-medium">
             {{ currentSelectionText }}
           </v-chip>
 
-          <v-btn 
-            v-if="stage === 'book'" 
-            icon="mdi-view-grid-outline" 
-            variant="text" 
-            size="small" 
-            color="medium-emphasis"
-            class="ml-auto"
-            title="Mudar visualização"
-            @mousedown.prevent="cycleDisplayMode"
-          ></v-btn>
+          <v-btn v-if="stage === 'book'" icon="mdi-view-grid-outline" variant="text" size="small"
+            color="medium-emphasis" class="ml-auto" title="Mudar visualização"
+            @mousedown.prevent="cycleDisplayMode"></v-btn>
         </div>
 
-        <div class="px-3 pt-2 pb-1 text-caption font-weight-bold text-medium-emphasis text-uppercase tracking-wider flex-shrink-0">
-          {{ stage === 'book' ? 'Selecione o Livro' : stage === 'chapter' ? 'Selecione o Capítulo' : stage === 'verseStart' ? 'Versículo Inicial' : 'Versículo Final (Opcional)' }}
+        <div
+          class="px-3 pt-2 pb-1 text-caption font-weight-bold text-medium-emphasis text-uppercase tracking-wider flex-shrink-0">
+          {{ stage === 'book' ? 'Selecione o Livro' : stage === 'chapter' ? 'Selecione o Capítulo' : stage ===
+            'verseStart'
+            ? 'Versículo Inicial' : 'Versículo Final (Opcional)' }}
         </div>
 
         <div class="pa-3 overflow-y-auto flex-grow-1 custom-scrollbar" style="max-height: 380px;">
 
           <div v-if="stage === 'book'" class="bible-grid book-grid">
-            <v-card
-              v-for="book in filteredBooks" 
-              :key="book.abbr"
-              hover
-              ripple
-              variant="tonal"
-              color="primary"
-              class="d-flex flex-column align-center justify-center transition-all px-1"
-              style="aspect-ratio: 5/4;" 
-              @mousedown.prevent="selectBook(book)"
-            >
+            <v-card v-for="book in filteredBooks" :key="book.abbr" hover ripple variant="tonal" color="primary"
+              class="d-flex flex-column align-center justify-center transition-all px-1" style="aspect-ratio: 5/4;"
+              @mousedown.prevent="selectBook(book)">
               <span v-if="bookDisplayMode === 'abbr'" class="text-h6 font-weight-bold">{{ book.abbr }}</span>
-              
-              <span v-if="bookDisplayMode === 'full'" class="text-caption font-weight-bold text-center" style="line-height: 1.1; word-break: break-word;">{{ book.name }}</span>
-              
+
+              <span v-if="bookDisplayMode === 'full'" class="text-caption font-weight-bold text-center"
+                style="line-height: 1.1; word-break: break-word;">{{ book.name }}</span>
+
               <template v-if="bookDisplayMode === 'both'">
                 <span class="text-subtitle-1 font-weight-bold mb-1">{{ book.abbr }}</span>
-                <span class="text-[10px] text-uppercase text-center w-100" style="opacity: 0.7; line-height: 1.1; word-break: break-word;">{{ book.name }}</span>
+                <span class="text-[10px] text-uppercase text-center w-100"
+                  style="opacity: 0.7; line-height: 1.1; word-break: break-word;">{{ book.name }}</span>
               </template>
             </v-card>
           </div>
 
           <div v-if="stage === 'chapter'" class="bible-grid number-grid">
-            <v-card
-              v-for="(_, i) in selectedBook?.chapters" 
-              :key="i"
-              hover
-              ripple
-              variant="outlined"
-              class="d-flex align-center justify-center text-subtitle-1 font-weight-bold"
-              style="aspect-ratio: 1/1;"
-              @mousedown.prevent="selectChapter(i + 1)"
-            >
+            <v-card v-for="(_, i) in selectedBook?.chapters" :key="i" hover ripple variant="outlined"
+              class="d-flex align-center justify-center text-subtitle-1 font-weight-bold" style="aspect-ratio: 1/1;"
+              @mousedown.prevent="selectChapter(i + 1)">
               {{ i + 1 }}
             </v-card>
           </div>
 
-        <div v-if="stage === 'verseStart' || stage === 'verseEnd'" class="bible-grid number-grid">
-            <v-card
-                v-for="n in maxVerse" 
-                :key="n"
-                hover
-                ripple
-                :color="(n === verseStart || n === verseEnd) ? 'primary' : (verseEnd && n > (verseStart || 0) && n < verseEnd ? 'primary' : undefined)"
-                :variant="(n === verseStart || n === verseEnd) ? 'flat' : (verseEnd && n > (verseStart || 0) && n < verseEnd ? 'tonal' : 'outlined')"
-                class="d-flex align-center justify-center text-subtitle-2 font-weight-bold transition-all"
-                :class="{ 'opacity-40': verseStart && n < verseStart && !verseEnd }"
-                style="aspect-ratio: 1/1;"
-                @mousedown.prevent="handleVerseClick(n)"
-            >
-                {{ n }}
+          <div v-if="stage === 'verseStart' || stage === 'verseEnd'" class="bible-grid number-grid">
+            <v-card v-for="n in maxVerse" :key="n" hover ripple
+              :color="(n === verseStart || n === verseEnd) ? 'primary' : (verseEnd && n > (verseStart || 0) && n < verseEnd ? 'primary' : undefined)"
+              :variant="(n === verseStart || n === verseEnd) ? 'flat' : (verseEnd && n > (verseStart || 0) && n < verseEnd ? 'tonal' : 'outlined')"
+              class="d-flex align-center justify-center text-subtitle-2 font-weight-bold transition-all"
+              :class="{ 'opacity-40': verseStart && n < verseStart && !verseEnd }" style="aspect-ratio: 1/1;"
+              @mousedown.prevent="handleVerseClick(n)">
+              {{ n }}
             </v-card>
-        </div>
+          </div>
 
         </div>
       </v-card>
@@ -545,13 +493,20 @@ function cycleDisplayMode() {
 }
 
 /* Customização Profissional da Barra de Rolagem */
-.custom-scrollbar::-webkit-scrollbar { width: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { 
-  background-color: rgba(var(--v-theme-on-surface), 0.2); 
-  border-radius: 10px; 
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
 }
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(var(--v-theme-on-surface), 0.2);
+  border-radius: 10px;
+}
+
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(var(--v-theme-on-surface), 0.4); 
+  background-color: rgba(var(--v-theme-on-surface), 0.4);
 }
 </style>
