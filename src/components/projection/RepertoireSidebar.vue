@@ -24,7 +24,10 @@ const handleKeydown = (e: KeyboardEvent) => {
 
   if((menuStore.menuOpened === 'Media' || menuStore.menuOpened === 'Songs')) {
     if(e.shiftKey && e.key.toUpperCase() === 'F'  ){
-      isSearchModalOpen.value = true
+      setTimeout(() => {
+        isSearchModalOpen.value = true
+      }, 50)
+      
     }
   }
 }

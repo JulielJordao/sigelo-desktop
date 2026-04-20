@@ -76,6 +76,15 @@
         },
         {
           "event": "sync-notice-playback"
+        },
+        {
+          "event": "project_media_after_timer"
+        },
+        {
+          "event": "sync_timer_playback"
+        },
+        {
+          "event": "save_timer_settings"
         }
       ]
     },
@@ -111,6 +120,15 @@
         },
         {
           "event": "save-notice-settings"
+        },
+        {
+          "event": "project_media_after_timer"
+        },
+        {
+          "event": "sync_timer_playback"
+        },
+        {
+          "event": "save_timer_settings"
         }
       ]
     },

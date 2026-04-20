@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useMediaStore } from '../stores/mediaStore';
 import { useNoticeStore } from '../stores/noticeStore';
 import type { MediaFile } from '../stores/mediaStore';
+import { useTimerStore } from '../stores/timerStore';
 
 import { useConfigStore } from '../stores/useConfigStore';
 
@@ -19,13 +20,16 @@ const configStore = useConfigStore();
 
 const mediaStore = useMediaStore();
 
+const timerStore = useTimerStore();
+timerStore.enableAutoSave = false;
+
 interface MediaControlPayload {
     action: 'play' | 'pause' | 'mute' | 'unmute' | 'restart';
 }
 
 interface ScrollPayload { x: number; y: number; }
 
-const projectionType = ref<'html' | 'slide' | 'media' | 'fixed' | 'none'>('none');
+const projectionType = ref<'html' | 'slide' | 'media' | 'timer' | 'fixed' | 'none'>('none');
 
 const htmlContent = ref<string>('<div style="color: white; display: flex; height: 100vh; align-items: center; justify-content: center;">Aguardando projeção...</div>');
 const slideData = ref<any>(null);
@@ -48,6 +52,11 @@ let syncInterval: ReturnType<typeof setInterval> | null = null;
 // Listening de Avisos
 let unlistenNoticeSettings: UnlistenFn | null = null;
 let unlistenNoticePlayback: UnlistenFn | null = null;
+
+// Listening do Timer
+let unlistenTimerSettings: UnlistenFn | null = null;
+let unlistenTimerPlayback: UnlistenFn | null = null;
+let localTimerInterval: ReturnType<typeof setInterval> | null = null;
 
 // let unlistenRemoveFixed: UnlistenFn | null = null;
 
@@ -225,6 +234,71 @@ onMounted(async () => {
             } catch (err) { }
         }
     });
+
+    // =========================================================================
+    // LISTENERS DO TIMER
+    // =========================================================================
+    unlistenTimerSettings = await listen<string>('update-timer-settings', (event) => {
+        try {
+            const parsed = JSON.parse(event.payload);
+            if (parsed.timerMode) timerStore.timerMode = parsed.timerMode;
+            if (parsed.durationSecs !== undefined) timerStore.durationSecs = parsed.durationSecs;
+            if (parsed.position) timerStore.position = parsed.position;
+            if (parsed.fontFamily) timerStore.fontFamily = parsed.fontFamily;
+            if (parsed.bgType) timerStore.bgType = parsed.bgType;
+            if (parsed.bgMediaUrl !== undefined) timerStore.bgMediaUrl = parsed.bgMediaUrl;
+            if (parsed.bgIsVideo !== undefined) timerStore.bgIsVideo = parsed.bgIsVideo;
+            if (parsed.gradientColors) timerStore.gradientColors = parsed.gradientColors;
+        } catch (e) {
+            console.error("Erro ao atualizar configurações do timer", e);
+        }
+    });
+
+    unlistenTimerPlayback = await listen<{ action: string, timeRemaining: number }>('sync-timer-playback', async (event) => {
+        const { action, timeRemaining } = event.payload;
+
+        timerStore.timeRemaining = timeRemaining;
+
+        if (action === 'start' || action === 'resume') {
+            projectionType.value = 'timer';
+            timerStore.isActive = true;
+            timerStore.isPaused = false;
+
+            // NOVO: Define a hora logo de cara pro relógio não piscar "00:00" na tela
+            const now = new Date();
+            timerStore.currentClockTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+            if (localTimerInterval) clearInterval(localTimerInterval);
+            localTimerInterval = setInterval(() => {
+                // NOVO: Condicional de Modo
+                if (timerStore.timerMode === 'clock') {
+                    const now = new Date();
+                    timerStore.currentClockTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                } else {
+                    if (!timerStore.isPaused && timerStore.timeRemaining > 0) {
+                        timerStore.timeRemaining--;
+                    }
+                }
+            }, 1000);
+
+            try {
+                const appWindow = getCurrentWindow();
+                await appWindow.show();
+            } catch (err) {}
+        } 
+        else if (action === 'pause') {
+            timerStore.isPaused = true;
+        } 
+        else if (action === 'stop') {
+            timerStore.isActive = false;
+            timerStore.isPaused = false;
+            if (localTimerInterval) clearInterval(localTimerInterval);
+
+            if (projectionType.value === 'timer') {
+                projectionType.value = mediaStore.fixedMedia ? 'fixed' : 'none';
+            }
+        }
+    });
 });
 
 const handleKeyDown = async (event: KeyboardEvent) => {
@@ -234,6 +308,14 @@ const handleKeyDown = async (event: KeyboardEvent) => {
     }
 };
 
+const timerBackgroundStyle = computed(() => {
+    if (timerStore.bgType === 'gradient') {
+        return {
+            background: `linear-gradient(135deg, ${timerStore.gradientColors[0]}, ${timerStore.gradientColors[1]})`
+        };
+    }
+    return {};
+});
 
 onUnmounted(() => {
     if (unlistenUpdate) unlistenUpdate();
@@ -246,6 +328,10 @@ onUnmounted(() => {
 
     if (unlistenNoticeSettings) unlistenNoticeSettings();
     if (unlistenNoticePlayback) unlistenNoticePlayback();
+
+    if (unlistenTimerSettings) unlistenTimerSettings();
+    if (unlistenTimerPlayback) unlistenTimerPlayback();
+    if (localTimerInterval) clearInterval(localTimerInterval);
 
     window.removeEventListener('keydown', handleKeyDown);
 });
@@ -308,6 +394,22 @@ onMounted(() => {
             <video v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
                 class="w-100 h-100 object-fit-cover"></video>
             <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
+        </div>
+        <div v-else-if="projectionType === 'timer'" 
+             class="timer-projection-layer" 
+             :class="`pos-${timerStore.position}`" 
+             :style="timerBackgroundStyle">
+            
+            <div v-if="timerStore.bgType === 'media' && timerStore.bgMediaUrl" class="timer-bg-media">
+                <video v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted class="w-100 h-100 object-fit-cover"></video>
+                <img v-else :src="timerStore.bgMediaUrl" class="w-100 h-100 object-fit-cover" />
+            </div>
+
+            <div v-if="timerStore.bgType === 'media'" class="dark-overlay" style="background-color: rgba(0,0,0,0.5); z-index: 2;"></div>
+
+            <div class="timer-display" :style="{ fontFamily: `'${timerStore.fontFamily}', sans-serif` }">
+                {{ timerStore.formattedTime }}
+            </div>
         </div>
 
         <div v-else class="w-100 h-100 bg-black"></div>
@@ -524,5 +626,34 @@ onMounted(() => {
 @keyframes notice-slide-in {
     0% { transform: translateY(100%); opacity: 0; }
     100% { transform: translateY(0); opacity: 1; }
+}
+
+/** ## Timer */
+
+.timer-projection-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 999998; /* Logo abaixo dos avisos */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pos-top { align-items: flex-start; padding-top: 10vh; }
+.pos-bottom { align-items: flex-end; padding-bottom: 10vh; }
+.pos-center { align-items: center; }
+
+.timer-display {
+    font-size: 25vw;
+    font-weight: 800;
+    color: white;
+    text-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    z-index: 10;
+}
+
+.timer-bg-media {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
 }
 </style>

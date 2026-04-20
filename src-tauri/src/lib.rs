@@ -8,6 +8,7 @@ mod youtube;
 mod pdf;
 mod offline;
 mod notice;
+mod timer;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -74,6 +75,9 @@ pub fn run() {
             crate::notice::notice::save_notice_settings,
             crate::notice::notice::load_notice_settings,
             crate::notice::notice::sync_notice_playback,
+            crate::timer::timer::save_timer_settings,
+            crate::timer::timer::load_timer_settings,
+            crate::timer::timer::sync_timer_playback,
             is_online
         ])
         .on_window_event(|window, event| {
