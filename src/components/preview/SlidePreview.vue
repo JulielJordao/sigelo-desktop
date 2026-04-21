@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onUnmounted, watch } from 'vue';
+import { ref, onUnmounted, watch, computed } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 
 const configStore = useConfigStore()
-
+const statusStore = useStatusPresentationStore()
 
 const props = defineProps({
     // Recebe o design e o estilo específicos
@@ -13,14 +14,38 @@ const props = defineProps({
     screenRatio: { type: Number, default: 16/9 },
     
     // Controles de comportamento
-    editable: { type: Boolean, default: false }, // Se true, mostra as âncoras de edição
-    autoFontSize: { type: Boolean, default: false }
+    editable: { type: Boolean, default: false },
+    autoFontSize: { type: Boolean, default: false },
+    
+    // NOVO: Prop para forçar a pausa do vídeo externamente
+    pauseVideo: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update-layout', 'update-font-size']);
 
 const previewContainer = ref<HTMLElement | null>(null);
 const interactionType = ref<string | null>(null);
+
+// NOVO: Referência ao elemento de vídeo e controle de pausa
+const videoRef = ref<HTMLVideoElement | null>(null);
+
+const isVideoPaused = computed(() => {
+    // Pausa se a prop for verdadeira OU se houver alguma apresentação rodando
+    return props.pauseVideo || statusStore.status.isPresentation !== 'none';
+});
+
+// Assiste à mudança de estado para pausar/tocar programaticamente
+watch(isVideoPaused, (paused) => {
+    if (!videoRef.value) return;
+    
+    if (paused) {
+        videoRef.value.pause();
+    } else {
+        // O play() retorna uma Promise. Capturamos o erro silenciosamente
+        // caso o navegador bloqueie o autoplay por algum motivo interno.
+        videoRef.value.play().catch(e => console.warn("Autoplay bloqueado:", e));
+    }
+});
 
 // Lógica de Drag & Drop isolada
 const startMouse = { x: 0, y: 0 };
@@ -29,7 +54,7 @@ let startFontSize = 0;
 
 const startAction = (e: MouseEvent, type: string) => {
     e.preventDefault();
-    if (!props.editable) return; // Só permite arrastar se for editável
+    if (!props.editable) return; 
 
     interactionType.value = type;
     startMouse.x = e.clientX;
@@ -80,7 +105,6 @@ const onMove = (e: MouseEvent) => {
         emit('update-font-size', newFontSize);
     }
 
-    // Emite as novas posições para o componente pai salvar
     emit('update-layout', {
         posX: Math.round(newX),
         posY: Math.round(newY),
@@ -109,17 +133,17 @@ watch(() => props.design.bgMedia, (newValue)=> {
         :style="{ 
             aspectRatio: screenRatio, 
             backgroundColor: design.bgType === 'color' ? design.bgColor : '#000',
-            // Aqui está a mágica: limita a largura a 900px OU ao máximo possível para que a altura bata em 400px.
             maxWidth: `min(900px, calc(400px * ${screenRatio}))` 
-        }">>
+        }">
 
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
        <video 
+            ref="videoRef"
             v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
             :src="design.bgMedia" 
-            autoplay 
+            :autoplay="!isVideoPaused" 
             loop 
             muted 
             playsinline 
@@ -128,10 +152,17 @@ watch(() => props.design.bgMedia, (newValue)=> {
             :style="{ objectFit: design.bgFit }"
         ></video>
 
+        <v-fade-transition>
+            <div v-if="design.bgIsVideo && isVideoPaused" class="video-paused-indicator">
+                <v-icon color="white" size="48">mdi-play-circle-outline</v-icon>
+            </div>
+        </v-fade-transition>
+
         <div 
             class="dark-overlay" 
             :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"
         ></div>
+        
         <div class="slide-text-box" :class="{
             'is-positioning': editable,
             'is-active': interactionType !== null
@@ -183,6 +214,13 @@ watch(() => props.design.bgMedia, (newValue)=> {
     overflow: hidden;
     position: relative;
     transition: aspect-ratio 0.3s ease;
+
+    /* NOVO: CSS Containment. Diz ao Chromium que nada dentro dessa div afeta o layout de fora.
+       Isso corta o tempo de recálculo da CPU/GPU pela metade. */
+    contain: strict; 
+    
+    /* NOVO: Força o Preview inteiro a virar uma textura única na memória da GPU */
+    transform: translateZ(0);
 }
 
 .dark-overlay {
@@ -194,15 +232,26 @@ watch(() => props.design.bgMedia, (newValue)=> {
     z-index: 2; /* Nível 2 - Acima do fundo */
     pointer-events: none; 
     transition: background-color 0.3s ease; 
+
+    /* NOVO: Força a película a ter sua própria camada, para que a GPU não precise
+       "fundir" a cor dela com os pixels do vídeo a todo momento via CPU */
+    will-change: background-color;
+    transform: translateZ(0);
 }
 
 .video-bg {
     position: absolute;
+    transform: translateZ(0);
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
     z-index: 1;
+
+    /* NOVO: Avisa a GPU com antecedência que o vídeo vai mudar a cada frame */
+    will-change: transform;
+    /* NOVO: Impede que o vídeo recalcule cliques do mouse desnecessariamente */
+    pointer-events: none;
 }
 
 .slide-text-box {
@@ -337,5 +386,25 @@ watch(() => props.design.bgMedia, (newValue)=> {
     outline-offset: 3px;
     transform: scale(1.1);
     /* Dá um leve zoom no botão selecionado */
+}
+
+.video-paused-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10; /* Fica acima do fundo e dark-overlay, mas abaixo do texto (z-index 20) */
+    background-color: rgba(0, 0, 0, 0.4); /* Escurece um pouco mais o vídeo congelado */
+    backdrop-filter: blur(2px); /* Efeito opcional de desfoque elegante */
+}
+
+.video-paused-indicator span {
+    text-shadow: 0px 2px 4px rgba(0, 0, 0, 0.8);
+    letter-spacing: 1px;
 }
 </style>
