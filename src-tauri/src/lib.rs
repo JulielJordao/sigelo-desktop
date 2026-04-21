@@ -9,6 +9,7 @@ mod pdf;
 mod offline;
 mod notice;
 mod timer;
+mod stream;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -18,6 +19,7 @@ fn greet(name: &str) -> String {
 use crate::state::app_state::AppState;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
+use crate::stream::PipelineState;
 
 // Comando que o frontend vai chamar
 #[tauri::command]
@@ -34,12 +36,16 @@ fn is_online() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    
     // 1. Desativa recursos de taxa de atualização variável que causam flickering em 75Hz+
     // 2. Desativa o 'Occlusion Tracker' que às vezes faz o Windows 'pausar' o app sem bordas
     std::env::set_var(
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
         "--disable-features=msWebview2EnableVariableRefreshRate,CalculateNativeWinOcclusion"
     );
+
+    let pipeline_state = std::sync::Arc::new(tokio::sync::Mutex::new(crate::stream::PipelineState::new()));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -48,6 +54,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::new())
+        .manage(pipeline_state)
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -78,6 +85,8 @@ pub fn run() {
             crate::timer::timer::save_timer_settings,
             crate::timer::timer::load_timer_settings,
             crate::timer::timer::sync_timer_playback,
+            stream::play_video,
+            stream::stop_video,
             is_online
         ])
         .on_window_event(|window, event| {

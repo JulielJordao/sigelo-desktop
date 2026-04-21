@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import '../../FFmpegVideo'
 
 const configStore = useConfigStore()
 const statusStore = useStatusPresentationStore()
@@ -130,10 +131,24 @@ onMounted(()=> {
     }
 })
 
+function getLocalPathFromAssetUrl(url: string): string {
+    if (!url) return '';
+
+    // 1. Remove os prefixos do Tauri (v2 usa http://asset.localhost, v1 usa asset://localhost)
+    let cleanPath = url
+        .replace(/^https?:\/\/asset\.localhost\//, '')
+        .replace(/^asset:\/\/localhost\//, '');
+
+    console.log(decodeURIComponent(cleanPath))
+    // 2. Decodifica os caracteres da URL (%3A para :, %5C para \)
+    return decodeURIComponent(cleanPath);
+}
+
 watch(() => props.design.bgMedia, async () => {
     await nextTick();
+    console.log(props.design.bgMedia)
     if (videoRef.value) {
-        videoRef.value.load(); // ← força o browser a recarregar o novo src
+        // videoRef.value.load(); // ← força o browser a recarregar o novo src
         if (!isVideoPaused.value) {
             videoRef.value.play().catch(() => {});
         }
@@ -152,25 +167,21 @@ watch(() => props.design.bgMedia, async () => {
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
-       <video 
-            ref="videoRef"
-            v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
-            :src="design.bgMedia" 
-            autoplay 
-            loop 
-            muted 
-            playsinline 
-            crossorigin="anonymous"
-            class="video-bg" 
-            :style="{ objectFit: design.bgFit }"
-        ></video>
+       <ffmpeg-video 
+        ref="videoRef"
+        v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
+        :src="getLocalPathFromAssetUrl(design.bgMedia)" 
+        autoplay 
+        class="video-bg" 
+        :style="{ objectFit: design.bgFit }"
+        />
 
         <v-fade-transition>
             <div v-if="design.bgIsVideo && isVideoPaused" class="video-paused-indicator">
                 <v-icon color="white" size="48">mdi-play-circle-outline</v-icon>
             </div>
         </v-fade-transition>
-
+ 
         <div 
             class="dark-overlay" 
             :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"
