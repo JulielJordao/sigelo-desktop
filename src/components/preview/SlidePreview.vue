@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted, watch, computed } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 
@@ -121,11 +121,24 @@ const stopAction = () => {
 
 onUnmounted(() => {
     stopAction();
+    
 });
 
-watch(() => props.design.bgMedia, (newValue)=> {
-    console.log(newValue)
+onMounted(()=> {
+    if(props.pauseVideo === true) {
+        videoRef.value?.pause()
+    }
 })
+
+watch(() => props.design.bgMedia, async () => {
+    await nextTick();
+    if (videoRef.value) {
+        videoRef.value.load(); // ← força o browser a recarregar o novo src
+        if (!isVideoPaused.value) {
+            videoRef.value.play().catch(() => {});
+        }
+    }
+});
 </script>
 
 <template>
@@ -143,7 +156,7 @@ watch(() => props.design.bgMedia, (newValue)=> {
             ref="videoRef"
             v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
             :src="design.bgMedia" 
-            :autoplay="!isVideoPaused" 
+            autoplay 
             loop 
             muted 
             playsinline 
@@ -217,7 +230,7 @@ watch(() => props.design.bgMedia, (newValue)=> {
 
     /* NOVO: CSS Containment. Diz ao Chromium que nada dentro dessa div afeta o layout de fora.
        Isso corta o tempo de recálculo da CPU/GPU pela metade. */
-    contain: strict; 
+    contain: layout paint;
     
     /* NOVO: Força o Preview inteiro a virar uma textura única na memória da GPU */
     transform: translateZ(0);
@@ -248,8 +261,7 @@ watch(() => props.design.bgMedia, (newValue)=> {
     height: 100%;
     z-index: 1;
 
-    /* NOVO: Avisa a GPU com antecedência que o vídeo vai mudar a cada frame */
-    will-change: transform;
+    will-change: contents;
     /* NOVO: Impede que o vídeo recalcule cliques do mouse desnecessariamente */
     pointer-events: none;
 }
@@ -300,8 +312,6 @@ watch(() => props.design.bgMedia, (newValue)=> {
     display: -webkit-box;
     -webkit-line-clamp: 4;
     line-clamp: 4;
-    /* Limita a 4 linhas no preview */
-    transform: translateZ(0);
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -399,8 +409,7 @@ watch(() => props.design.bgMedia, (newValue)=> {
     align-items: center;
     justify-content: center;
     z-index: 10; /* Fica acima do fundo e dark-overlay, mas abaixo do texto (z-index 20) */
-    background-color: rgba(0, 0, 0, 0.4); /* Escurece um pouco mais o vídeo congelado */
-    backdrop-filter: blur(2px); /* Efeito opcional de desfoque elegante */
+    background-color: rgba(0, 0, 0, 0.5); /* Escurece um pouco mais o vídeo congelado */
 }
 
 .video-paused-indicator span {

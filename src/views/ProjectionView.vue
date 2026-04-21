@@ -311,7 +311,7 @@ onMounted(async () => {
     });
 
     unlistenUpdateConfig = await listen<string>('update-settings', async () => {
-        await configStore.loadSettings()
+        setTimeout(configStore.loadSettings, 100)
     })
 });
 
@@ -494,13 +494,16 @@ onMounted(() => {
 /* NOVO: PALCO DE PROJEÇÃO           */
 /* --------------------------------- */
 .projection-stage {
-    width: 100%;
-    height: 100%;
+    /* Remova width: 100% e height: 100% */
     position: relative;
     overflow: hidden;
     background-color: #000;
-    /* Essencial para as fontes dinâmicas (cqi) continuarem funcionando perfeitamente */
     container-type: inline-size;
+
+    /* Deixe o aspect-ratio controlar as dimensões */
+    aspect-ratio: var(--screen-ratio, 1.777); /* fallback */
+    width: 100%;          /* largura tenta 100% */
+    max-height: 100vh;    /* mas nunca ultrapassa a altura da tela */
 }
 
 /* --------------------------------- */

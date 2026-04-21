@@ -58,12 +58,13 @@ export const useConfigStore = defineStore('config', () => {
   watch(
     settings,
     async (newSettings) => {
+      console.log(isLoaded.value, !tauriStore, !autoSave)
       if (!isLoaded.value || !tauriStore || !autoSave) return; // Só tenta salvar se o tauriStore já foi instanciado
-
 
       await tauriStore.set('app_config', newSettings);
       await tauriStore.save();
-      emit('update-settings')
+      await emit('update-settings')
+      
     },
     { deep: true }
   );

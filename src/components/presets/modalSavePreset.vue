@@ -58,10 +58,10 @@ watch(isSavePresetOpen, () => {
 
             <v-card-actions class="pa-4 pt-0 border-t bg-surface-light">
                 <v-spacer></v-spacer>
-                <v-btn variant="text" color="medium-emphasis" @click="isSavePresetOpen = false">
+                <v-btn variant="text" color="medium-emphasis" class="mt-2" @click="isSavePresetOpen = false">
                     Cancelar
                 </v-btn>
-                <v-btn variant="flat" color="primary" @click="handleSavePreset" :disabled="!newPresetName.trim()">
+                <v-btn class="mt-2" variant="flat" color="primary" @click="handleSavePreset" :disabled="!newPresetName.trim()">
                     Salvar Tema
                 </v-btn>
             </v-card-actions>

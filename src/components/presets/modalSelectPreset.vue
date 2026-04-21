@@ -131,7 +131,7 @@ watch(isPresetModalOpen, (newVal) => {
                                 :text="songInfo.currentSlide.text" :screenRatio="configStore.screenRatio" :editable="false"
                                 style="border-radius: 0;" 
                                 :class="{ 'opacity-50': isDeleteMode }"
-                                pause-video />
+                                :pauseVideo="true" />
                         </div>
 
                         <div class="pa-2 bg-surface d-flex align-center justify-space-between" style="min-height: 52px;">
