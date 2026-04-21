@@ -164,6 +164,7 @@ function handleVerseClick(n: number) {
 function confirmReference() {
   if (!selectedBook.value || !selectedChapter.value) return
 
+  console.log(selectedChapter.value)
   const newRef: BibleReference = {
     book: selectedBook.value.abbr,
     chapter: selectedChapter.value,

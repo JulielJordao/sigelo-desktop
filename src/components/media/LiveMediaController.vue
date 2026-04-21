@@ -161,7 +161,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="d-flex align-center" v-if="props.isToolbar && statusPresStore.projectedFile?.id">
+    <div class="d-flex align-center" v-if="props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'">
 
         <v-expand-x-transition>
             <div v-if="statusPresStore.projectedFile?.id" id="media-pill-activator"
@@ -298,7 +298,7 @@ onMounted(() => {
         </v-menu>
     </div>
 
-    <v-card v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id" class="border-md d-flex flex-column"
+    <v-card v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'" class="border-md d-flex flex-column"
         style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
         <div class="bg-error px-3 py-1 d-flex align-center text-white" style="height: 40px;">
             <v-icon start size="small" class="blink-anim mr-2">mdi-record-circle-outline</v-icon>

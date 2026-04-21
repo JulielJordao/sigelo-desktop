@@ -463,7 +463,7 @@ watch(() => songInfo.rawLyric, (newValue) => {
 const isLoadedDefaultTheme = ref(false)
 
 const openBible = (bibleRef: BibleRef) => {
-    console.log("tauri-emit")
+    console.log("tauri-emit", bibleRef)
     tauriEmit('open-bible', bibleRef)
 }
 

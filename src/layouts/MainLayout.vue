@@ -86,7 +86,6 @@ onMounted(async () => {
   menuStore.toggleMenu('Songs')
 
   unlistenBible = await listen<BibleRef>('open-bible', async (event) => {
-      console.log("aq")
       toggleBible(true, event.payload)
   });
 });

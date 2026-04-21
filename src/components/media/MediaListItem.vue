@@ -129,10 +129,10 @@ const openTagModal = () => {
             <v-spacer v-if="!isGridExpanded"></v-spacer>
 
             <div class="d-flex gap-2" :class="isGridExpanded ? 'mt-auto' : 'mt-2'">
-                <v-btn size="small" :color="statusStore.projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
-                    :prepend-icon="statusStore.projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
+                <v-btn size="small" :color="statusStore.projectedFile?.id === file.id  && statusStore.status.isPresentation === 'Media' ? 'success' : 'primary'" variant="tonal"
+                    :prepend-icon="statusStore.projectedFile?.id === file.id  && statusStore.status.isPresentation === 'Media' ? 'mdi-projector-screen' : 'mdi-projector'"
                     class="flex-grow-1" :class="{ 'px-0': isGridExpanded }" @click.stop="emit('project', file)">
-                    {{ statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation ? 'Projetando...' : 'Projetar' }}
+                    {{ statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation === 'Media' ? 'Projetando...' : 'Projetar' }}
                 </v-btn>
                 <v-btn size="small" :icon="fixedMediaId === file.id ? 'mdi-pin-off' : 'mdi-pin'"
                     :color="fixedMediaId === file.id ? 'success' : 'secondary'"

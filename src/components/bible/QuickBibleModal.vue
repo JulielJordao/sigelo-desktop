@@ -31,6 +31,7 @@ const close = () => {
 
 // Observa quando o usuário finaliza a seleção (apertou Enter com o capítulo/versículo)
 watch(currentSelection, (newVal) => {
+  console.log(newVal)
   if (newVal && newVal.length > 0) {
     emit('open-reference', newVal[0]); // Dispara a ação para a tela principal
     close(); // Fecha a modal após a seleção
