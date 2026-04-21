@@ -7,6 +7,7 @@ import { useMediaStore } from '../stores/mediaStore';
 import { useNoticeStore } from '../stores/noticeStore';
 import type { MediaFile } from '../stores/mediaStore';
 import { useTimerStore } from '../stores/timerStore';
+import { emit } from '@tauri-apps/api/event';
 
 import { useConfigStore } from '../stores/useConfigStore';
 
@@ -17,6 +18,7 @@ const noticeStore = useNoticeStore()
 noticeStore.enableAutoSave = false;
 
 const configStore = useConfigStore();
+configStore.autoSave = false
 
 const mediaStore = useMediaStore();
 
@@ -58,6 +60,8 @@ let unlistenNoticePlayback: UnlistenFn | null = null;
 let unlistenTimerSettings: UnlistenFn | null = null;
 let unlistenTimerPlayback: UnlistenFn | null = null;
 let localTimerInterval: ReturnType<typeof setInterval> | null = null;
+
+let unlistenUpdateConfig: UnlistenFn | null = null;
 
 // let unlistenRemoveFixed: UnlistenFn | null = null;
 
@@ -108,14 +112,14 @@ const getTransparentBackground = (hexColor: string, style: string) => {
 
     // Remove o '#'
     const hex = hexColor.replace('#', '');
-    
+
     // Converte para RGB
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
 
     // Retorna com 30% de opacidade (quase transparente)
-    return `rgba(${r}, ${g}, ${b}, 0.3)`; 
+    return `rgba(${r}, ${g}, ${b}, 0.3)`;
 };
 
 onMounted(async () => {
@@ -207,7 +211,7 @@ onMounted(async () => {
                         videoRef.value.currentTime = time;
                     }
                     break;
-           }
+            }
         } catch (e) {
             console.error("Erro ao controlar vídeo:", e);
         }
@@ -290,11 +294,11 @@ onMounted(async () => {
             try {
                 const appWindow = getCurrentWindow();
                 await appWindow.show();
-            } catch (err) {}
-        } 
+            } catch (err) { }
+        }
         else if (action === 'pause') {
             timerStore.isPaused = true;
-        } 
+        }
         else if (action === 'stop') {
             timerStore.isActive = false;
             timerStore.isPaused = false;
@@ -305,13 +309,19 @@ onMounted(async () => {
             }
         }
     });
+
+    unlistenUpdateConfig = await listen<string>('update-settings', async () => {
+        await configStore.loadSettings()
+    })
 });
 
 const handleKeyDown = async (event: KeyboardEvent) => {
+    debugLog.value = "key:" + event.key
     if (event.key === 'Escape') {
         // Quando apertar ESC, chama o Rust para fechar/ocultar a tela
         await invoke('stop_projection');
-    }
+    } 
+    if(projectionType.value === "slide") await emit('handle-layout-keydown', event.key)       
 };
 
 const timerBackgroundStyle = computed(() => {
@@ -337,6 +347,7 @@ onUnmounted(() => {
 
     if (unlistenTimerSettings) unlistenTimerSettings();
     if (unlistenTimerPlayback) unlistenTimerPlayback();
+    if (unlistenUpdateConfig) unlistenUpdateConfig();
     if (localTimerInterval) clearInterval(localTimerInterval);
 
     window.removeEventListener('keydown', handleKeyDown);
@@ -349,103 +360,115 @@ onMounted(() => {
 </script>
 
 <template>
-
     <div class="projection-window-container">
 
-        <div v-if="projectionType === 'html'" v-html="htmlContent" class="h-100 w-100"></div>
+        <div class="projection-stage" :style="{
+            aspectRatio: configStore.screenRatio,
+            maxWidth: `calc(100vh * ${configStore.screenRatio})`,
+            maxHeight: `calc(100vw / ${configStore.screenRatio})`,
+            paddingTop: `${configStore.settings.marginTop}%`,
+            paddingBottom: `${configStore.settings.marginBottom}%`,
+            paddingLeft: `${configStore.settings.marginLeft}%`,
+            paddingRight: `${configStore.settings.marginRight}%`,
+            boxSizing: 'border-box'
+        }">
 
-        <div v-else-if="projectionType === 'slide' && slideData" class="slide-root-container"
-            :class="`theme-${slideData.layout.theme}`" :style="{
-                backgroundColor: slideData.layout.chromaKey,
-                transition: `opacity 0.3s ${slideData.layout.transition}`
-            }">
-            <div class="background-layer">
-                <div v-if="slideData.background.type === 'color'"
-                    :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
-                <video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'"
-                    :src="slideData.background.media" autoplay loop muted
-                    :style="{ objectFit: slideData.background.fit }"></video>
-                <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
-                    :style="{ objectFit: slideData.background.fit }" />
-            </div>
-            <div class="dark-overlay"
-                :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
-            <div class="content-layer" :style="{ padding: slideData.layout.padding }">
-                <div class="relative-box">
-                    <div class="text-layer" :style="{
-                        left: slideData.text.posX + '%', top: slideData.text.posY + '%',
-                        width: slideData.text.width + '%', height: slideData.text.height + '%'
-                    }">
-                        <div :style="{
-                            fontFamily: `'${slideData.text.fontFamily}', sans-serif`, fontSize: slideData.text.fontSize + 'cqi',
-                            color: slideData.text.color, textAlign: slideData.text.align,
-                            fontWeight: slideData.text.bold ? 'bold' : 'normal', fontStyle: slideData.text.italic ? 'italic' : 'normal',
-                            whiteSpace: 'pre-wrap', width: '100%', maxHeight: '100%', overflow: 'hidden'
+            <div v-if="projectionType === 'html'" v-html="htmlContent" class="h-100 w-100"></div>
+
+            <div v-else-if="projectionType === 'slide' && slideData" class="slide-root-container"
+                :class="`theme-${slideData.layout.theme}`" :style="{
+                    backgroundColor: slideData.layout.chromaKey,
+                    transition: `opacity 0.3s ${slideData.layout.transition}`
+                }">
+                <div class="background-layer">
+                    <div v-if="slideData.background.type === 'color'"
+                        :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
+                    <video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'"
+                        :src="slideData.background.media" autoplay loop muted
+                        :style="{ objectFit: slideData.background.fit }"></video>
+                    <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
+                        :style="{ objectFit: slideData.background.fit }" />
+                </div>
+                <div class="dark-overlay"
+                    :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
+                <div class="content-layer" :style="{ padding: slideData.layout.padding }">
+                    <div class="relative-box">
+                        <div class="text-layer" :style="{
+                            left: slideData.text.posX + '%', top: slideData.text.posY + '%',
+                            width: slideData.text.width + '%', height: slideData.text.height + '%'
                         }">
-                            {{ slideData.text.content }}
+                            <div :style="{
+                                fontFamily: `'${slideData.text.fontFamily}', sans-serif`, fontSize: slideData.text.fontSize + 'cqi',
+                                color: slideData.text.color, textAlign: slideData.text.align,
+                                fontWeight: slideData.text.bold ? 'bold' : 'normal', fontStyle: slideData.text.italic ? 'italic' : 'normal',
+                                whiteSpace: 'pre-wrap', width: '100%', maxHeight: '100%', overflow: 'hidden'
+                            }">
+                                {{ slideData.text.content }}
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-            <video v-if="currentMedia.isVideo" ref="videoRef" :src="currentMedia.url" autoplay
-                class="w-100 h-100 object-fit-contain"></video>
-            <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
-        </div>
-
-        <div v-else-if="projectionType === 'fixed' && mediaStore.fixedMedia"
-            class="media-fullscreen-container bg-black">
-            <video v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
-                class="w-100 h-100 object-fit-cover"></video>
-            <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
-        </div>
-        <div v-else-if="projectionType === 'timer'" 
-             class="timer-projection-layer" 
-             :class="`pos-${timerStore.position}`" 
-             :style="timerBackgroundStyle">
-            
-            <div v-if="timerStore.bgType === 'media' && timerStore.bgMediaUrl" class="timer-bg-media">
-                <video v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted class="w-100 h-100 object-fit-cover"></video>
-                <img v-else :src="timerStore.bgMediaUrl" class="w-100 h-100 object-fit-cover" />
+            <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
+                <video v-if="currentMedia.isVideo" ref="videoRef" :src="currentMedia.url" autoplay
+                    class="w-100 h-100 object-fit-contain"></video>
+                <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
             </div>
 
-            <div v-if="timerStore.bgType === 'media'" class="dark-overlay" style="background-color: rgba(0,0,0,0.5); z-index: 2;"></div>
-
-            <div class="timer-display" :style="{ fontFamily: `'${timerStore.fontFamily}', sans-serif` }">
-                {{ timerStore.formattedTime }}
+            <div v-else-if="projectionType === 'fixed' && mediaStore.fixedMedia"
+                class="media-fullscreen-container bg-black">
+                <video v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
+                    class="w-100 h-100 object-fit-cover"></video>
+                <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
             </div>
-        </div>
 
-        <div v-else class="w-100 h-100 bg-black"></div>
+            <div v-else-if="projectionType === 'timer'" class="timer-projection-layer"
+                :class="`pos-${timerStore.position}`" :style="timerBackgroundStyle">
 
-        <transition name="fade">
-            <div v-if="noticeStore.isActive && noticeStore.text" class="notice-overlay" :class="[
-                `position-${noticeStore.format.position}`,
-                `style-${noticeStore.format.style}`
-            ]" :style="{
+                <div v-if="timerStore.bgType === 'media' && timerStore.bgMediaUrl" class="timer-bg-media">
+                    <video v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted
+                        class="w-100 h-100 object-fit-cover"></video>
+                    <img v-else :src="timerStore.bgMediaUrl" class="w-100 h-100 object-fit-cover" />
+                </div>
+
+                <div v-if="timerStore.bgType === 'media'" class="dark-overlay"
+                    style="background-color: rgba(0,0,0,0.5); z-index: 2;"></div>
+
+                <div class="timer-display" :style="{ fontFamily: `'${timerStore.fontFamily}', sans-serif` }">
+                    {{ timerStore.formattedTime }}
+                </div>
+            </div>
+
+            <div v-else class="w-100 h-100 bg-black"></div>
+
+            <transition name="fade">
+                <div v-if="noticeStore.isActive && noticeStore.text" class="notice-overlay" :class="[
+                    `position-${noticeStore.format.position}`,
+                    `style-${noticeStore.format.style}`
+                ]" :style="{
                     color: noticeStore.format.color,
                     backgroundColor: getTransparentBackground(noticeStore.format.bgColor, noticeStore.format.style)
                 }">
 
-                <div class="notice-animator" :class="`anim-${noticeStore.format.animation}`"
-                    :style="{ animationPlayState: noticeStore.isPaused ? 'paused' : 'running' }">
-                    <span class="notice-text">{{ noticeStore.text }}</span>
+                    <div class="notice-animator" :class="`anim-${noticeStore.format.animation}`"
+                        :style="{ animationPlayState: noticeStore.isPaused ? 'paused' : 'running' }">
+                        <span class="notice-text">{{ noticeStore.text }}</span>
+                    </div>
+
                 </div>
+            </transition>
 
+            <div v-if="isDev"
+                style="position: absolute; top: 10px; left: 10px; background: rgba(255,0,0,0.8); color: white; padding: 10px; z-index: 9999; font-weight: bold; border-radius: 4px;">
+                DEBUG: {{ debugLog }}
             </div>
-        </transition>
-        <div v-if="isDev"
-            style="position: absolute; top: 10px; left: 10px; background: rgba(255,0,0,0.8); color: white; padding: 10px; z-index: 9999; font-weight: bold; border-radius: 4px;">
-            DEBUG: {{ debugLog }}
-        </div>
 
+        </div>
     </div>
 </template>
 
 <style scoped>
-/* Reset global essencial para janela de projeção secundária */
 :global(body) {
     margin: 0;
     overflow: hidden;
@@ -454,32 +477,47 @@ onMounted(() => {
 
 .projection-window-container {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    margin: 0;
-    padding: 0;
+    inset: 0;
+    /* atalho para top/left/right/bottom 0 */
     background-color: #000;
+    /* As bordas pretas ficam aqui! */
     z-index: 9999;
     overflow: hidden;
+
+    /* Configura o container para centralizar o palco */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --------------------------------- */
+/* NOVO: PALCO DE PROJEÇÃO           */
+/* --------------------------------- */
+.projection-stage {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    background-color: #000;
+    /* Essencial para as fontes dinâmicas (cqi) continuarem funcionando perfeitamente */
+    container-type: inline-size;
 }
 
 /* --------------------------------- */
 /* ESTRUTURA DOS SLIDES (COM TEXTO)  */
 /* --------------------------------- */
 .slide-root-container {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    /* Antigo 100vw */
+    height: 100%;
+    /* Antigo 100vh */
     position: relative;
 }
 
-/* CAMADA 1: O Fundo */
 .background-layer {
     position: absolute;
     inset: 0;
     z-index: 1;
-    /* Nível 1 */
 }
 
 .background-layer video,
@@ -489,29 +527,21 @@ onMounted(() => {
     display: block;
 }
 
-/* CAMADA 2: A Película Escura */
 .dark-overlay {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    inset: 0;
     z-index: 2;
-    /* Nível 2 - Acima do fundo */
     pointer-events: none;
     transform: translateZ(0);
     transition: background-color 0.3s ease;
 }
 
-/* CAMADA 3: O Container de Textos */
 .content-layer {
     position: absolute;
     inset: 0;
     z-index: 3;
-    /* Nível 3 - Acima de tudo */
     box-sizing: border-box;
     pointer-events: none;
-    /* Deixe 'none' para não bugar nada caso clique na tela de projeção */
 }
 
 .relative-box {
@@ -532,8 +562,10 @@ onMounted(() => {
 /* MÍDIAS AVULSAS E FUNDO FIXO       */
 /* --------------------------------- */
 .media-fullscreen-container {
-    width: 100vw;
-    height: 100vh;
+    width: 100%;
+    /* Antigo 100vw */
+    height: 100%;
+    /* Antigo 100vh */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -550,79 +582,95 @@ onMounted(() => {
 /* ================================================================== */
 /* ESTILIZAÇÃO E ANIMAÇÃO DOS AVISOS                                  */
 /* ================================================================== */
-
 .notice-overlay {
     position: absolute;
     left: 0;
-    width: 100vw;
-    z-index: 999999; /* Garante que ficará acima até das mídias/PDFs */
+    width: 100%;
+    /* Antigo 100vw */
+    z-index: 999999;
     display: flex;
     align-items: center;
     overflow: hidden;
-    padding: 2vh 2vw;
+    padding: 2% 2%;
+    /* Antigo 2vh 2vw */
     box-sizing: border-box;
-    font-size: clamp(32px, 5vw, 80px); /* Escalável conforme tamanho da tela */
+    font-size: clamp(32px, 5cqi, 80px);
+    /* Trocado vw por cqi para respeitar o palco */
     font-family: sans-serif;
     font-weight: bold;
 }
 
-/* Posicionamento */
-.position-top { top: 0; }
-.position-bottom { bottom: 0; }
+.position-top {
+    top: 0;
+}
 
-/* Estilos de Fundo */
+.position-bottom {
+    bottom: 0;
+}
+
 .style-solid {
-    box-shadow: 0px 4px 20px rgba(0,0,0,0.6);
-}
-.style-transparent {
-    /* Borda (stroke) simulada via sombra para o texto aparecer independentemente da imagem de fundo */
-    text-shadow: 
-        3px 3px 0 #000, -1px -1px 0 #000, 
-        1px -1px 0 #000, -1px 1px 0 #000, 
-        1px 1px 0 #000, 0px 5px 15px rgba(0,0,0,0.8);
+    box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.6);
 }
 
-/* Container de Animação */
+.style-transparent {
+    text-shadow:
+        3px 3px 0 #000, -1px -1px 0 #000,
+        1px -1px 0 #000, -1px 1px 0 #000,
+        1px 1px 0 #000, 0px 5px 15px rgba(0, 0, 0, 0.8);
+}
+
 .notice-animator {
     width: 100%;
     white-space: nowrap;
 }
 
-/* Transição Vue Genérica (Aparecer/Desaparecer a barra como um todo) */
-.fade-enter-active, .fade-leave-active {
+.fade-enter-active,
+.fade-leave-active {
     transition: opacity 0.5s ease, transform 0.5s ease;
 }
-.fade-enter-from, .fade-leave-to {
+
+.fade-enter-from,
+.fade-leave-to {
     opacity: 0;
 }
 
-/* TIPO DE ANIMAÇÃO 1: Letreiro Passando (Marquee) */
 .anim-marquee {
     display: inline-block;
-    padding-left: 100%; /* Inicia totalmente escondido à direita */
-    /* Você pode ajustar o tempo (20s) na configuração futuramente se quiser rolar mais rápido/devagar */
+    padding-left: 100%;
     animation: notice-scroll-left 20s linear infinite;
 }
 
 @keyframes notice-scroll-left {
-    0%   { transform: translateX(0); }
-    100% { transform: translateX(-100%); }
+    0% {
+        transform: translateX(0);
+    }
+
+    100% {
+        transform: translateX(-100%);
+    }
 }
 
-/* TIPO DE ANIMAÇÃO 2: Piscar Suave (Fade in out) */
 .anim-fade {
     text-align: center;
-    white-space: normal; /* Para textos curtos, permite quebra de linha se necessário */
+    white-space: normal;
     animation: notice-pulse 3s ease-in-out infinite;
 }
 
 @keyframes notice-pulse {
-    0% { opacity: 0.8; }
-    50% { opacity: 1; transform: scale(1.02); }
-    100% { opacity: 0.8; }
+    0% {
+        opacity: 0.8;
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.02);
+    }
+
+    100% {
+        opacity: 0.8;
+    }
 }
 
-/* TIPO DE ANIMAÇÃO 3: Deslizar de baixo/cima e parar (Slide) */
 .anim-slide {
     text-align: center;
     white-space: normal;
@@ -630,8 +678,15 @@ onMounted(() => {
 }
 
 @keyframes notice-slide-in {
-    0% { transform: translateY(100%); opacity: 0; }
-    100% { transform: translateY(0); opacity: 1; }
+    0% {
+        transform: translateY(100%);
+        opacity: 0;
+    }
+
+    100% {
+        transform: translateY(0);
+        opacity: 1;
+    }
 }
 
 /** ## Timer */
@@ -639,21 +694,34 @@ onMounted(() => {
 .timer-projection-layer {
     position: absolute;
     inset: 0;
-    z-index: 999998; /* Logo abaixo dos avisos */
+    z-index: 999998;
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-.pos-top { align-items: flex-start; padding-top: 10vh; }
-.pos-bottom { align-items: flex-end; padding-bottom: 10vh; }
-.pos-center { align-items: center; }
+.pos-top {
+    align-items: flex-start;
+    padding-top: 10%;
+}
+
+/* Antigo 10vh */
+.pos-bottom {
+    align-items: flex-end;
+    padding-bottom: 10%;
+}
+
+/* Antigo 10vh */
+.pos-center {
+    align-items: center;
+}
 
 .timer-display {
-    font-size: 25vw;
+    font-size: 25cqi;
+    /* Alterado de vw para cqi para escalonar perfeitamente com o palco */
     font-weight: 800;
     color: white;
-    text-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    text-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
     z-index: 10;
 }
 

@@ -85,6 +85,12 @@
         },
         {
           "event": "save_timer_settings"
+        },
+        {
+          "event": "update-settings"
+        },
+        {
+          "event": "handle-layout-keydown"
         }
       ]
     },
@@ -129,6 +135,12 @@
         },
         {
           "event": "save_timer_settings"
+        },
+        {
+          "event": "update-settings"
+        },
+        {
+          "event": "handle-layout-keydown"
         }
       ]
     },

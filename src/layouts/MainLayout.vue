@@ -8,19 +8,16 @@ import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o 
 // import { useConfigStore } from '../stores/useConfigStore';
 
 import { useMenuStore } from '../stores/menuStore';
-import { useConfigStore } from '../stores/useConfigStore';
 import { useUserStore } from '../stores/userStore';
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import { useTheme } from 'vuetify';
+
 import { BibleRef } from '../types/bibleRef';
 
-const theme = useTheme();
 
 const userStore = useUserStore()
 const menuStore = useMenuStore();
-const configStore = useConfigStore();
 
 const router = useRouter();
 
@@ -57,6 +54,7 @@ const handleProjection = (bibleData: any) => {
 let unlistenBible: UnlistenFn | null = null;
 
 const openSettingsModal = () => {
+
   settingsModalRef.value.openDialog();
 };
 
@@ -86,8 +84,6 @@ const toggleEventsSidebar = () => {
 
 onMounted(async () => {
   menuStore.toggleMenu('Songs')
-  await configStore.loadSettings();
-  theme.change(configStore.getTheme())
 
   unlistenBible = await listen<BibleRef>('open-bible', async (event) => {
       console.log("aq")
@@ -137,7 +133,8 @@ onUnmounted(() => {
       </router-view>
     </v-main>
 
-    <SettingsModal ref="settingsModalRef" />
+    <SettingsModal ref="settingsModalRef"/>
+
   </v-layout>
 </template>
 

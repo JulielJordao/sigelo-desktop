@@ -4,8 +4,10 @@ import { usePresentationStore } from '../../stores/usePresentationStore'
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import SlidePreview from '../preview/SlidePreview.vue'
 import { useMenuStore } from '../../stores/menuStore';
+import { useConfigStore } from '../../stores/useConfigStore';
 
 const menuStore = useMenuStore()
+const configStore = useConfigStore()
 
 const props = defineProps({
     modelValue: {
@@ -20,10 +22,6 @@ const isPresetModalOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
 })
-
-// TO REMOVE
-const screenResolution = ref({ width: 1920, height: 1080 });
-const screenRatio = computed(() => screenResolution.value.width / screenResolution.value.height);
 
 const presentationStore = usePresentationStore()
 const songInfo = useMusicPresentationStore()
@@ -130,8 +128,8 @@ watch(isPresetModalOpen, (newVal) => {
                              :style="{ cursor: isDeleteMode ? 'default' : 'pointer' }">
                             <SlidePreview :design="preset.design"
                                 :textStyle="preset.textStyles[songInfo.getCurrentSlideType]"
-                                :text="songInfo.currentSlide.text" :screenRatio="screenRatio" :editable="false"
-                                style="height: 140px; border-radius: 0;" 
+                                :text="songInfo.currentSlide.text" :screenRatio="configStore.screenRatio" :editable="false"
+                                style="border-radius: 0;" 
                                 :class="{ 'opacity-50': isDeleteMode }" />
                         </div>
 

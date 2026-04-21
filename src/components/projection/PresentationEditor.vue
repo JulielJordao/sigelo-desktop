@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, onMounted } from 'vue';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // NOVO STORE
@@ -44,10 +45,6 @@ const isPresetModalOpen = ref(false)
 const isQuickBibleOpen = ref(false)
 
 
-// TO REMOVE
-const screenResolution = ref({ width: 1920, height: 1080 });
-const screenRatio = computed(() => screenResolution.value.width / screenResolution.value.height);
-
 // AQUI ESTÁ O SEGREDO: Atalhos para os valores do Store para facilitar a leitura no componente principal
 const design = computed(() => infoPresentationStore.design);
 const textStyles = computed(() => infoPresentationStore.textStyles);
@@ -57,12 +54,13 @@ const setNewDefaultThemeBySong = ref(true)
 watch(() => songInfo.activeSong, () => { currentSlideIndex.value = 0; });
 
 watch(() => infoPresentationStore.isSelectedPresetDefaultBySong, (newValue) => {
-    if(newValue) {
-        setNewDefaultThemeBySong.value = false; 
+    if (newValue) {
+        setNewDefaultThemeBySong.value = false;
         fixedTheme.value = false
     } else {
-    setNewDefaultThemeBySong.value = true
-}})
+        setNewDefaultThemeBySong.value = true
+    }
+})
 
 const parseSlides = function (rawText: string, targetLines: number = 4, maxLines: number = 5) {
     const lines = rawText.split('\n')
@@ -230,8 +228,8 @@ const maxAllowedFontSize = computed(() => {
     return calculateMaxFontSize({
         maxLines: maxLinesInSong.value,
         aspectRatio: configStore.settings.aspectRatio,
-        customWidth: screenResolution.value.width,
-        customHeight: screenResolution.value.height
+        customWidth: configStore.settings.width,
+        customHeight: configStore.settings.height
     });
 });
 
@@ -266,7 +264,7 @@ const projectCurrentSlide = async () => {
     if (!songInfo.activeSong) return;
 
     const style = currentActiveStyle.value;
-    const conf = {...configStore.settings};
+    const conf = { ...configStore.settings };
     const text = currentSlideText.value;
     const currentDesign = design.value;
 
@@ -315,7 +313,7 @@ const projectCurrentSlide = async () => {
             html: JSON.stringify(slidePayload),
             targetMonitor: conf.selectedMonitor || null
         });
-        
+
         currentTab.value = "slides"
     } catch (error) {
         console.error("Erro ao projetar o slide:", error);
@@ -330,8 +328,8 @@ const isClean = computed(() => songInfo.rawLyric == '')
 
 const handleKeydown = async (e: KeyboardEvent) => {
 
-    if(menuStore.menuOpened !== 'PdfPresenter' && !menuStore.isShiftShortcutLocked ) {
-        if(e.shiftKey && e.key === 'B'){
+    if (menuStore.menuOpened !== 'PdfPresenter' && !menuStore.isShiftShortcutLocked) {
+        if (e.shiftKey && e.key === 'B') {
             // Necessário para não abrir a modal com o valor b por causa do autofocus
             setTimeout(() => {
                 isQuickBibleOpen.value = true
@@ -339,7 +337,7 @@ const handleKeydown = async (e: KeyboardEvent) => {
         }
     }
 
-    if(!isClean.value) {
+    if (!isClean.value) {
         if (e.shiftKey && e.key === 'F5') {
             currentSlideIndex.value = 0
             projectCurrentSlide()
@@ -350,12 +348,18 @@ const handleKeydown = async (e: KeyboardEvent) => {
 
     if (!isProjecting.value) return; // Só funciona se a projeção estiver rodando
 
-    switch (e.key) {
+    await slideKeypress(e.key)
+};
+
+const slideKeypress = async (key: string) => {
+    switch (key) {
         case 'ArrowRight':
         case 'ArrowDown':
             // Avança slide
             if (currentSlideIndex.value < songSlides.value.length - 1) {
                 currentSlideIndex.value++;
+            } else {
+                stopProjection()
             }
             break;
         case 'ArrowLeft':
@@ -383,17 +387,25 @@ const handleKeydown = async (e: KeyboardEvent) => {
             }
             break;
     }
-};
+}
 
 const isSavePresetOpen = ref(false)
+
+let unlistenHandleKeydown: UnlistenFn | null = null;
 
 onMounted(async () => {
     await infoPresentationStore.loadPresets()
     window.addEventListener('keydown', handleKeydown);
+
+    unlistenHandleKeydown = await listen<string>('handle-layout-keydown', async (e) => {
+        await slideKeypress(e.payload)
+    })
 });
 
 onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown);
+
+    if(unlistenHandleKeydown) unlistenHandleKeydown()
 });
 
 watch(currentSlideIndex, () => {
@@ -434,17 +446,17 @@ watch(() => songInfo.rawLyric, (newValue) => {
 
     songInfo.setCurrentSlide(songSlides.value[currentSlideIndex.value] as Slide);
 
-    if(songInfo.activeSong?.id && newValue != "") {
-        
-       const presetId = infoPresentationStore.savedPresetBySong[songInfo.activeSong.id]
-       fixedTheme.value = !!presetId
+    if (songInfo.activeSong?.id && newValue != "") {
 
-       if(presetId){
+        const presetId = infoPresentationStore.savedPresetBySong[songInfo.activeSong.id]
+        fixedTheme.value = !!presetId
+
+        if (presetId) {
             infoPresentationStore.setCurrentPresetId(presetId)
             infoPresentationStore.applyPreset(presetId)
-       }
-       
-       isLoadedDefaultTheme.value = true
+        }
+
+        isLoadedDefaultTheme.value = true
     }
 });
 
@@ -457,7 +469,7 @@ const openBible = (bibleRef: BibleRef) => {
 
 watch(fixedTheme, () => {
 
-    if(songInfo.activeSong?.id && isLoadedDefaultTheme.value && setNewDefaultThemeBySong.value) {
+    if (songInfo.activeSong?.id && isLoadedDefaultTheme.value && setNewDefaultThemeBySong.value) {
         infoPresentationStore.setPresetBySongId(songInfo.activeSong.id, fixedTheme.value ? infoPresentationStore.currentPresetId : null)
     } else {
         setNewDefaultThemeBySong.value = true
@@ -499,6 +511,8 @@ const updateCurrentPreset = async () => {
         showSaveAlert.value = true
     }
 }
+
+
 
 </script>
 
@@ -592,7 +606,7 @@ const updateCurrentPreset = async () => {
 
             <div class="bg-black d-flex align-center justify-center relative flex-shrink-0 preview-wrapper">
                 <SlidePreview :design="design" :textStyle="currentActiveStyle" :text="currentSlideText"
-                    :screenRatio="screenRatio" :editable="currentTab === 'posicao'"
+                    :screenRatio="configStore.screenRatio" :editable="currentTab === 'posicao'"
                     :autoFontSize="infoPresentationStore.autoFontSize" @update-layout="handleLayoutUpdate"
                     @update-font-size="handleFontSizeUpdate" />
             </div>

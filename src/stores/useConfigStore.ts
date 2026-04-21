@@ -1,7 +1,9 @@
 // src/stores/useConfigStore.ts
 import { defineStore } from 'pinia';
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { load } from '@tauri-apps/plugin-store';
+import { emit } from '@tauri-apps/api/event';
+import { ask } from '@tauri-apps/plugin-dialog';
 import type { Store } from '@tauri-apps/plugin-store';
 
 export const useConfigStore = defineStore('config', () => {
@@ -17,8 +19,14 @@ export const useConfigStore = defineStore('config', () => {
     selectedMonitor: "",
     aspectRatio: '16:9',
     bgOpacity: 70,
-    transitionType: 'fade',
-    
+    transitionType: 'none',
+    width: 1920,
+    height: 1080,
+
+    customAspectW: 1920,
+    customAspectH: 1080,
+
+
     // Palco e Transmissão
     stageMonitor: null,
     stageLayout: 'full',
@@ -41,18 +49,22 @@ export const useConfigStore = defineStore('config', () => {
     activeTheme: 'Padrão'
   }
 
+  const autoSave = ref(true)
+
   // As configurações globais do aplicativo
-  const settings = ref({...defaultSettings});
+  const settings = ref({ ...defaultSettings });
 
   // 2. Salva no disco nativo toda vez que algo em settings mudar
   watch(
-    settings, 
+    settings,
     async (newSettings) => {
-      if (!isLoaded.value || !tauriStore) return; // Só tenta salvar se o tauriStore já foi instanciado
-      
+      if (!isLoaded.value || !tauriStore || !autoSave) return; // Só tenta salvar se o tauriStore já foi instanciado
+
+
       await tauriStore.set('app_config', newSettings);
-      await tauriStore.save(); 
-    }, 
+      await tauriStore.save();
+      emit('update-settings')
+    },
     { deep: true }
   );
 
@@ -63,10 +75,10 @@ export const useConfigStore = defineStore('config', () => {
   const loadSettings = async () => {
     try {
       // Inicia a store do Tauri v2
-      tauriStore = await load('settings.json', { autoSave: false , defaults: { app_config: {...defaultSettings} }});
-      
+      tauriStore = await load('settings.json', { autoSave: false, defaults: { app_config: { ...defaultSettings } } });
+
       const savedConfig = await tauriStore.get<{ [key: string]: any }>('app_config');
-      
+
       if (savedConfig) {
         settings.value = { ...defaultSettings, ...savedConfig };
       }
@@ -75,24 +87,58 @@ export const useConfigStore = defineStore('config', () => {
     } finally {
       isLoaded.value = true;
     }
-  }; 
+  };
 
   // Ação de reset
-  const resetToDefaults = () => {
-    if (confirm('Tem certeza que deseja restaurar todos os padrões? Você perderá ajustes não salvos.')) {
+  const resetToDefaults = async () => {
+    const confirmed = await ask('Tem certeza que deseja restaurar para as configurações padrões?', {
+      title: 'Confirmação',
+      kind: 'warning',
+      okLabel: 'Sim, restaurar',
+      cancelLabel: 'Cancelar'
+    });
+    console.log(confirmed)
+    if (confirmed) {
       settings.value = { ...defaultSettings };
+      return true
+    } else { 
+      return false
     }
   };
 
   const getTheme = () => {
-    return  settings.value.isDarkMode ? 'light': 'dark'
+    return settings.value.isDarkMode ? 'dark' : 'light'
   }
 
-  return { 
-    isDialogOpen, 
-    settings, 
-    openDialog, 
-    closeDialog, 
+  const screenRatio = computed(() => {
+    if (settings.value.aspectRatio === 'custom') {
+      const w = settings.value.customAspectW || 1920;
+      const h = settings.value.customAspectH || 1080;
+      return w && h ? w / h : 16 / 9;
+    }
+
+    const aspectString = settings.value.aspectRatio || '16:9';
+
+    // Divide a string onde tem ":" e transforma os pedaços em números
+    const [w, h] = aspectString.split(':').map(Number);
+
+    // Se a conversão der certo e a altura não for zero, retorna a divisão
+    if (w && h && h !== 0) {
+      console.log('result', w / h)
+      return w / h;
+    }
+
+    // Fallback de segurança caso a string venha malformada
+    return 16 / 9;
+  });
+
+  return {
+    isDialogOpen,
+    settings,
+    autoSave,
+    screenRatio,
+    openDialog,
+    closeDialog,
     loadSettings,
     resetToDefaults,
     getTheme

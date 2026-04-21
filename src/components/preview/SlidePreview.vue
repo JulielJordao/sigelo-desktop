@@ -106,7 +106,12 @@ watch(() => props.design.bgMedia, (newValue)=> {
 
 <template>
     <div ref="previewContainer" class="preview-screen"
-        :style="{ aspectRatio: screenRatio, backgroundColor: design.bgType === 'color' ? design.bgColor : '#000' }">
+        :style="{ 
+            aspectRatio: screenRatio, 
+            backgroundColor: design.bgType === 'color' ? design.bgColor : '#000',
+            // Aqui está a mágica: limita a largura a 900px OU ao máximo possível para que a altura bata em 400px.
+            maxWidth: `min(900px, calc(400px * ${screenRatio}))` 
+        }">>
 
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
@@ -174,8 +179,6 @@ watch(() => props.design.bgMedia, (newValue)=> {
 
 .preview-screen {
     width: 100%;
-    max-width: 900px;
-    max-height: 100%;
     border-radius: 4px;
     overflow: hidden;
     position: relative;

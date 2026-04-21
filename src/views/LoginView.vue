@@ -73,7 +73,7 @@ onMounted(() => {})
 </script>
 
 <template>
-  <v-container fluid class="fill-height desktop-bg d-flex align-center justify-center app-region"
+  <v-container fluid class="fill-height bg-surface-variant d-flex align-center justify-center app-region"
     data-tauri-drag-region>
 
     <v-fade-transition hide-on-leave>
@@ -152,11 +152,6 @@ onMounted(() => {})
 .app-region {
   user-select: none;
   -webkit-user-select: none;
-}
-
-/* Fundo com gradiente sutil */
-.desktop-bg {
-  background: linear-gradient(135deg, #ece9e6 0%, #ffffff 100%);
 }
 
 /* Ajuste fino na borda do card */

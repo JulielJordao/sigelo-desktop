@@ -8,10 +8,14 @@ import { exportToPPTX } from './utils/pptxGen';
 import { exportToPDF } from './utils/pdfGen';
 import { useFontStore } from './stores/useFontStore';
 import { useRoute } from 'vue-router';
+import { useTheme } from 'vuetify';
+import { useConfigStore } from './stores/useConfigStore';
 
 const refPdfPresenter = ref<InstanceType<typeof PdfPresenter> | null>(null);
 const windowLabel = ref('');
 const route = useRoute();
+const theme = useTheme();
+const configStore = useConfigStore()
 
 const fontStore = useFontStore()
 
@@ -53,6 +57,8 @@ if (import.meta.env.PROD) {
 }
 
 onMounted(async () => {
+  await configStore.loadSettings()
+  theme.change(configStore.getTheme())
   const appWindow = getCurrentWindow();
   await fontStore.loadDefaultFonts();
   await fontStore.loadCustomFonts();

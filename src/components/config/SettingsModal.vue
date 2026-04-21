@@ -22,6 +22,8 @@ const toggleTheme = () => {
   theme.change(configStore.getTheme())
 };
 
+const isOpening = ref(false)
+
 // --- ESTADO LOCAL (SNAPSHOT) ---
 // Inicializa com uma cópia vazia ou com os dados atuais para evitar erros de renderização
 const localSettings = ref(JSON.parse(JSON.stringify(configStore.settings)));
@@ -36,6 +38,8 @@ interface MonitorInfo {
     height: number;
     is_primary: boolean;
 }
+
+const listMonitor = ref<MonitorInfo[]>([])
 
 // Lista reativa de monitores
 const availableMonitors = ref<{ title: string, value: string }[]>([]);
@@ -80,6 +84,7 @@ const fetchMonitors = async () => {
     isLoadingMonitors.value = true;
     try {
         const monitors = await invoke<MonitorInfo[]>('get_monitors');
+        listMonitor.value = monitors;
         availableMonitors.value = monitors.map(m => ({
             title: `${m.name} (${m.width}x${m.height})${m.is_primary ? ' - Principal' : ''}`,
             value: m.name
@@ -201,6 +206,7 @@ const setupFolders = async () => {
 };
 
 const openDialog = () => {
+    isOpening.value = true
     localSettings.value = JSON.parse(JSON.stringify(configStore.settings));
     setupFolders();
     isDialogOpen.value = true;
@@ -208,9 +214,16 @@ const openDialog = () => {
 }
 
 const saveAndClose = () => {
+    const monitor = listMonitor.value.find(it => localSettings.value.selectedMonitor.includes(it.name))
+    
+    if(monitor?.width && monitor?.height){
+      localSettings.value.height = monitor.height
+      localSettings.value.width = monitor.width
+    }
+
     // 2. Transfere os dados locais para a Store Global (O que vai ativar o watch e salvar no Tauri)
     Object.assign(configStore.settings, localSettings.value);
-    
+
     // 3. Fecha o modal
     configStore.closeDialog();
 }
@@ -234,11 +247,44 @@ onMounted(async ()=> {
   //presentationStore.presets.forEach(it => themeOptions.push(it.name))
 })
 
+// Observa a opção de proporção e o monitor selecionado para sugerir a resolução
+watch(
+  () => [localSettings.value.aspectRatio, localSettings.value.selectedMonitor],
+  ([newAspect, newMonitor]) => {
+    console.log("watch")
+    if (newAspect === 'custom' && !isOpening.value) {
+      // Busca o monitor atual selecionado na lista devolvida pelo Tauri
+      const monitor = listMonitor.value.find(it => it.name.includes(newMonitor))
+  
+      if (monitor && monitor.width && monitor.height) {
+        localSettings.value.customAspectW = monitor.width;
+        localSettings.value.customAspectH = monitor.height;
+
+      } else if (!localSettings.value.customAspectW) {
+        // Fallback de segurança se falhar a detecção
+        localSettings.value.customAspectW = 1920;
+        localSettings.value.customAspectH = 1080;
+      }
+    }
+    isOpening.value = false
+  }
+);
+
+
 defineExpose({ openDialog })
 
 watch(isDialogOpen, () => {
   menuStore.setShiftShortcutLocked(isDialogOpen.value)
 })
+
+const resetToDefaults = async () => {
+  const confirmed = await configStore.resetToDefaults()
+  if(confirmed){
+    localSettings.value = JSON.parse(JSON.stringify(configStore.settings));
+
+    theme.change(configStore.getTheme())
+  }
+}
 
 </script>
 
@@ -300,9 +346,43 @@ watch(isDialogOpen, () => {
                 <v-select v-model="localSettings.aspectRatio" :items="aspectOptions" label="Proporção do Telão (Aspect Ratio)" variant="outlined" density="comfortable" prepend-inner-icon="mdi-aspect-ratio" hide-details class="mb-4"></v-select>
               </v-col>
               <v-col cols="12" md="6">
-                <v-select v-model="localSettings.transitionType" :items="transitionOptions" label="Transição entre Slides" variant="outlined" density="comfortable" prepend-inner-icon="mdi-transition" hide-details class="mb-4"></v-select>
+                <v-select v-model="localSettings.transitionType" :items="transitionOptions" label="Transição entre Slides" variant="outlined" density="comfortable" prepend-inner-icon="mdi-transition" hide-details class="mb-4" disabled></v-select>
               </v-col>
             </v-row>
+
+            <v-expand-transition>
+              <div v-if="localSettings.aspectRatio === 'custom'" class="mb-4">
+                <v-card variant="tonal" color="primary" class="pa-3 rounded-lg border">
+                  <p class="text-caption font-weight-bold mb-2 ml-1">Definir Proporção Manual</p>
+                  <div class="d-flex align-center">
+                    <v-text-field 
+                      v-model.number="localSettings.customAspectW" 
+                      type="number" 
+                      label="Largura" 
+                      variant="solo-filled" 
+                      density="compact" 
+                      hide-details 
+                      class="flex-grow-1"
+                    ></v-text-field>
+                    
+                    <v-icon class="mx-3" color="primary">mdi-close</v-icon>
+                    
+                    <v-text-field 
+                      v-model.number="localSettings.customAspectH" 
+                      type="number" 
+                      label="Altura" 
+                      variant="solo-filled" 
+                      density="compact" 
+                      hide-details 
+                      class="flex-grow-1"
+                    ></v-text-field>
+                  </div>
+                  <p class="text-caption mt-2 mb-0 ml-1 opacity-70">
+                    * Sugerimos não distorcer muito a relação para que os textos não fiquem achatados.
+                  </p>
+                </v-card>
+              </div>
+            </v-expand-transition>
             
             <v-card variant="tonal" class="pa-4 rounded-lg mt-2">
               <p class="text-subtitle-2 font-weight-bold mb-2">Filtro Escurecedor de Fundo</p>
@@ -479,7 +559,7 @@ watch(isDialogOpen, () => {
                 <v-card variant="outlined" class="pa-4 rounded-lg border-error h-100 d-flex flex-column justify-center align-center bg-error-lighten-5">
                   <v-icon size="32" color="error" class="mb-2">mdi-alert-circle-outline</v-icon>
                   <p class="text-subtitle-2 font-weight-bold text-error mb-2">Deu algo errado?</p>
-                  <v-btn color="error" variant="tonal" size="small" @click="configStore.resetToDefaults">Restaurar Padrões Originais</v-btn>
+                  <v-btn color="error" variant="tonal" size="small" @click="resetToDefaults">Restaurar Padrões Originais</v-btn>
                 </v-card>
               </v-col>
             </v-row>
