@@ -8,6 +8,7 @@ import { useStatusPresentationStore } from '../../stores/statusPresentationStore
 import { useMenuStore } from "../../stores/menuStore"
 import { message } from '@tauri-apps/plugin-dialog';
 import MediaListItem from './MediaListItem.vue';
+import LiveMediaController from './LiveMediaController.vue';
 
 const menuStore = useMenuStore()
 const configStore = useConfigStore();
@@ -36,12 +37,8 @@ const sortDesc = ref(false);
 
 const previewDialog = ref(false);
 const previewFile = ref<MediaFile | null>(null);
-const isProjecting = computed(()=> { return statusPresStore.status.isPresentation && statusPresStore.status.isPresentation === 'Media'});
-const projectedFile = ref<MediaFile | null>(null);
 
 const isPlaying = ref(true);
-const isMuted = ref(false);
-const isReloaded = ref(false);
 
 // Estados para o Modal de Deletar
 const deleteDialog = ref(false);
@@ -59,28 +56,8 @@ const handleProjectFile = async (file: MediaFile) => {
   }
 
   await emit('project-media', file);
-  projectedFile.value = file;
+  statusPresStore.projectedFile = file;
   isPlaying.value = true;
-};
-
-// CORREÇÃO 3: Lógica dos botões de controle de mídia
-const togglePlay = async () => {
-  isReloaded.value = false;
-  isPlaying.value = !isPlaying.value;
-  // Dispara o comando para a janela de projeção
-  await emit('media-control', { action: isPlaying.value ? 'play' : 'pause' });
-};
-
-const restartMedia = async () => {
-  isReloaded.value = !isPlaying.value;
-
-  await emit('media-control', { action: 'restart' });
-};
-
-const toggleVolume = async () => {
-  isMuted.value = !isMuted.value;
-  // Dispara o comando para a janela de projeção
-  await emit('media-control', { action: isMuted.value ? 'mute' : 'unmute' });
 };
 
 // Quando receber o evento @setFixed da MediaSidebar:
@@ -93,12 +70,6 @@ const handleSetFixed = async (file: MediaFile) => {
     await emit('set-fixed-media', file);
     mediaStore.setFixedMedia(file);
   }
-};
-
-// Crie um botão "Limpar Tela" na sua interface e dispare isso para terminar a apresentação:
-const clearPresentationScreen = async () => {
-  statusPresStore.clean() // Isso vai acionar o Fundo Fixo na outra janela
-  projectedFile.value = null
 };
 
 const filteredAndSortedFiles = computed(() => {
@@ -346,37 +317,7 @@ const handleFocus = () => {
       <div class="flex-grow-1 overflow-y-auto bg-transparent px-2 pb-4">
 
         <v-slide-y-transition>
-          <v-card v-if="isProjecting && projectedFile" class="mb-4 border-md"
-            style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
-            <div class="bg-error px-3 py-1 text-caption font-weight-bold d-flex align-center text-white">
-              <v-icon start size="small">mdi-record-circle-outline</v-icon> AO VIVO NO TELÃO
-              <v-spacer></v-spacer>
-              <span class="text-uppercase" style="font-size: 0.65rem;">Controles de Apresentação</span>
-            </div>
-            <div class="pa-3 d-flex align-center bg-surface-variant">
-              <div class="preview-container mr-3 rounded overflow-hidden flex-shrink-0"
-                style="width: 80px; height: 60px;">
-                <video v-if="projectedFile.isVideo" :src="`${projectedFile.url}#t=0.5`" class="w-100 h-100 object-cover"
-                  muted></video>
-                <v-img v-else :src="projectedFile.url" cover class="w-100 h-100"></v-img>
-              </div>
-              <div class="flex-grow-1 overflow-hidden">
-                <div class="text-subtitle-2 font-weight-bold text-truncate mb-2">{{ projectedFile.name }}</div>
-                <div class="d-flex gap-2">
-                  <v-btn v-if="projectedFile.isVideo" :icon="isPlaying ? 'mdi-pause' : 'mdi-play'" size="small"
-                    variant="tonal" @click="togglePlay">
-                  </v-btn>
-                  <v-btn v-if="projectedFile.isVideo" icon="mdi-replay" size="small" variant="tonal"
-                    v-show="!isReloaded" @click="restartMedia" title="Reiniciar vídeo"></v-btn>
-                  <v-btn v-if="projectedFile.isVideo" :icon="isMuted ? 'mdi-volume-off' : 'mdi-volume-high'"
-                    size="small" variant="tonal" @click="toggleVolume"></v-btn>
-                  <v-spacer></v-spacer>
-                  <v-btn size="small" color="error" variant="flat" prepend-icon="mdi-stop"
-                    @click="clearPresentationScreen">Parar Apresentação</v-btn>
-                </div>
-              </div>
-            </div>
-          </v-card>
+          <LiveMediaController></LiveMediaController>
         </v-slide-y-transition>
 
         <div v-if="viewMode === 'list'" class="pt-2">
@@ -394,8 +335,8 @@ const handleFocus = () => {
             >
               <MediaListItem 
                 :file="file"
-                :is-projecting="isProjecting"
-                :projected-file-id="projectedFile?.id"
+                :is-projecting="statusPresStore.isProjectingMediaFile"
+                :projected-file-id="statusPresStore.projectedFile?.id"
                 :fixed-media-id="mediaStore.fixedMedia?.id"
                 :editing-id="editingId"
                 v-model:edit-name="editName"
@@ -427,8 +368,8 @@ const handleFocus = () => {
               <MediaListItem 
                 v-if="expandedId === file.id"
                 :file="file"
-                :is-projecting="isProjecting"
-                :projected-file-id="projectedFile?.id"
+                :is-projecting="statusPresStore.isProjectingMediaFile"
+                :projected-file-id="statusPresStore.projectedFile?.id"
                 :fixed-media-id="mediaStore.fixedMedia?.id"
                 :editing-id="editingId"
                 v-model:edit-name="editName"
@@ -447,7 +388,7 @@ const handleFocus = () => {
               />
 
               <div v-else class="d-flex flex-column h-100 position-relative">
-                <div v-if="projectedFile?.id === file.id"
+                <div v-if="statusPresStore.projectedFile?.id === file.id"
                   class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center bg-black opacity-70 z-10"
                   style="background: rgba(0,0,0,0.6)">
                   <v-icon color="success" size="large">mdi-projector-screen</v-icon>

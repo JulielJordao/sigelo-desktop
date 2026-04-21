@@ -16,6 +16,7 @@ import { exit } from '@tauri-apps/plugin-process'
 import { ask } from '@tauri-apps/plugin-dialog';
 import NoticeManager from './header/NoticeManager.vue';
 import TimerManager from './timer/TimerManager.vue';
+import LiveMediaController from './media/LiveMediaController.vue';
 
 const connectionStore = useConnectionStore()
 const menuStore = useMenuStore();
@@ -191,6 +192,7 @@ onUnmounted(() => {
         </span>
       </v-tooltip>
       <v-divider vertical class="mx-3 h-50 align-self-center opacity-50"></v-divider>
+      <LiveMediaController :is-toolbar="true"></LiveMediaController>
       <notice-manager></notice-manager>
       <timer-manager></timer-manager>
       <v-btn-group v-if="youtubeStore.cachedVideos.length > 0" color="error" variant="tonal" density="comfortable"

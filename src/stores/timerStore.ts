@@ -33,6 +33,7 @@ export const useTimerStore = defineStore('timer', () => {
     const isActive = ref(false);
     const isPaused = ref(false);
     const timeRemaining = ref(0);
+    const isFinished = ref(false)
     let timerInterval: ReturnType<typeof setInterval> | null = null;
 
     const formattedTime = computed(() => {
@@ -109,7 +110,12 @@ export const useTimerStore = defineStore('timer', () => {
             if (mediaObject) {
                 // 4. Se for tocar uma mídia final, muda o status da apresentação para 'Media'
                 await statusStore.setNewPresentation('Media', configStore.settings.selectedMonitor);
+                
                 await emit('project-media', mediaObject);
+
+                statusStore.setProjectedMedia(mediaObject);
+
+                isFinished.value = true
             }
         }
     };
@@ -128,7 +134,7 @@ export const useTimerStore = defineStore('timer', () => {
 
     return {
         timerMode, durationSecs, position, fontFamily, bgType, bgMediaUrl, bgIsVideo, gradientColors,
-        audioUrl, mediaAfterUrl, enableAutoSave,
+        audioUrl, mediaAfterUrl, enableAutoSave, isFinished,
         isActive, isPaused, timeRemaining, currentClockTime, formattedTime,
         startTimer, stopTimer
     };

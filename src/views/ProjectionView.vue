@@ -24,7 +24,8 @@ const timerStore = useTimerStore();
 timerStore.enableAutoSave = false;
 
 interface MediaControlPayload {
-    action: 'play' | 'pause' | 'mute' | 'unmute' | 'restart';
+    action: 'play' | 'pause' | 'mute' | 'unmute' | 'restart' | 'seek';
+    time: number
 }
 
 interface ScrollPayload { x: number; y: number; }
@@ -180,7 +181,7 @@ onMounted(async () => {
     unlistenMediaControl = await listen<MediaControlPayload>('media-control', (event) => {
         if (!videoRef.value) return;
 
-        const action = event.payload.action;
+        const { action, time } = event.payload;
         debugLog.value = `Comando recebido: ${action}`;
 
         try {
@@ -201,7 +202,12 @@ onMounted(async () => {
                     videoRef.value.currentTime = 0;
                     //videoRef.value.play();
                     break;
-            }
+                case 'seek':
+                    if (time !== undefined) {
+                        videoRef.value.currentTime = time;
+                    }
+                    break;
+           }
         } catch (e) {
             console.error("Erro ao controlar vídeo:", e);
         }

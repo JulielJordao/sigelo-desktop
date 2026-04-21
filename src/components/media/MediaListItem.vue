@@ -3,14 +3,14 @@ import { ref } from "vue"
 import type { MediaFile } from '../../stores/mediaStore'; // Ajuste o caminho se necessário
 import TagEditModal from "./TagEditModal.vue"
 import { useMediaStore } from "../../stores/mediaStore";
-//import { useMenuStore } from "../../stores/menuStore";
+import { useStatusPresentationStore } from "../../stores/statusPresentationStore";
 
 const mediaStore = useMediaStore()
+const statusStore = useStatusPresentationStore()
 
 const props = defineProps<{
     file: MediaFile;
     projectedFileId?: string;
-    isProjecting: boolean;
     fixedMediaId?: string;
     editingId?: string | null;
     editName?: string;
@@ -129,10 +129,10 @@ const openTagModal = () => {
             <v-spacer v-if="!isGridExpanded"></v-spacer>
 
             <div class="d-flex gap-2" :class="isGridExpanded ? 'mt-auto' : 'mt-2'">
-                <v-btn size="small" :color="projectedFileId === file.id ? 'success' : 'primary'" variant="tonal"
-                    :prepend-icon="projectedFileId === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
+                <v-btn size="small" :color="statusStore.projectedFile?.id === file.id ? 'success' : 'primary'" variant="tonal"
+                    :prepend-icon="statusStore.projectedFile?.id === file.id ? 'mdi-projector-screen' : 'mdi-projector'"
                     class="flex-grow-1" :class="{ 'px-0': isGridExpanded }" @click.stop="emit('project', file)">
-                    {{ projectedFileId === file.id && isProjecting ? 'Projetando...' : 'Projetar' }}
+                    {{ statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation ? 'Projetando...' : 'Projetar' }}
                 </v-btn>
                 <v-btn size="small" :icon="fixedMediaId === file.id ? 'mdi-pin-off' : 'mdi-pin'"
                     :color="fixedMediaId === file.id ? 'success' : 'secondary'"

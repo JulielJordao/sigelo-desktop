@@ -1,5 +1,5 @@
 // Adicione as importações necessárias no topo
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter };
 use tauri_plugin_store::StoreExt;
 use serde_json::Value;
 use serde::Serialize;

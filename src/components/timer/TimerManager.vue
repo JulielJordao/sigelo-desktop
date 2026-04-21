@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useTimerStore } from '../../stores/timerStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import FontSelector from '../utils/FontSelector.vue';
@@ -109,6 +109,14 @@ const previewTime = computed(() => {
   const s = (timerStore.durationSecs % 60).toString().padStart(2, '0');
   return `${m}:${s}`;
 });
+
+watch(() => timerStore.isFinished, (newValue) => {
+  console.log("timer", newValue)
+  if(newValue) {
+      menuOpen.value = false
+      timerStore.isFinished = false
+  }
+})
 
 onMounted(() => {
   if (mediaStore.mediaFiles.length === 0) {
