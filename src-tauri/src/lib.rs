@@ -10,6 +10,7 @@ mod offline;
 mod notice;
 mod timer;
 mod stream;
+mod dependency_manager;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -44,8 +45,6 @@ pub fn run() {
         "--disable-features=msWebview2EnableVariableRefreshRate,CalculateNativeWinOcclusion"
     );
 
-    let pipeline_state = std::sync::Arc::new(tokio::sync::Mutex::new(crate::stream::PipelineState::new()));
-
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -54,7 +53,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::new())
-        .manage(pipeline_state)
+        .manage(crate::stream::PipelineState::new())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -85,8 +84,11 @@ pub fn run() {
             crate::timer::timer::save_timer_settings,
             crate::timer::timer::load_timer_settings,
             crate::timer::timer::sync_timer_playback,
+            stream::get_video_preview,
+            stream::send_video_command,
             stream::play_video,
             stream::stop_video,
+            stream::get_video_preview,            
             is_online
         ])
         .on_window_event(|window, event| {
@@ -119,6 +121,13 @@ pub fn run() {
         })
         .setup(|app| {
             use tauri::Manager;
+
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+             if let Err(e) = dependency_manager::ensure_binaries(&handle).await {
+                        eprintln!("[ffmpeg_install] {}", e);
+                    }
+            });
 
             // --- LÓGICA EXCLUSIVA PARA MACOS ---
             #[cfg(target_os = "macos")]

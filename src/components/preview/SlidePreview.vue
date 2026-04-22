@@ -12,12 +12,12 @@ const props = defineProps({
     design: { type: Object, required: true },
     textStyle: { type: Object, required: true },
     text: { type: String, default: 'Slide Text' },
-    screenRatio: { type: Number, default: 16/9 },
-    
+    screenRatio: { type: Number, default: 16 / 9 },
+
     // Controles de comportamento
     editable: { type: Boolean, default: false },
     autoFontSize: { type: Boolean, default: false },
-    
+
     // NOVO: Prop para forçar a pausa do vídeo externamente
     pauseVideo: { type: Boolean, default: false }
 });
@@ -38,7 +38,7 @@ const isVideoPaused = computed(() => {
 // Assiste à mudança de estado para pausar/tocar programaticamente
 watch(isVideoPaused, (paused) => {
     if (!videoRef.value) return;
-    
+
     if (paused) {
         videoRef.value.pause();
     } else {
@@ -55,7 +55,7 @@ let startFontSize = 0;
 
 const startAction = (e: MouseEvent, type: string) => {
     e.preventDefault();
-    if (!props.editable) return; 
+    if (!props.editable) return;
 
     interactionType.value = type;
     startMouse.x = e.clientX;
@@ -122,11 +122,11 @@ const stopAction = () => {
 
 onUnmounted(() => {
     stopAction();
-    
+
 });
 
-onMounted(()=> {
-    if(props.pauseVideo === true) {
+onMounted(() => {
+    if (props.pauseVideo === true) {
         videoRef.value?.pause()
     }
 })
@@ -150,43 +150,35 @@ watch(() => props.design.bgMedia, async () => {
     if (videoRef.value) {
         // videoRef.value.load(); // ← força o browser a recarregar o novo src
         if (!isVideoPaused.value) {
-            videoRef.value.play().catch(() => {});
+            videoRef.value.play().catch(() => { });
         }
     }
 });
 </script>
 
 <template>
-    <div ref="previewContainer" class="preview-screen"
-        :style="{ 
-            aspectRatio: screenRatio, 
-            backgroundColor: design.bgType === 'color' ? design.bgColor : '#000',
-            maxWidth: `min(900px, calc(400px * ${screenRatio}))` 
-        }">
+    <div ref="previewContainer" class="preview-screen" :style="{
+        aspectRatio: screenRatio,
+        backgroundColor: design.bgType === 'color' ? design.bgColor : '#000',
+        maxWidth: `min(900px, calc(400px * ${screenRatio}))`
+    }">
 
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
-       <ffmpeg-video 
-        ref="videoRef"
-        v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
-        :src="getLocalPathFromAssetUrl(design.bgMedia)" 
-        autoplay 
-        class="video-bg" 
-        :style="{ objectFit: design.bgFit }"
-        />
+        <ffmpeg-video ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            :src="getLocalPathFromAssetUrl(design.bgMedia)" volume="0.5" autoplay loop muted class="video-bg"
+            :style="{ objectFit: design.bgFit }" />
 
         <v-fade-transition>
             <div v-if="design.bgIsVideo && isVideoPaused" class="video-paused-indicator">
                 <v-icon color="white" size="48">mdi-play-circle-outline</v-icon>
             </div>
         </v-fade-transition>
- 
-        <div 
-            class="dark-overlay" 
-            :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"
-        ></div>
-        
+
+        <div class="dark-overlay"
+            :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
+
         <div class="slide-text-box" :class="{
             'is-positioning': editable,
             'is-active': interactionType !== null
@@ -242,7 +234,7 @@ watch(() => props.design.bgMedia, async () => {
     /* NOVO: CSS Containment. Diz ao Chromium que nada dentro dessa div afeta o layout de fora.
        Isso corta o tempo de recálculo da CPU/GPU pela metade. */
     contain: layout paint;
-    
+
     /* NOVO: Força o Preview inteiro a virar uma textura única na memória da GPU */
     transform: translateZ(0);
 }
@@ -253,9 +245,10 @@ watch(() => props.design.bgMedia, async () => {
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 2; /* Nível 2 - Acima do fundo */
-    pointer-events: none; 
-    transition: background-color 0.3s ease; 
+    z-index: 2;
+    /* Nível 2 - Acima do fundo */
+    pointer-events: none;
+    transition: background-color 0.3s ease;
 
     /* NOVO: Força a película a ter sua própria camada, para que a GPU não precise
        "fundir" a cor dela com os pixels do vídeo a todo momento via CPU */
@@ -419,8 +412,10 @@ watch(() => props.design.bgMedia, async () => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    z-index: 10; /* Fica acima do fundo e dark-overlay, mas abaixo do texto (z-index 20) */
-    background-color: rgba(0, 0, 0, 0.5); /* Escurece um pouco mais o vídeo congelado */
+    z-index: 10;
+    /* Fica acima do fundo e dark-overlay, mas abaixo do texto (z-index 20) */
+    background-color: rgba(0, 0, 0, 0.5);
+    /* Escurece um pouco mais o vídeo congelado */
 }
 
 .video-paused-indicator span {

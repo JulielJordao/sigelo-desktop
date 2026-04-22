@@ -311,7 +311,7 @@ onMounted(async () => {
     });
 
     unlistenUpdateConfig = await listen<string>('update-settings', async () => {
-        setTimeout(configStore.loadSettings, 100)
+        await configStore.loadSettings()
     })
 });
 
@@ -357,6 +357,19 @@ onMounted(() => {
     window.addEventListener('keydown', handleKeyDown);
 })
 
+function getLocalPathFromAssetUrl(url: string): string {
+    if (!url) return '';
+
+    // 1. Remove os prefixos do Tauri (v2 usa http://asset.localhost, v1 usa asset://localhost)
+    let cleanPath = url
+        .replace(/^https?:\/\/asset\.localhost\//, '')
+        .replace(/^asset:\/\/localhost\//, '');
+
+    console.log(decodeURIComponent(cleanPath))
+    // 2. Decodifica os caracteres da URL (%3A para :, %5C para \)
+    return decodeURIComponent(cleanPath);
+}
+
 </script>
 
 <template>
@@ -383,12 +396,10 @@ onMounted(() => {
                 <div class="background-layer">
                     <div v-if="slideData.background.type === 'color'"
                         :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
-                    <video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'"
-                        :src="slideData.background.media" autoplay loop muted
-                        :style="{ objectFit: slideData.background.fit }"></video>
-                    <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
+                    <ffmpeg-video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'"
+                        :src="getLocalPathFromAssetUrl(slideData.background.media)" autoplay loop muted
                         :style="{ objectFit: slideData.background.fit }" />
-                </div>
+                    </div>
                 <div class="dark-overlay"
                     :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
                 <div class="content-layer" :style="{ padding: slideData.layout.padding }">
@@ -411,8 +422,9 @@ onMounted(() => {
             </div>
 
             <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-                <video v-if="currentMedia.isVideo" ref="videoRef" :src="currentMedia.url" autoplay
-                    class="w-100 h-100 object-fit-contain"></video>
+                <ffmpeg-video v-if="currentMedia.isVideo" ref="videoRef" volume="1.0"
+                        :src="getLocalPathFromAssetUrl(currentMedia.url)" autoplay 
+                        class="w-100 h-100 object-fit-contain" />
                 <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
             </div>
 
@@ -494,16 +506,13 @@ onMounted(() => {
 /* NOVO: PALCO DE PROJEÇÃO           */
 /* --------------------------------- */
 .projection-stage {
-    /* Remova width: 100% e height: 100% */
+    width: 100%;
+    height: 100%;
     position: relative;
     overflow: hidden;
     background-color: #000;
+    /* Essencial para as fontes dinâmicas (cqi) continuarem funcionando perfeitamente */
     container-type: inline-size;
-
-    /* Deixe o aspect-ratio controlar as dimensões */
-    aspect-ratio: var(--screen-ratio, 1.777); /* fallback */
-    width: 100%;          /* largura tenta 100% */
-    max-height: 100vh;    /* mas nunca ultrapassa a altura da tela */
 }
 
 /* --------------------------------- */

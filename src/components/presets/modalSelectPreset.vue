@@ -88,6 +88,7 @@ watch(isPresetModalOpen, (newVal) => {
     }
     menuStore.setShiftShortcutLocked(newVal)
 });
+
 </script>
 
 <template>

@@ -39,7 +39,6 @@ const bibleMedia = computed(() => {
 const open = async (reference?: { abbr: string, chapter: number, verses?: string }) => {
   isOpen.value = true;
 
-  console.log("reference", reference)
   if (reference) {
     await bibleStore.loadReference(reference);
   }
