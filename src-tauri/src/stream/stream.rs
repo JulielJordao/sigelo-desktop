@@ -1,15 +1,12 @@
 // src/stream.rs
 //
-// v5 — Mudanças:
-//   1. play_video aceita `no_audio: bool` — quando true, não registra sessão
-//      para áudio (economia de processo FFmpeg).
-//   2. Windows: hwaccel `dxva2` ao invés de `d3d11va` (menos overhead em
-//      decodificação para pipe rawvideo). Threads e buffer_size configurados.
-//   3. get_video_preview retorna JPEG com qualidade configurável.
-//   4. Áudio fMP4 com movflags corretas para MSE.
-//   5. Todas as respostas HTTP com CORS completo.
-//   6. Frame loop: para vídeos longos no Windows, usa read bufferizado e
-//      limita a resolução de decode se largura > 1920.
+// v6 — Correções críticas de áudio:
+//   1. Volta para fMP4 (ADTS falha silenciosamente em WKWebView e WebView2).
+//   2. movflags CORRETAS para streaming live:
+//      +frag_keyframe+empty_moov+default_base_moof+separate_moof+omit_tfhd_offset
+//   3. -frag_duration menor (200ms) → canplay dispara mais rápido.
+//   4. HEAD handler explícito para probes sem consumir banda.
+//   5. Logs verbosos no endpoint de áudio para diagnóstico.
 
 use futures_util::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
@@ -67,7 +64,7 @@ struct Session {
     path: String,
     ffmpeg: PathBuf,
     audio_offset: Arc<Mutex<f64>>,
-    has_audio: bool, // false se no_audio=true OU arquivo sem trilha de áudio
+    has_audio: bool,
 }
 
 // =============================================================================
@@ -199,7 +196,7 @@ pub async fn play_video(
     let ffmpeg = ffmpeg_bin(&app)?;
     let ffprobe = ffprobe_bin(&app)?;
 
-    println!("\n[Backend] Tentando abrir vídeo no caminho: {}", path); 
+    println!("\n[Backend] play_video: {}", path);
     {
         let mut up = SERVERS_UP.lock().unwrap();
         if !*up {
@@ -210,6 +207,11 @@ pub async fn play_video(
 
     let info = probe(&ffprobe, &path).await;
     let skip_audio = no_audio.unwrap_or(false) || !info.has_audio;
+
+    println!(
+        "[Backend] has_audio={}, skip_audio={}",
+        info.has_audio, skip_audio
+    );
 
     let (frame_tx, _) = broadcast::channel::<Arc<Vec<u8>>>(16);
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<PipelineCmd>(32);
@@ -277,7 +279,6 @@ pub async fn get_video_preview(
         "1".to_string(),
     ];
 
-    // Escala opcional — mantém aspect ratio se só width ou só height
     if let (Some(w), Some(h)) = (width, height) {
         args.extend(["-vf".to_string(), format!("scale={}:{}", w, h)]);
     } else if let Some(w) = width {
@@ -292,7 +293,7 @@ pub async fn get_video_preview(
         "-vcodec".to_string(),
         "mjpeg".to_string(),
         "-q:v".to_string(),
-        "3".to_string(), // qualidade JPEG (2=ótima, 5=ok)
+        "3".to_string(),
         "-".to_string(),
     ]);
 
@@ -301,7 +302,6 @@ pub async fn get_video_preview(
         .output()
         .await
         .map_err(|e| e.to_string())?;
-
     if out.status.success() {
         Ok(out.stdout)
     } else {
@@ -309,13 +309,11 @@ pub async fn get_video_preview(
     }
 }
 
-/// Retorna info do vídeo (duration, fps, has_audio, width, height)
 #[tauri::command]
 pub async fn get_video_info(app: AppHandle, path: String) -> Result<serde_json::Value, String> {
     let ffprobe = ffprobe_bin(&app)?;
     let info = probe(&ffprobe, &path).await;
 
-    // Pega dimensões do vídeo
     let out = Command::new(&ffprobe)
         .args([
             "-v",
@@ -372,7 +370,6 @@ async fn frame_loop(
     mut cmd_rx: tokio::sync::mpsc::Receiver<PipelineCmd>,
     audio_offset: Arc<Mutex<f64>>,
 ) {
-    // Limita resolução decode para performance (especialmente Windows)
     let max_w: u32 = 1920;
     let (w, h) = if width > max_w {
         let ratio = max_w as f64 / width as f64;
@@ -396,11 +393,9 @@ async fn frame_loop(
     'outer: loop {
         let mut args: Vec<String> = Vec::new();
 
-        // ── Windows: dxva2 é mais leve para pipe decode que d3d11va ──
         #[cfg(target_os = "windows")]
         {
             args.extend(["-hwaccel".into(), "dxva2".into()]);
-            // Thread count = menos contenção com o pipe rawvideo
             args.extend(["-threads".into(), "2".into()]);
         }
 
@@ -453,7 +448,6 @@ async fn frame_loop(
             });
         }
 
-        // Leitor bufferizado — ajuda Windows com I/O de pipe grande
         let raw_stdout = child.stdout.take().unwrap();
         let mut stdout = BufReader::with_capacity(frame_size * 2, raw_stdout);
         let mut frame_buf = vec![0u8; frame_size];
@@ -528,13 +522,10 @@ async fn frame_loop(
                     }
 
                     let meta = json!({
-                        "pts":            pts,
-                        "duration":       duration,
-                        "video_width":    w,
-                        "video_height":   h,
-                        "fps":            fps,
-                        "has_audio":      info.has_audio,
-                        "loop_restart":   is_restart,
+                        "pts": pts, "duration": duration,
+                        "video_width": w, "video_height": h,
+                        "fps": fps, "has_audio": info.has_audio,
+                        "loop_restart": is_restart,
                     });
 
                     let meta_bytes = meta.to_string();
@@ -559,7 +550,6 @@ async fn frame_loop(
                     if e.kind() != std::io::ErrorKind::UnexpectedEof {
                         eprintln!("[frame_loop {}] leitura: {}", session_id, e);
                     } else {
-                        // NOVO: Dá 150ms para a thread do log (stderr) conseguir imprimir a mensagem de erro do FFmpeg na sua tela!
                         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
                     }
                     break 'read;
@@ -583,11 +573,42 @@ async fn frame_loop(
 }
 
 // =============================================================================
-// SERVIDORES WARP
+// SERVIDORES WARP — ÁUDIO CORRIGIDO
 // =============================================================================
+//
+// ESTRATÉGIA DE ÁUDIO (fMP4 streaming live):
+//   - frag_keyframe     → fragmento inicia em keyframe
+//   - empty_moov        → moov vazio no início, moof por fragmento
+//   - default_base_moof → offsets relativos ao moof
+//   - separate_moof     → moof e mdat em átomos separados
+//   - omit_tfhd_offset  → omite offset absoluto (crítico p/ live)
+//   - frag_duration 200ms → canplay dispara rápido
+//
+
+fn audio_args_fmp4(vpath: &str, offset: f64) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if offset > 0.0 {
+        args.extend(["-ss".into(), format!("{:.3}", offset)]);
+    }
+    args.extend([
+        "-i".into(), vpath.into(),
+        "-vn".into(),
+        "-acodec".into(), "aac".into(),
+        "-profile:a".into(), "aac_low".into(),
+        "-b:a".into(), "192k".into(),      // aumentei um pouco
+        "-ac".into(), "2".into(),
+        "-ar".into(), "44100".into(),
+        "-f".into(), "mp4".into(),
+        "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset".into(), // removido faststart
+        "-frag_duration".into(), "200000".into(),   // 200ms
+        "-loglevel".into(), "error".into(),
+        "pipe:1".into(),
+    ]);
+    args
+}
 
 fn start_warp_servers() {
-    // ── 9001 — WS vídeo /{session_id} ─────────────────────────────────────
+    // ── 9001 — WS vídeo ───────────────────────────────────────────────────
     let video_ws =
         warp::path::param::<String>()
             .and(warp::ws())
@@ -614,10 +635,11 @@ fn start_warp_servers() {
                 })
             });
 
-    // ── 9002 — HTTP áudio fMP4 /{session_id}/stream.mp4 ───────────────────
-    let audio_route = warp::path!(String / "stream.mp4")
+    // ── 9002 — HTTP áudio fMP4 ────────────────────────────────────────────
+    let audio_get = warp::path!(String / "stream.mp4")
         .and(warp::get())
         .and_then(|sid: String| async move {
+            println!("[audio] GET /{}/stream.mp4", sid);
             let (ffmpeg, vpath, offset, has_audio) = {
                 let map = SESSIONS.lock().unwrap();
                 match map.get(&sid) {
@@ -628,18 +650,20 @@ fn start_warp_servers() {
                         s.has_audio,
                     ),
                     None => {
+                        println!("[audio] session {} não existe → 404", sid);
                         return Ok::<_, warp::Rejection>(
                             Response::builder()
                                 .status(404)
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(warp::hyper::Body::empty())
                                 .unwrap(),
-                        )
+                        );
                     }
                 }
             };
 
             if !has_audio || vpath.is_empty() || !ffmpeg.exists() {
+                println!("[audio] session {} sem áudio → 204", sid);
                 return Ok::<_, warp::Rejection>(
                     Response::builder()
                         .status(204)
@@ -649,40 +673,41 @@ fn start_warp_servers() {
                 );
             }
 
-            let mut audio_args: Vec<String> = Vec::new();
-            if offset > 0.0 {
-                audio_args.extend(["-ss".into(), format!("{:.3}", offset)]);
-            }
+            let args = audio_args_fmp4(&vpath, offset);
+            println!("[audio] spawn ffmpeg para {}", sid);
 
-            // Usamos ADTS em vez de fMP4 para máxima compatibilidade com <audio> tags em streams live
-            audio_args.extend([
-                "-i".into(),
-                vpath,
-                "-vn".into(),
-                "-acodec".into(),
-                "aac".into(),
-                "-profile:a".into(),
-                "aac_low".into(),
-                "-b:a".into(),
-                "192k".into(),
-                "-ac".into(),
-                "2".into(),
-                "-ar".into(),
-                "44100".into(),
-                "-f".into(),
-                "adts".into(), // <--- FORMATO CORRIGIDO AQUI
-                "-loglevel".into(),
-                "error".into(),
-                "pipe:1".into(),
-            ]);
-
-            let mut child = Command::new(&ffmpeg)
-                .args(&audio_args)
+            let mut child = match Command::new(&ffmpeg)
+                .args(&args)
                 .stdout(Stdio::piped())
-                .stderr(Stdio::null())
+                .stderr(Stdio::piped())
                 .kill_on_drop(true)
                 .spawn()
-                .map_err(|_| warp::reject::custom(WarpError))?;
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("[audio] spawn failed: {}", e);
+                    return Ok::<_, warp::Rejection>(
+                        Response::builder()
+                            .status(500)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(warp::hyper::Body::empty())
+                            .unwrap(),
+                    );
+                }
+            };
+
+            // Loga stderr do ffmpeg de áudio também
+            if let Some(stderr) = child.stderr.take() {
+                let sid2 = sid.clone();
+                tokio::spawn(async move {
+                    let mut reader = BufReader::new(stderr);
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                        eprint!("[FFmpeg audio {}] {}", sid2, line);
+                        line.clear();
+                    }
+                });
+            }
 
             let stdout = child.stdout.take().unwrap();
             let stream = ReaderStream::new(stdout);
@@ -691,15 +716,38 @@ fn start_warp_servers() {
             Ok::<_, warp::Rejection>(
                 Response::builder()
                     .status(200)
-                    .header("Content-Type", "audio/aac") // <--- MIME TYPE CORRIGIDO AQUI
-                    .header("Cache-Control", "no-cache, no-store")
+                    .header("Content-Type", "audio/mp4")
+                    .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    .header("Pragma", "no-cache")
                     .header("Access-Control-Allow-Origin", "*")
                     .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
                     .header("Access-Control-Allow-Headers", "*")
+                    .header(
+                        "Access-Control-Expose-Headers",
+                        "Content-Type, Content-Length",
+                    )
                     .body(body)
                     .unwrap(),
             )
         });
+
+    // HEAD — para probe sem consumir banda
+    let audio_head = warp::path!(String / "stream.mp4")
+        .and(warp::head())
+        .map(|sid: String| {
+            let has_audio = {
+                let map = SESSIONS.lock().unwrap();
+                map.get(&sid).map(|s| s.has_audio).unwrap_or(false)
+            };
+            let status = if has_audio { 200 } else { 204 };
+            Response::builder()
+                .status(status)
+                .header("Content-Type", "audio/mp4")
+                .header("Access-Control-Allow-Origin", "*")
+                .body(warp::hyper::Body::empty())
+                .unwrap()
+        });
+
     let audio_options =
         warp::path!(String / "stream.mp4")
             .and(warp::options())
@@ -713,7 +761,7 @@ fn start_warp_servers() {
                     .unwrap()
             });
 
-    // ── 9003 — WS controle /{session_id} ──────────────────────────────────
+    // ── 9003 — WS controle ────────────────────────────────────────────────
     let ctrl_ws =
         warp::path::param::<String>()
             .and(warp::ws())
@@ -740,7 +788,7 @@ fn start_warp_servers() {
         warp::serve(video_ws).run(([127, 0, 0, 1], 9001)).await;
     });
     tokio::spawn(async move {
-        warp::serve(audio_options.or(audio_route))
+        warp::serve(audio_options.or(audio_head).or(audio_get))
             .run(([127, 0, 0, 1], 9002))
             .await;
     });

@@ -1,8 +1,9 @@
 <template>
     <div class="ffv-wrap">
-        <canvas ref="canvasEl" :width="_renderW" :height="_renderH" :style="{ objectFit: objectFit }" />
-        <img ref="previewImgEl" style="display: none; width: 100%; height: 100%;" :style="{ objectFit: objectFit }" />
-        <audio ref="audioEl" style="display: none; position: absolute;" preload="auto" />
+        <canvas ref="canvasEl" :width="_renderW" :height="_renderH" />
+        <img ref="previewImgEl" class="ffv-preview" :style="{ objectFit: objectFit }" />
+        <!-- <audio> SEMPRE no DOM — nunca atrás de v-if — senão Vue destrói e recria -->
+        <audio ref="audioEl" class="ffv-audio" preload="auto" crossorigin="anonymous" />
     </div>
 </template>
 
@@ -10,12 +11,16 @@
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
-// ── Tipos e helpers globais ─────────────────────────────────────────────────
+// ── Tipos ───────────────────────────────────────────────────────────────────
 interface FrameMeta { pts: number; duration: number; video_width: number; video_height: number; fps: number; has_audio: boolean; loop_restart: boolean }
 interface QueuedFrame { pts: number; y: Uint8Array; u: Uint8Array; v: Uint8Array; w: number; h: number }
 
+// ── Singletons ──────────────────────────────────────────────────────────────
 let __seq = 0
 const uid = () => `ffv${Date.now().toString(36)}${(++__seq).toString(36)}${(Math.random() * 1e6 | 0).toString(36)}`
+
+// TextDecoder compartilhado entre instâncias (criado uma vez no módulo)
+const _textDecoder = new TextDecoder()
 
 function isWindows(): boolean {
     const d = (navigator as any).userAgentData
@@ -23,7 +28,7 @@ function isWindows(): boolean {
     return /Windows/i.test(navigator.userAgent)
 }
 
-// Gesture unlock global para áudio
+// ── Gesture unlock global (compartilhado entre todas as instâncias) ─────────
 let _gestureOk = false
 const _gestureQ: (() => void)[] = []
 function _onGesture() {
@@ -42,7 +47,7 @@ function waitGesture(): Promise<void> {
 }
 
 // ── Props & Emits ───────────────────────────────────────────────────────────
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     src?: string
     width?: number | string
     height?: number | string
@@ -54,18 +59,17 @@ const props = defineProps<{
     previewOnly?: boolean
     noAudio?: boolean
     objectFit?: 'contain' | 'cover' | 'fill' | 'none'
-}>()
+}>(), {
+    width: 1280,
+    height: 720,
+    volume: 1.0,
+    playbackRate: 1.0,
+    objectFit: 'contain',
+})
 
 const emit = defineEmits<{
-    play: [any]
-    playing: [any]
-    pause: [any]
-    seeking: [any]
-    seeked: [any]
-    ended: [any]
-    timeupdate: [any]
-    loadedmetadata: [any]
-    canplaythrough: [any]
+    play: [any]; playing: [any]; pause: [any]; seeking: [any]; seeked: [any]
+    ended: [any]; timeupdate: [any]; loadedmetadata: [any]; canplaythrough: [any]
     error: [any]
 }>()
 
@@ -74,7 +78,7 @@ const canvasEl = ref<HTMLCanvasElement | null>(null)
 const previewImgEl = ref<HTMLImageElement | null>(null)
 const audioEl = ref<HTMLAudioElement | null>(null)
 
-// ── Estado Público (Vue Reactivity) ─────────────────────────────────────────
+// ── Estado Público (reativo) ────────────────────────────────────────────────
 const duration = ref(0)
 const paused = ref(true)
 const ended = ref(false)
@@ -87,12 +91,12 @@ const currentTime = computed({
     get: () => _currentTime,
     set: (v: number) => {
         if (!isFinite(v) || v < 0) return
-        if (_playing) seek(v).catch(() => { })
+        if (_playing.value) seek(v).catch(() => { })
         else _currentTime = v
     }
 })
 
-let _rate = props.playbackRate ?? 1.0
+let _rate = props.playbackRate
 const playbackRate = computed({
     get: () => _rate,
     set: (v: number) => {
@@ -101,7 +105,7 @@ const playbackRate = computed({
     }
 })
 
-const currentVolume = ref(props.volume ?? 1.0)
+const currentVolume = ref(props.volume)
 const currentMuted = ref(!!props.muted)
 const currentLoop = ref(!!props.loop)
 
@@ -113,7 +117,7 @@ watch(currentVolume, v => { if (audioEl.value) audioEl.value.volume = v })
 watch(currentMuted, v => {
     if (audioEl.value) audioEl.value.muted = v
     if (v) _stopAudio()
-    else if (_playing) _connectAudio()
+    else if (_playing.value && !_audioConnected) _connectAudio()
 })
 
 const volume = computed({ get: () => currentVolume.value, set: (v: number) => { currentVolume.value = Math.max(0, Math.min(1, v)) } })
@@ -123,9 +127,9 @@ const loop = computed({ get: () => currentLoop.value, set: (v: boolean) => { cur
 const src = computed(() => props.src)
 const previewOnly = computed(() => !!props.previewOnly)
 const noAudio = computed(() => !!props.noAudio)
-const objectFit = computed(() => props.objectFit ?? 'contain')
+const objectFit = computed(() => props.objectFit)
 
-// ── Estado Interno de Performance (WebGL & Loop) ────────────────────────────
+// ── Estado Interno ──────────────────────────────────────────────────────────
 const _sid = uid()
 const _tag = () => `[FFV ${_sid.slice(-6)}]`
 
@@ -141,24 +145,32 @@ let _pboV: WebGLBuffer | null = null
 let _glReady = false
 let _texW = 0; let _texH = 0
 
+// Cache do viewport para evitar recalcular toda frame
+let _cachedViewport: [number, number, number, number] = [0, 0, 0, 0]
+let _viewportDirty = true
+
 let _ws: WebSocket | null = null
 let _ctrlWs: WebSocket | null = null
 let _queue: QueuedFrame[] = []
-const _maxQueue = 12
+const _maxQueue = 6  // reduzido de 12 — menos buffer, menos delay
 
 let _wallStart = 0; let _ptsStart = 0
 let _clockSeeded = false
 let _rafId = 0
-let _playing = false
-let _renderW = Number(props.width || 1280)
-let _renderH = Number(props.height || 720)
+const _playing = ref(false)
+let _renderW = Number(props.width) || 1280
+let _renderH = Number(props.height) || 720
 let _firstFrame = true
 let _retryTimer: ReturnType<typeof setTimeout> | null = null
 let _audioRetry: ReturnType<typeof setTimeout> | null = null
 let _audioFallbackTimer: ReturnType<typeof setTimeout> | null = null
+let _audioConnected = false
 let _fps = 30
 
-// ── Mock Event (Prevenção de erro e.target) ─────────────────────────────────
+// Debounce para watcher de src (evita teardown/play múltiplos)
+let _srcChangeTimer: ReturnType<typeof setTimeout> | null = null
+
+// ── Mock Event ──────────────────────────────────────────────────────────────
 function getMockEvent() {
     return {
         target: {
@@ -169,15 +181,12 @@ function getMockEvent() {
             paused: paused.value,
             ended: ended.value,
             readyState: readyState.value,
-            querySelector: (selector: string) => {
-                if (selector === 'audio') return audioEl.value
-                return null
-            }
+            querySelector: (selector: string) => selector === 'audio' ? audioEl.value : null
         }
     }
 }
 
-// ── Helpers Internos ────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 function _resolvePath(p: string): string {
     if (p.match(/^[A-Za-z]:[/\\]/) || p.startsWith('/')) return p
     let res = p
@@ -204,17 +213,17 @@ function _teardown(): void {
     if (_ws) { _ws.onmessage = null; _ws.onerror = null; _ws.onclose = null; _ws.close(); _ws = null }
     if (_ctrlWs) { _ctrlWs.onclose = null; _ctrlWs.onerror = null; _ctrlWs.close(); _ctrlWs = null }
     _stopAudio()
-    _queue = []
-    _playing = false
+    _queue.length = 0
+    _playing.value = false
 }
 
-// ── WebGL & Render ──────────────────────────────────────────────────────────
+// ── WebGL ───────────────────────────────────────────────────────────────────
 function _initGL(): void {
     if (!canvasEl.value) return
-    const gl2 = canvasEl.value.getContext('webgl2', { antialias: false }) as WebGL2RenderingContext | null
+    const gl2 = canvasEl.value.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null
     if (gl2) { _gl = gl2; _isGL2 = true }
     else {
-        const gl1 = canvasEl.value.getContext('webgl', { antialias: false }) as WebGLRenderingContext | null
+        const gl1 = canvasEl.value.getContext('webgl', { antialias: false, preserveDrawingBuffer: false }) as WebGLRenderingContext | null
         if (!gl1) throw new Error('WebGL indisponível')
         _gl = gl1; _isGL2 = false
     }
@@ -275,22 +284,22 @@ function _initGL(): void {
     }
 
     _texY = mkT(0, 'u_Y'); _texU = mkT(1, 'u_U'); _texV = mkT(2, 'u_V')
+    // Define clear color uma vez (não muda entre frames)
+    gl.clearColor(0, 0, 0, 1)
     _glReady = true
+    _viewportDirty = true
 }
 
-function _applyObjectFitToGL(): void {
-    if (!_glReady || !canvasEl.value) return
-    const gl = _gl!
+/// Calcula viewport do object-fit e guarda em cache. Só recalcula se dirty.
+function _computeViewport(): [number, number, number, number] {
+    if (!_glReady || !canvasEl.value) return [0, 0, 0, 0]
     const fit = objectFit.value
-
     const cw = canvasEl.value.width
     const ch = canvasEl.value.height
     const vw = videoWidth.value || cw
     const vh = videoHeight.value || ch
 
-    if (fit === 'fill' || vw === 0 || vh === 0) {
-        gl.viewport(0, 0, cw, ch); return
-    }
+    if (fit === 'fill' || vw === 0 || vh === 0) return [0, 0, cw, ch]
 
     const canvasRatio = cw / ch
     const videoRatio = vw / vh
@@ -299,17 +308,17 @@ function _applyObjectFitToGL(): void {
     if (fit === 'cover') {
         if (canvasRatio > videoRatio) { vpW = cw; vpH = Math.round(cw / videoRatio) }
         else { vpH = ch; vpW = Math.round(ch * videoRatio) }
-        vpX = Math.round((cw - vpW) / 2); vpY = Math.round((ch - vpH) / 2)
     } else if (fit === 'none') {
         vpW = vw; vpH = vh
-        vpX = Math.round((cw - vw) / 2); vpY = Math.round((ch - vh) / 2)
-    } else {
+    } else { // contain
         if (canvasRatio > videoRatio) { vpH = ch; vpW = Math.round(ch * videoRatio) }
         else { vpW = cw; vpH = Math.round(cw / videoRatio) }
-        vpX = Math.round((cw - vpW) / 2); vpY = Math.round((ch - vpH) / 2)
     }
-    gl.viewport(vpX, vpY, vpW, vpH)
+    vpX = Math.round((cw - vpW) / 2); vpY = Math.round((ch - vpH) / 2)
+    return [vpX, vpY, vpW, vpH]
 }
+
+function _invalidateViewport(): void { _viewportDirty = true }
 
 function _ensureGLAlloc(w: number, h: number): void {
     if (_texW === w && _texH === h) return
@@ -339,6 +348,7 @@ function _ensureGLAlloc(w: number, h: number): void {
         aL(_texY!, w, h); aL(_texU!, cw, ch); aL(_texV!, cw, ch)
     }
     _texW = w; _texH = h
+    _viewportDirty = true
 }
 
 function _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: number): void {
@@ -350,10 +360,22 @@ function _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: num
     const uV = u.byteLength === uvS ? u : u.subarray(0, uvS)
     const vV = v.byteLength === uvS ? v : v.subarray(0, uvS)
 
-    gl.viewport(0, 0, canvasEl.value.width, canvasEl.value.height)
-    gl.clearColor(0, 0, 0, 1)
-    gl.clear(gl.COLOR_BUFFER_BIT)
-    _applyObjectFitToGL()
+    // Recalcula viewport só quando muda (não toda frame)
+    if (_viewportDirty) {
+        _cachedViewport = _computeViewport()
+        _viewportDirty = false
+    }
+
+    const [vpX, vpY, vpW, vpH] = _cachedViewport
+    const canvasW = canvasEl.value.width
+    const canvasH = canvasEl.value.height
+
+    // Só precisa limpar se houver letterbox (contain ou none). Cover/fill preenchem tudo.
+    if (vpX !== 0 || vpY !== 0 || vpW !== canvasW || vpH !== canvasH) {
+        gl.viewport(0, 0, canvasW, canvasH)
+        gl.clear(gl.COLOR_BUFFER_BIT)
+    }
+    gl.viewport(vpX, vpY, vpW, vpH)
 
     if (gl2 && _pboY && _pboU && _pboV) {
         const up = (p: WebGLBuffer, t: WebGLTexture, d: Uint8Array, tw: number, th: number, i: number) => {
@@ -374,54 +396,100 @@ function _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: num
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
 
-// ── Networking (WS & Áudio) ─────────────────────────────────────────────────
+// ── WebSocket ───────────────────────────────────────────────────────────────
 function _connectVideoWS(retries = 12): void {
-    if (!_playing) return
+    if (!_playing.value) return
     const ws = new WebSocket(`ws://127.0.0.1:9001/${_sid}`)
     ws.binaryType = 'arraybuffer'
     _ws = ws
     ws.onopen = () => _startRenderLoop()
     ws.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => {
-        if (!_playing) return
+        if (!_playing.value) return
         _enqueue(new Uint8Array(data))
     }
     ws.onerror = () => { }
     ws.onclose = () => {
-        if (!_playing) return
+        if (!_playing.value) return
         if (retries > 0) _retryTimer = setTimeout(() => { _retryTimer = null; _connectVideoWS(retries - 1) }, 350)
-        else { _playing = false; paused.value = true; emit('error', getMockEvent()) }
+        else { _playing.value = false; paused.value = true; emit('error', getMockEvent()) }
     }
 }
 
 function _connectCtrlWS(retries = 5): void {
-    if (!_playing) return
+    if (!_playing.value) return
     const ws = new WebSocket(`ws://127.0.0.1:9003/${_sid}`)
     _ctrlWs = ws
     ws.onclose = () => {
         _ctrlWs = null
-        if (_playing && retries > 0) setTimeout(() => _connectCtrlWS(retries - 1), 400)
+        if (_playing.value && retries > 0) setTimeout(() => _connectCtrlWS(retries - 1), 400)
     }
     ws.onerror = () => { }
 }
 
-function _connectAudio(): void {
-    if (!_playing || currentMuted.value || noAudio.value || !audioEl.value) return
+// ── Áudio ───────────────────────────────────────────────────────────────────
+/// Verifica via HEAD se a sessão existe e tem áudio.
+/// Faz retry porque o play_video pode ainda estar registrando a sessão no Rust.
+async function _probeAudio(): Promise<boolean> {
+    const url = `http://127.0.0.1:9002/${_sid}/stream.mp4`
+    for (let attempt = 0; attempt < 10; attempt++) {   // +4 tentativas
+        try {
+            const ctrl = new AbortController()
+            const to = setTimeout(() => ctrl.abort(), 800)
+            const r = await fetch(url, { method: 'HEAD', signal: ctrl.signal })
+            clearTimeout(to)
+
+            console.log(`${_tag()} probe attempt=${attempt} status=${r.status}`)
+
+            if (r.status === 200) return true
+            if (r.status === 204) return false
+            // 404 ou erro → sessão ainda não pronta
+        } catch (e) {
+            console.warn(`${_tag()} probe falhou (${attempt}):`, e)
+        }
+        await new Promise(r => setTimeout(r, 250))   // 250ms
+    }
+    console.warn(`${_tag()} probe deu timeout após 10 tentativas`)
+    return false
+}
+
+async function _connectAudio(): Promise<void> {
+    if (!_playing.value || currentMuted.value || noAudio.value || !audioEl.value) return
+    if (_audioConnected) return
+
     const audio = audioEl.value
+
+    // Probe ANTES de setar src — se endpoint retorna 204, nem tenta
+    const hasAudio = await _probeAudio()
+    if (!hasAudio) {
+        console.log(`${_tag()} audio: endpoint sem áudio (204)`)
+        return
+    }
+
+    if (!_playing.value || currentMuted.value) return  // pode ter mudado durante o probe
+
     const url = `http://127.0.0.1:9002/${_sid}/stream.mp4?t=${Date.now()}`
+    console.log(`${_tag()} audio →`, url)
+
     audio.src = url
     audio.volume = currentVolume.value
     audio.muted = false
     audio.load()
 
+    _audioConnected = true
+
     const tryPlay = () => {
         const p = audio.play()
         if (!p || typeof p.then !== 'function') return
-        p.then(() => { }).catch(() => {
-            waitGesture().then(() => {
-                if (!_playing || currentMuted.value) return
-                audio.play().catch(console.warn)
+        p.then(() => console.log(`${_tag()} ✔ audio playing`))
+            .catch(err => {
+                console.warn(`${_tag()} autoplay bloqueado (${err.name}) → gesture`)
+                waitGesture().then(() => {
+                    if (!_playing.value || currentMuted.value) return
+                    audio.play()
+                        .then(() => console.log(`${_tag()} ✔ audio após gesture`))
+                        .catch(e2 => console.warn(`${_tag()} ✘ audio após gesture:`, e2))
+                })
             })
-        })
     }
 
     audio.oncanplay = () => {
@@ -430,21 +498,27 @@ function _connectAudio(): void {
         tryPlay()
     }
 
+    // Fallback: forçar play mesmo sem canplay após 2.5s
     if (_audioFallbackTimer) clearTimeout(_audioFallbackTimer)
     _audioFallbackTimer = setTimeout(() => {
         _audioFallbackTimer = null
-        if (!_playing || audio.readyState >= 2) return
+        if (!_playing.value || audio.readyState >= 2) return
+        console.log(`${_tag()} audio fallback play (rs=${audio.readyState})`)
         tryPlay()
-    }, 3000)
+    }, 2500)
 
     audio.onerror = () => {
         if (_audioFallbackTimer) { clearTimeout(_audioFallbackTimer); _audioFallbackTimer = null }
+        const e = audio.error
+        console.warn(`${_tag()} ✘ <audio> error code=${e?.code}`)
+        _audioConnected = false
     }
 }
 
 function _stopAudio(): void {
     if (_audioRetry) { clearTimeout(_audioRetry); _audioRetry = null }
     if (_audioFallbackTimer) { clearTimeout(_audioFallbackTimer); _audioFallbackTimer = null }
+    _audioConnected = false
     if (!audioEl.value) return
     audioEl.value.oncanplay = null
     audioEl.value.onerror = null
@@ -453,12 +527,12 @@ function _stopAudio(): void {
     audioEl.value.load()
 }
 
-// ── Lógica de Quadros (Loop) ────────────────────────────────────────────────
+// ── Quadros ─────────────────────────────────────────────────────────────────
 function _enqueue(data: Uint8Array): void {
     const sep = data.indexOf(0x7C)
     if (sep === -1) return
     let meta: FrameMeta
-    try { meta = JSON.parse(new TextDecoder().decode(data.subarray(0, sep))) } catch { return }
+    try { meta = JSON.parse(_textDecoder.decode(data.subarray(0, sep))) } catch { return }
 
     const rw = meta.video_width | 0
     const rh = meta.video_height | 0
@@ -478,7 +552,7 @@ function _enqueue(data: Uint8Array): void {
         videoHeight.value = meta.video_height
         _fps = meta.fps > 0 ? meta.fps : 30
         readyState.value = 4
-        nextTick(() => _applyObjectFitToGL())
+        _viewportDirty = true
         emit('loadedmetadata', getMockEvent())
         emit('canplaythrough', getMockEvent())
     }
@@ -502,8 +576,9 @@ function _enqueue(data: Uint8Array): void {
 
 function _startRenderLoop(): void {
     if (_rafId) return
+    let _lastTimeupdate = 0
     const tick = (now: DOMHighResTimeStamp) => {
-        if (!_playing) return
+        if (!_playing.value) return
         _rafId = requestAnimationFrame(tick)
         if (paused.value || !_clockSeeded || !_queue.length) return
 
@@ -517,11 +592,17 @@ function _startRenderLoop(): void {
 
         _queue.shift()
         _currentTime = frame.pts
-        emit('timeupdate', getMockEvent())
+
+        // Throttle timeupdate a cada 250ms (API <video> faz similar)
+        if (now - _lastTimeupdate > 250) {
+            emit('timeupdate', getMockEvent())
+            _lastTimeupdate = now
+        }
+
         _drawYUV(frame.y, frame.u, frame.v, frame.w, frame.h)
 
         if (!currentLoop.value && duration.value > 0 && _currentTime >= duration.value - 1 / _fps && !_queue.length) {
-            ended.value = true; paused.value = true; _playing = false
+            ended.value = true; paused.value = true; _playing.value = false
             emit('ended', getMockEvent())
         }
     }
@@ -552,8 +633,8 @@ async function _loadPreview(): Promise<void> {
 }
 
 async function play(): Promise<void> {
-    if (_playing && !paused.value) return
-    if (_playing && paused.value) { resume(); return }
+    if (_playing.value && !paused.value) return
+    if (_playing.value && paused.value) { resume(); return }
 
     const source = src.value
     if (!source) return
@@ -562,7 +643,7 @@ async function play(): Promise<void> {
     if (canvasEl.value) canvasEl.value.style.display = 'block'
 
     _teardown()
-    _playing = true; paused.value = false; ended.value = false
+    _playing.value = true; paused.value = false; ended.value = false
     _firstFrame = true; _clockSeeded = false; _queue.length = 0
 
     const startSeek = _currentTime > 0 ? _currentTime : 0
@@ -576,7 +657,7 @@ async function play(): Promise<void> {
         })
     } catch (e) {
         console.error(`${_tag()} play_video falhou:`, e)
-        _playing = false; paused.value = true; return
+        _playing.value = false; paused.value = true; return
     }
 
     if (startSeek > 0) {
@@ -589,10 +670,10 @@ async function play(): Promise<void> {
 
     _retryTimer = setTimeout(() => {
         _retryTimer = null
-        if (!_playing) return
+        if (!_playing.value) return
         _connectVideoWS()
         _connectCtrlWS()
-        if (!skipAudio) _connectAudio()
+        if (!skipAudio) _connectAudio().catch(() => { })
     }, 500)
 }
 
@@ -605,14 +686,14 @@ function pause(): void {
 }
 
 function resume(): void {
-    if (!paused.value || !_playing) return
+    if (!paused.value || !_playing.value) return
     paused.value = false
     _sendCmd({ cmd: 'play' })
     if (_clockSeeded && _queue.length > 0) {
         _wallStart = performance.now()
         _ptsStart = _queue[0].pts
     }
-    if (audioEl.value) audioEl.value.play().catch(() => { })
+    if (audioEl.value && audioEl.value.src) audioEl.value.play().catch(() => { })
     emit('play', getMockEvent())
     emit('playing', getMockEvent())
 }
@@ -630,42 +711,64 @@ async function seek(time: number): Promise<void> {
     _stopAudio()
     if (!noAudio.value && !currentMuted.value) {
         if (_audioRetry) clearTimeout(_audioRetry)
-        _audioRetry = setTimeout(() => { _audioRetry = null; _connectAudio() }, 400)
+        _audioRetry = setTimeout(() => { _audioRetry = null; _connectAudio().catch(() => { }) }, 400)
     }
     emit('seeked', getMockEvent())
 }
 
-// ── Watchers & Ciclo de Vida ────────────────────────────────────────────────
-watch(src, async (newSrc) => {
-    if (!newSrc) return
-    _teardown()
-    _currentTime = 0
-    _firstFrame = true
-    _queue.length = 0
-    ended.value = false
-    readyState.value = 0
-    await nextTick()
-    if (previewOnly.value) _loadPreview()
-    else play().catch(console.error)
+// ── Watchers ────────────────────────────────────────────────────────────────
+// Debounced — evita teardown/play múltiplos quando src muda rápido
+watch(src, (newSrc) => {
+    if (_srcChangeTimer) clearTimeout(_srcChangeTimer)
+    _srcChangeTimer = setTimeout(async () => {
+        _srcChangeTimer = null
+        if (!newSrc) return
+        _teardown()
+        // Aguarda stop_video completar no Rust antes de nova sessão.
+        // Sem isso o probe HEAD pode pegar sessão antiga ou dar 404 na transição.
+        try { await invoke('stop_video', { sessionId: _sid }) } catch { }
+        _currentTime = 0
+        _firstFrame = true
+        _queue.length = 0
+        ended.value = false
+        readyState.value = 0
+        await nextTick()
+        if (previewOnly.value) _loadPreview()
+        else play().catch(console.error)
+    }, 50)
 })
 
-watch(objectFit, () => _applyObjectFitToGL())
-watch(() => props.width, (v) => { _renderW = Number(v); if (canvasEl.value) canvasEl.value.width = _renderW; _applyObjectFitToGL() })
-watch(() => props.height, (v) => { _renderH = Number(v); if (canvasEl.value) canvasEl.value.height = _renderH; _applyObjectFitToGL() })
+watch(objectFit, _invalidateViewport)
+watch(videoWidth, _invalidateViewport)
+watch(videoHeight, _invalidateViewport)
+watch(() => props.width, (v) => {
+    _renderW = Number(v) || 1280
+    if (canvasEl.value) canvasEl.value.width = _renderW
+    _invalidateViewport()
+})
+watch(() => props.height, (v) => {
+    _renderH = Number(v) || 720
+    if (canvasEl.value) canvasEl.value.height = _renderH
+    _invalidateViewport()
+})
 
+// ── Ciclo de Vida ───────────────────────────────────────────────────────────
 onMounted(() => {
     if (canvasEl.value) {
         canvasEl.value.width = _renderW
         canvasEl.value.height = _renderH
         _initGL()
-        _applyObjectFitToGL()
     }
-    if (audioEl.value) { audioEl.value.muted = currentMuted.value; audioEl.value.volume = currentVolume.value }
+    if (audioEl.value) {
+        audioEl.value.muted = currentMuted.value
+        audioEl.value.volume = currentVolume.value
+    }
     if (previewOnly.value && src.value) _loadPreview()
     else if (props.autoplay && src.value) play()
 })
 
 onUnmounted(() => {
+    if (_srcChangeTimer) { clearTimeout(_srcChangeTimer); _srcChangeTimer = null }
     _teardown()
     invoke('stop_video', { sessionId: _sid }).catch(() => { })
 })
@@ -686,17 +789,31 @@ defineExpose({
 
 <style scoped>
 .ffv-wrap {
-    display: inline-block;
+    display: block;
     position: relative;
     width: 100%;
     height: 100%;
     overflow: hidden;
 }
 
-canvas,
-img {
+canvas {
     width: 100%;
     height: 100%;
     display: block;
+}
+
+.ffv-preview {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+}
+
+.ffv-audio {
+    display: none;
+    position: absolute;
+    width: 0;
+    height: 0;
 }
 </style>

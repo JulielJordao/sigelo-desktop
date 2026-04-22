@@ -58,7 +58,6 @@ export const useConfigStore = defineStore('config', () => {
   watch(
     settings,
     async (newSettings) => {
-      console.log(isLoaded.value, !tauriStore, !autoSave)
       if (!isLoaded.value || !tauriStore || !autoSave) return; // Só tenta salvar se o tauriStore já foi instanciado
 
       await tauriStore.set('app_config', newSettings);
@@ -98,7 +97,6 @@ export const useConfigStore = defineStore('config', () => {
       okLabel: 'Sim, restaurar',
       cancelLabel: 'Cancelar'
     });
-    console.log(confirmed)
     if (confirmed) {
       settings.value = { ...defaultSettings };
       return true
@@ -125,7 +123,6 @@ export const useConfigStore = defineStore('config', () => {
 
     // Se a conversão der certo e a altura não for zero, retorna a divisão
     if (w && h && h !== 0) {
-      console.log('result', w / h)
       return w / h;
     }
 
