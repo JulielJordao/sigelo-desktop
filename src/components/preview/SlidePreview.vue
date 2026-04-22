@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
-import '../../FFmpegVideo'
+import FFmpegVideo from '../../FFmpegVideo.vue';
 
 const configStore = useConfigStore()
 const statusStore = useStatusPresentationStore()
@@ -169,14 +169,14 @@ watch(() => props.design.bgMedia, async () => {
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
         <div v-if="props.isFixedPreview"> 
-            <ffmpeg-video ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
             :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio autoplay loop muted class="video-bg"
-            :style="{ objectFit: design.bgFit }" preview-only/>
+            :object-fit="design.bgFit"  preview-only/>
         </div>
         <div v-else>
-            <ffmpeg-video ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
             :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio autoplay loop muted class="video-bg"
-            :style="{ objectFit: design.bgFit }" />
+            :object-fit="design.bgFit" />
         </div>
         
 

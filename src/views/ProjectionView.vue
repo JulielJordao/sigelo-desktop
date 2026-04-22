@@ -11,6 +11,8 @@ import { emit } from '@tauri-apps/api/event';
 
 import { useConfigStore } from '../stores/useConfigStore';
 
+import FFmpegVideo from '../FFmpegVideo.vue';
+
 const isDev = import.meta.env.DEV;
 
 // Apenas leitura
@@ -414,10 +416,17 @@ function onVideoMeta(e: Event) {
                 <div class="background-layer">
                     <div v-if="slideData.background.type === 'color'"
                         :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
-                    <ffmpeg-video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'"
-                        :src="getLocalPathFromAssetUrl(slideData.background.media)" autoplay loop muted
-                        :style="{ objectFit: slideData.background.fit, width: '100%', height: '100%' }" 
-                        />
+                    <FFmpegVideo 
+                        v-else-if="slideData.background.type === 'video'"
+                        :src="slideData.background.media"
+                        :autoplay="true" 
+                        :loop="true" 
+                        :muted="true"
+                        :object-fit="slideData.background.fit"
+                        style="width: 100%; height: 100%;" 
+                    />
+                    
+                        
                     </div>
                 <div class="dark-overlay"
                     :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
@@ -441,11 +450,10 @@ function onVideoMeta(e: Event) {
             </div>
 
             <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-                <ffmpeg-video 
+                <FFmpegVideo
                         v-if="currentMedia.isVideo" 
                         ref="videoRef" 
-                        volume="1.0"
-                        :src="getLocalPathFromAssetUrl(currentMedia.url)" 
+                        :src="currentMedia.url" 
                         autoplay 
                         class="w-100 h-100 object-fit-contain"
                         @loadedmetadata="onVideoMeta"
