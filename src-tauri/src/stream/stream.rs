@@ -1,17 +1,15 @@
 // src/stream.rs
 //
-// Arquitetura multi-sessão:
-//   - Cada chamada play_video recebe/gera um session_id.
-//   - Um HashMap<String, Session> guarda frame_tx, cmd_tx, path, ffmpeg, offset
-//     por sessão → múltiplos players convivem sem colisão.
-//   - Servidores warp rodam uma vez e roteiam por session_id no path da URL.
-//
-// Mudanças principais vs. versão anterior:
-//   1. Sem globais singleton para path/ffmpeg/offset (movidos p/ SESSIONS).
-//   2. FFmpeg sem -re: throttle 100% no loop Rust → permite N sessões fluindo.
-//   3. Áudio HTTP 9002 com rota /{session_id}/stream.aac e CORS no GET.
-//   4. WS de controle roteado por session_id.
-//   5. stop_video aceita session_id específico.
+// v5 — Mudanças:
+//   1. play_video aceita `no_audio: bool` — quando true, não registra sessão
+//      para áudio (economia de processo FFmpeg).
+//   2. Windows: hwaccel `dxva2` ao invés de `d3d11va` (menos overhead em
+//      decodificação para pipe rawvideo). Threads e buffer_size configurados.
+//   3. get_video_preview retorna JPEG com qualidade configurável.
+//   4. Áudio fMP4 com movflags corretas para MSE.
+//   5. Todas as respostas HTTP com CORS completo.
+//   6. Frame loop: para vídeos longos no Windows, usa read bufferizado e
+//      limita a resolução de decode se largura > 1920.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -58,17 +56,17 @@ struct MediaInfo {
     has_audio: bool,
 }
 
-/// Tudo que pertence a UMA sessão de player.
 struct Session {
     frame_tx:     broadcast::Sender<Arc<Vec<u8>>>,
     cmd_tx:       tokio::sync::mpsc::Sender<PipelineCmd>,
     path:         String,
     ffmpeg:       PathBuf,
     audio_offset: Arc<Mutex<f64>>,
+    has_audio:    bool,    // false se no_audio=true OU arquivo sem trilha de áudio
 }
 
 // =============================================================================
-// ESTADO GLOBAL — mapa de sessões + flag de servidores
+// ESTADO GLOBAL
 // =============================================================================
 
 static SESSIONS: Lazy<Mutex<HashMap<String, Arc<Session>>>> =
@@ -76,8 +74,6 @@ static SESSIONS: Lazy<Mutex<HashMap<String, Arc<Session>>>> =
 
 static SERVERS_UP: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
-// PipelineState agora só existe para manter compat com tauri::manage — o mapa
-// real é o SESSIONS acima.
 pub struct PipelineState;
 impl Default for PipelineState { fn default() -> Self { Self } }
 impl PipelineState { pub fn new() -> Self { Self } }
@@ -152,24 +148,23 @@ pub async fn play_video(
     path:         String,
     width:        u32,
     height:       u32,
-    render_audio: bool,
+    no_audio:     Option<bool>,
     loop_video:   bool,
 ) -> Result<(), String> {
-    // Encerra qualquer sessão pré-existente com o mesmo ID
     stop_session(&session_id);
 
     let ffmpeg  = ffmpeg_bin(&app)?;
     let ffprobe = ffprobe_bin(&app)?;
 
-    // Sobe servidores warp na 1ª vez
     {
         let mut up = SERVERS_UP.lock().unwrap();
         if !*up { start_warp_servers(); *up = true; }
     }
 
     let info = probe(&ffprobe, &path).await;
+    let skip_audio = no_audio.unwrap_or(false) || !info.has_audio;
 
-    let (frame_tx, _)   = broadcast::channel::<Arc<Vec<u8>>>(16);
+    let (frame_tx, _)    = broadcast::channel::<Arc<Vec<u8>>>(16);
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<PipelineCmd>(32);
     let audio_offset     = Arc::new(Mutex::new(0.0f64));
 
@@ -179,12 +174,9 @@ pub async fn play_video(
         path:         path.clone(),
         ffmpeg:       ffmpeg.clone(),
         audio_offset: audio_offset.clone(),
+        has_audio:    !skip_audio,
     });
     SESSIONS.lock().unwrap().insert(session_id.clone(), sess);
-
-    // NOTA: render_audio é usado no frontend para decidir se conecta ao HTTP.
-    // O servidor 9002 sempre serve áudio quando solicitado.
-    let _ = render_audio;
 
     tokio::spawn(frame_loop(
         session_id, path, width, height, loop_video,
@@ -214,22 +206,83 @@ pub async fn get_video_preview(
     app:       AppHandle,
     path:      String,
     timestamp: Option<f64>,
+    width:     Option<u32>,
+    height:    Option<u32>,
 ) -> Result<Vec<u8>, String> {
     let ffmpeg = ffmpeg_bin(&app)?;
     let ts = timestamp.unwrap_or(0.0);
+
+    let mut args = vec![
+        "-ss".to_string(), format!("{:.3}", ts),
+        "-i".to_string(),  path,
+        "-vframes".to_string(), "1".to_string(),
+    ];
+
+    // Escala opcional — mantém aspect ratio se só width ou só height
+    if let (Some(w), Some(h)) = (width, height) {
+        args.extend(["-vf".to_string(), format!("scale={}:{}", w, h)]);
+    } else if let Some(w) = width {
+        args.extend(["-vf".to_string(), format!("scale={}:-2", w)]);
+    } else if let Some(h) = height {
+        args.extend(["-vf".to_string(), format!("scale=-2:{}", h)]);
+    }
+
+    args.extend([
+        "-f".to_string(),      "image2pipe".to_string(),
+        "-vcodec".to_string(), "mjpeg".to_string(),
+        "-q:v".to_string(),    "3".to_string(),   // qualidade JPEG (2=ótima, 5=ok)
+        "-".to_string(),
+    ]);
+
     let out = Command::new(ffmpeg)
-        .args([
-            "-ss", &format!("{:.3}", ts),
-            "-i", &path,
-            "-vframes", "1",
-            "-f", "image2pipe",
-            "-vcodec", "mjpeg",
-            "-",
-        ])
+        .args(&args)
         .output().await
         .map_err(|e| e.to_string())?;
+
     if out.status.success() { Ok(out.stdout) }
     else { Err(String::from_utf8_lossy(&out.stderr).to_string()) }
+}
+
+/// Retorna info do vídeo (duration, fps, has_audio, width, height)
+#[tauri::command]
+pub async fn get_video_info(
+    app:  AppHandle,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let ffprobe = ffprobe_bin(&app)?;
+    let info = probe(&ffprobe, &path).await;
+
+    // Pega dimensões do vídeo
+    let out = Command::new(&ffprobe)
+        .args(["-v", "quiet", "-print_format", "json",
+               "-show_entries", "stream=width,height,codec_type",
+               &path])
+        .output().await
+        .map_err(|e| e.to_string())?;
+
+    let mut width: u32  = 0;
+    let mut height: u32 = 0;
+    if let Ok(text) = String::from_utf8(out.stdout) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(streams) = v["streams"].as_array() {
+                for s in streams {
+                    if s["codec_type"].as_str() == Some("video") {
+                        width  = s["width"].as_u64().unwrap_or(0) as u32;
+                        height = s["height"].as_u64().unwrap_or(0) as u32;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+        "duration":  info.duration,
+        "fps":       info.fps,
+        "has_audio": info.has_audio,
+        "width":     width,
+        "height":    height,
+    }))
 }
 
 // =============================================================================
@@ -249,8 +302,15 @@ async fn frame_loop(
     mut cmd_rx:   tokio::sync::mpsc::Receiver<PipelineCmd>,
     audio_offset: Arc<Mutex<f64>>,
 ) {
-    let w = (width / 2) * 2;
-    let h = (height / 2) * 2;
+    // Limita resolução decode para performance (especialmente Windows)
+    let max_w: u32 = 1920;
+    let (w, h) = if width > max_w {
+        let ratio = max_w as f64 / width as f64;
+        let scaled_h = ((height as f64 * ratio) as u32 / 2) * 2;
+        ((max_w / 2) * 2, scaled_h)
+    } else {
+        ((width / 2) * 2, (height / 2) * 2)
+    };
 
     let y_size     = (w * h) as usize;
     let uv_size    = ((w / 2) * (h / 2)) as usize;
@@ -259,19 +319,20 @@ async fn frame_loop(
     let fps      = info.fps.max(1.0);
     let duration = info.duration;
 
-    let mut loop_count:  u64  = 0;
-    let mut paused:      bool = false;
-    let mut rate:        f64  = 1.0;
-
-    // Base temporal para throttle (substitui o -re do FFmpeg)
-    let mut pipeline_start = tokio::time::Instant::now();
-    let mut frames_emitted: u64 = 0;
+    let mut loop_count: u64  = 0;
+    let mut paused:     bool = false;
+    let mut rate:       f64  = 1.0;
 
     'outer: loop {
         let mut args: Vec<String> = Vec::new();
 
+        // ── Windows: dxva2 é mais leve para pipe decode que d3d11va ──
         #[cfg(target_os = "windows")]
-        args.extend(["-hwaccel".into(), "d3d11va".into()]);
+        {
+            args.extend(["-hwaccel".into(), "dxva2".into()]);
+            // Thread count = menos contenção com o pipe rawvideo
+            args.extend(["-threads".into(), "2".into()]);
+        }
 
         if loop_video {
             args.extend(["-stream_loop".into(), "-1".into()]);
@@ -314,7 +375,9 @@ async fn frame_loop(
             });
         }
 
-        let mut stdout    = child.stdout.take().unwrap();
+        // Leitor bufferizado — ajuda Windows com I/O de pipe grande
+        let raw_stdout = child.stdout.take().unwrap();
+        let mut stdout = BufReader::with_capacity(frame_size * 2, raw_stdout);
         let mut frame_buf = vec![0u8; frame_size];
         let mut frame_idx: u64 = 0;
 
@@ -322,18 +385,16 @@ async fn frame_loop(
             (duration * fps).round() as u64
         } else { u64::MAX };
 
-        pipeline_start  = tokio::time::Instant::now();
-        frames_emitted  = 0;
+        let mut pipeline_start  = tokio::time::Instant::now();
+        let mut frames_emitted: u64 = 0;
 
         'read: loop {
-            // Drena comandos
             loop {
                 match cmd_rx.try_recv() {
                     Ok(PipelineCmd::Stop)        => break 'outer,
                     Ok(PipelineCmd::Pause)       => paused = true,
                     Ok(PipelineCmd::Resume)      => {
                         paused = false;
-                        // Recalibra o clock para não "correr" após a pausa
                         pipeline_start = tokio::time::Instant::now();
                         frames_emitted = 0;
                     }
@@ -346,7 +407,6 @@ async fn frame_loop(
                         let _ = child.kill().await;
                         seek = t;
                         loop_count = 0;
-                        frame_idx  = 0;
                         paused     = false;
                         *audio_offset.lock().unwrap() = t;
                         continue 'outer;
@@ -361,7 +421,6 @@ async fn frame_loop(
                 continue;
             }
 
-            // Lê 1 frame
             match stdout.read_exact(&mut frame_buf).await {
                 Ok(_) => {
                     frame_idx += 1;
@@ -392,8 +451,6 @@ async fn frame_loop(
                         "video_width":    w,
                         "video_height":   h,
                         "fps":            fps,
-                        "sample_rate":    48000,
-                        "audio_channels": 2,
                         "has_audio":      info.has_audio,
                         "loop_restart":   is_restart,
                     });
@@ -407,16 +464,11 @@ async fn frame_loop(
 
                     let _ = frame_tx.send(Arc::new(pkt));
 
-                    // ── Throttle: pacing baseado em relógio de parede ──
-                    // Substitui o -re do FFmpeg: controlamos o tempo entre envios
-                    // para que a taxa média = fps * rate.
                     frames_emitted += 1;
                     let expected_ns = (frames_emitted as f64 * 1_000_000_000.0 / (fps * rate)) as u64;
                     let elapsed_ns  = pipeline_start.elapsed().as_nanos() as u64;
                     if expected_ns > elapsed_ns {
-                        let sleep_ns = expected_ns - elapsed_ns;
-                        // Nunca dorme mais que 200ms de uma vez (responsividade a comandos)
-                        let sleep_ns = sleep_ns.min(200_000_000);
+                        let sleep_ns = (expected_ns - elapsed_ns).min(200_000_000);
                         tokio::time::sleep(std::time::Duration::from_nanos(sleep_ns)).await;
                     }
                 }
@@ -433,7 +485,6 @@ async fn frame_loop(
 
         if loop_video {
             loop_count += 1;
-            frame_idx   = 0;
             seek        = 0.0;
             continue 'outer;
         } else {
@@ -441,7 +492,6 @@ async fn frame_loop(
         }
     }
 
-    // Limpa a sessão ao encerrar
     SESSIONS.lock().unwrap().remove(&session_id);
     eprintln!("[frame_loop {}] encerrado.", session_id);
 }
@@ -451,7 +501,7 @@ async fn frame_loop(
 // =============================================================================
 
 fn start_warp_servers() {
-    // ── 9001 — WebSocket vídeo, roteado por /{session_id} ─────────────────
+    // ── 9001 — WS vídeo /{session_id} ─────────────────────────────────────
     let video_ws = warp::path::param::<String>()
         .and(warp::ws())
         .map(|sid: String, ws: warp::ws::Ws| {
@@ -461,7 +511,6 @@ fn start_warp_servers() {
                     map.get(&sid).map(|s| s.frame_tx.subscribe())
                 };
                 let mut rx = match rx { Some(r) => r, None => return };
-
                 let (mut sink, _) = socket.split();
                 while let Ok(pkt) = rx.recv().await {
                     if sink.send(warp::ws::Message::binary((*pkt).clone())).await.is_err() {
@@ -471,33 +520,33 @@ fn start_warp_servers() {
             })
         });
 
-    // ── 9002 — HTTP áudio em fragmented MP4 (MSE-compatível) ──────────────
-    //
-    // Por que fMP4 e não ADTS:
-    //   WKWebView (macOS) e WebView2 (Windows) aceitam `audio/aac` no
-    //   MediaSource.isTypeSupported(), mas o appendBuffer falha
-    //   SILENCIOSAMENTE com bytes ADTS (sem evento de erro, sem log).
-    //   Fragmented MP4 é o formato universal para MSE.
-    //
-    // Args FFmpeg para fMP4 streamable:
-    //   -movflags +frag_keyframe+empty_moov+default_base_moof+faststart
-    //
+    // ── 9002 — HTTP áudio fMP4 /{session_id}/stream.mp4 ───────────────────
     let audio_route = warp::path!(String / "stream.mp4")
         .and(warp::get())
         .and_then(|sid: String| async move {
-            let (ffmpeg, vpath, offset) = {
+            let (ffmpeg, vpath, offset, has_audio) = {
                 let map = SESSIONS.lock().unwrap();
                 match map.get(&sid) {
-                    Some(s) => (s.ffmpeg.clone(), s.path.clone(), *s.audio_offset.lock().unwrap()),
-                    None    => return Ok::<_, warp::Rejection>(
-                        Response::builder().status(404).body(warp::hyper::Body::empty()).unwrap()
+                    Some(s) => (
+                        s.ffmpeg.clone(),
+                        s.path.clone(),
+                        *s.audio_offset.lock().unwrap(),
+                        s.has_audio,
+                    ),
+                    None => return Ok::<_, warp::Rejection>(
+                        Response::builder().status(404)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .body(warp::hyper::Body::empty()).unwrap()
                     ),
                 }
             };
 
-            if vpath.is_empty() || !ffmpeg.exists() {
+            // Se no_audio ou arquivo sem áudio → 204 sem conteúdo
+            if !has_audio || vpath.is_empty() || !ffmpeg.exists() {
                 return Ok::<_, warp::Rejection>(
-                    Response::builder().status(503).body(warp::hyper::Body::empty()).unwrap()
+                    Response::builder().status(204)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(warp::hyper::Body::empty()).unwrap()
                 );
             }
 
@@ -513,12 +562,10 @@ fn start_warp_servers() {
                 "-b:a".into(),       "192k".into(),
                 "-ac".into(),        "2".into(),
                 "-ar".into(),        "44100".into(),
-                // ── fMP4 streamable ───────────────────────────────────────
                 "-f".into(),         "mp4".into(),
                 "-movflags".into(),
-                "frag_keyframe+empty_moov+default_base_moof+faststart".into(),
-                // Fragmentos pequenos → baixa latência + MSE pode começar cedo
-                "-frag_duration".into(), "500000".into(),   // 0.5s
+                "frag_keyframe+empty_moov+default_base_moof".into(),
+                "-frag_duration".into(), "500000".into(),
                 "-loglevel".into(),  "error".into(),
                 "pipe:1".into(),
             ]);
@@ -543,7 +590,6 @@ fn start_warp_servers() {
                     .header("Access-Control-Allow-Origin", "*")
                     .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
                     .header("Access-Control-Allow-Headers", "*")
-                    .header("Connection",                  "close")
                     .body(body).unwrap()
             )
         });
@@ -559,7 +605,7 @@ fn start_warp_servers() {
                 .body(warp::hyper::Body::empty()).unwrap()
         });
 
-    // ── 9003 — WebSocket controle, rota /{session_id} ─────────────────────
+    // ── 9003 — WS controle /{session_id} ──────────────────────────────────
     let ctrl_ws = warp::path::param::<String>()
         .and(warp::ws())
         .map(|sid: String, ws: warp::ws::Ws| {
@@ -568,7 +614,6 @@ fn start_warp_servers() {
                 while let Some(Ok(msg)) = stream.next().await {
                     if !msg.is_text() { continue; }
                     let text = match msg.to_str() { Ok(t) => t, Err(_) => continue };
-
                     if let Ok(cmd) = serde_json::from_str::<FrontendCmd>(text) {
                         dispatch_cmd(&sid, &cmd);
                     }
@@ -577,18 +622,11 @@ fn start_warp_servers() {
             })
         });
 
-    tokio::spawn(async move {
-        warp::serve(video_ws).run(([127, 0, 0, 1], 9001)).await;
-    });
-    tokio::spawn(async move {
-        warp::serve(audio_options.or(audio_route))
-            .run(([127, 0, 0, 1], 9002)).await;
-    });
-    tokio::spawn(async move {
-        warp::serve(ctrl_ws).run(([127, 0, 0, 1], 9003)).await;
-    });
+    tokio::spawn(async move { warp::serve(video_ws).run(([127, 0, 0, 1], 9001)).await; });
+    tokio::spawn(async move { warp::serve(audio_options.or(audio_route)).run(([127, 0, 0, 1], 9002)).await; });
+    tokio::spawn(async move { warp::serve(ctrl_ws).run(([127, 0, 0, 1], 9003)).await; });
 
-    eprintln!("[stream] Servidores 9001/9002/9003 iniciados (multi-sessão).");
+    eprintln!("[stream] Servidores 9001/9002/9003 iniciados.");
 }
 
 // =============================================================================

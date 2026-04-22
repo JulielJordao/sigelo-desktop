@@ -18,6 +18,8 @@ const props = defineProps({
     editable: { type: Boolean, default: false },
     autoFontSize: { type: Boolean, default: false },
 
+    isFixedPreview: {type: Boolean, default: false},
+
     // NOVO: Prop para forçar a pausa do vídeo externamente
     pauseVideo: { type: Boolean, default: false }
 });
@@ -166,9 +168,17 @@ watch(() => props.design.bgMedia, async () => {
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
-        <ffmpeg-video ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
-            :src="getLocalPathFromAssetUrl(design.bgMedia)" volume="0.5" autoplay loop muted class="video-bg"
+        <div v-if="props.isFixedPreview"> 
+            <ffmpeg-video ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio autoplay loop muted class="video-bg"
+            :style="{ objectFit: design.bgFit }" preview-only/>
+        </div>
+        <div v-else>
+            <ffmpeg-video ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio autoplay loop muted class="video-bg"
             :style="{ objectFit: design.bgFit }" />
+        </div>
+        
 
         <v-fade-transition>
             <div v-if="design.bgIsVideo && isVideoPaused" class="video-paused-indicator">

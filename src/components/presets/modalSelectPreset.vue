@@ -131,6 +131,7 @@ watch(isPresetModalOpen, (newVal) => {
                                 :textStyle="preset.textStyles[songInfo.getCurrentSlideType]"
                                 :text="songInfo.currentSlide.text" :screenRatio="configStore.screenRatio" :editable="false"
                                 style="border-radius: 0;" 
+                                :isFixedPreview="true"
                                 :class="{ 'opacity-50': isDeleteMode }"
                                 :pauseVideo="true" />
                         </div>

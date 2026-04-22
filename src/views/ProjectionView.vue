@@ -370,6 +370,24 @@ function getLocalPathFromAssetUrl(url: string): string {
     return decodeURIComponent(cleanPath);
 }
 
+function onVideoMeta(e: Event) {
+  const el = e.target as any;
+  console.log('=== FFmpegVideo Meta ===');
+  console.log('duration:', el.duration);
+  console.log('muted:', el.muted);
+  console.log('volume:', el.volume);
+  console.log('noAudio:', el.noAudio);
+  
+  // Inspeciona o <audio> no light DOM
+  const audio = el.querySelector('audio');
+  console.log('audio element:', audio);
+  console.log('audio.src:', audio?.src);
+  console.log('audio.muted:', audio?.muted);
+  console.log('audio.paused:', audio?.paused);
+  console.log('audio.readyState:', audio?.readyState);
+  console.log('audio.error:', audio?.error);
+}
+
 </script>
 
 <template>
@@ -398,7 +416,8 @@ function getLocalPathFromAssetUrl(url: string): string {
                         :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
                     <ffmpeg-video playsinline crossorigin="anonymous" v-else-if="slideData.background.type === 'video'"
                         :src="getLocalPathFromAssetUrl(slideData.background.media)" autoplay loop muted
-                        :style="{ objectFit: slideData.background.fit }" />
+                        :style="{ objectFit: slideData.background.fit, width: '100%', height: '100%' }" 
+                        />
                     </div>
                 <div class="dark-overlay"
                     :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
@@ -422,9 +441,16 @@ function getLocalPathFromAssetUrl(url: string): string {
             </div>
 
             <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-                <ffmpeg-video v-if="currentMedia.isVideo" ref="videoRef" volume="1.0"
-                        :src="getLocalPathFromAssetUrl(currentMedia.url)" autoplay 
-                        class="w-100 h-100 object-fit-contain" />
+                <ffmpeg-video 
+                        v-if="currentMedia.isVideo" 
+                        ref="videoRef" 
+                        volume="1.0"
+                        :src="getLocalPathFromAssetUrl(currentMedia.url)" 
+                        autoplay 
+                        class="w-100 h-100 object-fit-contain"
+                        @loadedmetadata="onVideoMeta"
+                        :style="{ width: '100%', height: '100%' }" 
+                        />
                 <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
             </div>
 

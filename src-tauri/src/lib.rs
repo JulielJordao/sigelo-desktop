@@ -84,11 +84,11 @@ pub fn run() {
             crate::timer::timer::save_timer_settings,
             crate::timer::timer::load_timer_settings,
             crate::timer::timer::sync_timer_playback,
-            stream::get_video_preview,
-            stream::send_video_command,
             stream::play_video,
             stream::stop_video,
-            stream::get_video_preview,            
+            stream::send_video_command,
+            stream::get_video_preview,
+            stream::get_video_info,            
             is_online
         ])
         .on_window_event(|window, event| {
