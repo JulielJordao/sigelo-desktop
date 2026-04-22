@@ -1,9 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  FFmpegVideo — Web Component
-//  Wire (WS 9001):  [JSON UTF-8] 0x7C [YUV420P bytes]
-//  YUV420P:  Y(w×h) + U(w/2×h/2) + V(w/2×h/2) — 3 planos separados
+//  FFmpegVideo — Web Component (multi-instância)
+//
+//  v4 — diagnóstico + fallbacks de áudio:
+//  ─ <audio> fora do Shadow DOM (Tauri/WKWebView trata media policy melhor)
+//  ─ autoplay gesture unlock (play após 1ª interação do usuário)
+//  ─ logs verbosos (toda falha de MSE/autoplay aparece no console)
+//  ─ fallback Web Audio API se MSE falhar silenciosamente
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface FrameMeta {
@@ -19,17 +23,61 @@ interface FrameMeta {
 }
 
 interface QueuedFrame {
-  pts:  number;
-  y:    Uint8Array;
-  u:    Uint8Array;
-  v:    Uint8Array;
-  _buf: Uint8Array;   // mantém o ArrayBuffer pai vivo (sem cópia)
+  pts: number;
+  y:   Uint8Array;
+  u:   Uint8Array;
+  v:   Uint8Array;
+  w:   number;
+  h:   number;
+}
+
+let __seq = 0;
+const newSessionId = () =>
+  `ffv${Date.now().toString(36)}${(++__seq).toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+
+function isWindows(): boolean {
+  const uaData = (navigator as any).userAgentData;
+  if (uaData?.platform) return /win/i.test(uaData.platform);
+  return /Windows/i.test(navigator.userAgent);
+}
+
+function toPlainU8(src: Uint8Array): Uint8Array {
+  const out = new Uint8Array(new ArrayBuffer(src.byteLength));
+  out.set(src);
+  return out;
+}
+
+// ── Gesture unlock global ──────────────────────────────────────────────────
+//
+//  Muitos WebViews bloqueiam autoplay de <audio> até a 1ª interação do usuário.
+//  Mantemos uma promise global que resolve no 1º click/key/touch — e
+//  TODAS as instâncias de FFmpegVideo esperam por ela antes de dar play().
+//
+let __gestureUnlocked = false;
+const __gestureWaiters: (() => void)[] = [];
+
+function __onGesture() {
+  if (__gestureUnlocked) return;
+  __gestureUnlocked = true;
+  const pending = __gestureWaiters.splice(0);
+  pending.forEach(fn => fn());
+  window.removeEventListener('click',      __onGesture, true);
+  window.removeEventListener('keydown',    __onGesture, true);
+  window.removeEventListener('touchstart', __onGesture, true);
+  window.removeEventListener('pointerdown', __onGesture, true);
+}
+window.addEventListener('click',       __onGesture, true);
+window.addEventListener('keydown',     __onGesture, true);
+window.addEventListener('touchstart',  __onGesture, true);
+window.addEventListener('pointerdown', __onGesture, true);
+
+function waitForGesture(): Promise<void> {
+  if (__gestureUnlocked) return Promise.resolve();
+  return new Promise(res => __gestureWaiters.push(res));
 }
 
 export class FFmpegVideo extends HTMLElement {
 
-  // ── HTMLMediaElement-like API ─────────────────────────────────────────────
-  public currentTime = 0;
   public duration    = 0;
   public paused      = true;
   public ended       = false;
@@ -37,63 +85,75 @@ export class FFmpegVideo extends HTMLElement {
   public videoWidth  = 0;
   public videoHeight = 0;
 
+  private _currentTime = 0;
+  get currentTime(): number { return this._currentTime; }
+  set currentTime(v: number) {
+    if (!isFinite(v) || v < 0) return;
+    this._currentTime = v;
+    if (this._playing) this.seek(v).catch(() => {});
+  }
+
   private _rate = 1.0;
   private _fps  = 30;
 
-  get playbackRate()    { return this._rate; }
+  get playbackRate()      { return this._rate; }
   set playbackRate(v: number) {
     this._rate = Math.max(0.25, Math.min(4.0, v));
     this._sendCmd({ cmd: 'set_rate', rate: this._rate });
   }
 
-  // ── WebGL ─────────────────────────────────────────────────────────────────
+  private readonly _sessionId = newSessionId();
+
   private _canvas!: HTMLCanvasElement;
   private _audio!:  HTMLAudioElement;
 
-  // Contexto GL criado UMA VEZ no construtor — nunca recriar no mesmo canvas
-  private _gl!:   WebGLRenderingContext | WebGL2RenderingContext;
-  private _isGL2  = false;
-
+  private _gl!: WebGLRenderingContext | WebGL2RenderingContext;
+  private _isGL2 = false;
   private _prog!: WebGLProgram;
   private _texY!: WebGLTexture;
   private _texU!: WebGLTexture;
   private _texV!: WebGLTexture;
-
   private _pboY: WebGLBuffer | null = null;
   private _pboU: WebGLBuffer | null = null;
   private _pboV: WebGLBuffer | null = null;
-
   private _glReady = false;
-  private _glAlloc = false;
+  private _texW = 0;
+  private _texH = 0;
 
-  // ── WebSockets ────────────────────────────────────────────────────────────
   private _ws:     WebSocket | null = null;
   private _ctrlWs: WebSocket | null = null;
 
-  // ── Frame queue ───────────────────────────────────────────────────────────
-  private _queue:    QueuedFrame[] = [];
-  private _maxQueue  = 6;
+  private _queue: QueuedFrame[] = [];
+  private _maxQueue = 12;
 
-  // ── Clock A/V ─────────────────────────────────────────────────────────────
   private _wallStart   = 0;
   private _ptsStart    = 0;
   private _clockSeeded = false;
   private _rafId       = 0;
 
-  // ── Estado ────────────────────────────────────────────────────────────────
   private _domConnected = false;
   private _playing      = false;
   private _renderW      = 1920;
   private _renderH      = 1080;
   private _firstFrame   = true;
   private _retryTimer:  ReturnType<typeof setTimeout> | null = null;
+  private _audioRetry:  ReturnType<typeof setTimeout> | null = null;
   private _renderAudio  = false;
 
-  // ─────────────────────────────────────────────────────────────────────────
+  private _mediaSource:  MediaSource | null = null;
+  private _sourceBuffer: SourceBuffer | null = null;
+  private _audioAbort:   AbortController | null = null;
+  private _audioReader:  ReadableStreamDefaultReader<Uint8Array> | null = null;
+  private _audioPending: Uint8Array[] = [];
+  private _audioURL:     string | null = null;
+
+  // Log prefix por sessão para debug de múltiplas instâncias
+  private get _tag() { return `[FFmpegVideo ${this._sessionId.slice(-6)}]`; }
+
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
-    this._buildDOM();   // cria canvas + contexto GL aqui — UMA VEZ
+    this._buildDOM();
   }
 
   static get observedAttributes() {
@@ -103,6 +163,12 @@ export class FFmpegVideo extends HTMLElement {
   connectedCallback() {
     this._domConnected = true;
     this._initGL();
+
+    // O <audio> vive no light DOM do próprio elemento (fora do shadow).
+    // Alguns WebViews não aplicam media policies corretamente dentro de
+    // shadow DOM fechado.
+    if (!this._audio.parentNode) this.appendChild(this._audio);
+
     this._audio.muted  = this.muted;
     this._audio.volume = this.volume;
     if (this.hasAttribute('autoplay') && this.src) this.play();
@@ -111,16 +177,17 @@ export class FFmpegVideo extends HTMLElement {
   disconnectedCallback() {
     this._domConnected = false;
     this._teardown();
+    invoke('stop_video', { sessionId: this._sessionId }).catch(() => {});
   }
 
   attributeChangedCallback(name: string, prev: string | null, val: string | null) {
     if (prev === val) return;
     switch (name) {
       case 'width':
-        if (val) { this._renderW = +val; this._canvas.width  = this._renderW; this._glAlloc = false; }
+        if (val) { this._renderW = +val; this._canvas.width  = this._renderW; }
         break;
       case 'height':
-        if (val) { this._renderH = +val; this._canvas.height = this._renderH; this._glAlloc = false; }
+        if (val) { this._renderH = +val; this._canvas.height = this._renderH; }
         break;
       case 'volume':       this._audio.volume = this.volume; break;
       case 'muted':        this._audio.muted  = this.muted;  break;
@@ -129,8 +196,6 @@ export class FFmpegVideo extends HTMLElement {
     }
   }
 
-  // ── Public API ─────────────────────────────────────────────────────────────
-
   get src()  { return this.getAttribute('src'); }
   set src(v) { v ? this.setAttribute('src', v) : this.removeAttribute('src'); }
 
@@ -138,7 +203,8 @@ export class FFmpegVideo extends HTMLElement {
   set muted(v: boolean) {
     v ? this.setAttribute('muted', '') : this.removeAttribute('muted');
     this._audio.muted = v;
-    this._sendCmd({ cmd: 'set_muted', muted: v });
+    if (v) this._stopAudio();
+    else if (this._playing && this._renderAudio) this._connectAudio();
   }
 
   get loop() { return this.hasAttribute('loop'); }
@@ -152,10 +218,7 @@ export class FFmpegVideo extends HTMLElement {
     const c = Math.max(0, Math.min(1, v));
     this.setAttribute('volume', String(c));
     this._audio.volume = c;
-    this._sendCmd({ cmd: 'set_volume', volume: c });
   }
-
-  // ── play() ─────────────────────────────────────────────────────────────────
 
   async play(): Promise<void> {
     const src = this.src;
@@ -168,7 +231,6 @@ export class FFmpegVideo extends HTMLElement {
     this._firstFrame  = true;
     this._clockSeeded = false;
     this._queue       = [];
-    this._glAlloc     = false;
 
     const w     = this._renderW;
     const h     = this._renderH;
@@ -180,10 +242,13 @@ export class FFmpegVideo extends HTMLElement {
 
     try {
       await invoke('play_video', {
-        path, width: w, height: h, renderAudio: audio, loopVideo: loop,
+        sessionId:   this._sessionId,
+        path, width: w, height: h,
+        renderAudio: audio,
+        loopVideo:   loop,
       });
     } catch (e) {
-      console.error('[FFmpegVideo] play_video falhou:', e);
+      console.error(`${this._tag} play_video falhou:`, e);
       this._playing = false;
       this.paused   = true;
       return;
@@ -195,21 +260,12 @@ export class FFmpegVideo extends HTMLElement {
     this._retryTimer = setTimeout(() => {
       this._retryTimer = null;
       if (!this._playing) return;
-      this._connectVideoWS(w, h);
+      this._connectVideoWS();
       this._connectCtrlWS();
       if (audio) this._connectAudio();
-    }, 400);
+    }, 500);
   }
 
-  // ── pause() ────────────────────────────────────────────────────────────────
-  //
-  //  CORREÇÃO: pause() agora faz duas coisas:
-  //  1. Envia { cmd: 'pause' } via WS de controle → Rust para o loop de frames
-  //  2. Pausa o <audio> localmente para sincronizar A/V
-  //
-  //  NÃO fecha o WebSocket de vídeo — mantém a conexão para que resume() funcione
-  //  sem precisar reconectar.
-  //
   pause(): void {
     if (this.paused) return;
     this.paused = true;
@@ -218,86 +274,68 @@ export class FFmpegVideo extends HTMLElement {
     this.dispatchEvent(new Event('pause'));
   }
 
-  // ── resume() ───────────────────────────────────────────────────────────────
   resume(): void {
     if (!this.paused || !this._playing) return;
     this.paused = false;
     this._sendCmd({ cmd: 'play' });
 
-    // Recalibra o clock para não consumir frames acumulados durante a pausa
     if (this._clockSeeded && this._queue.length > 0) {
       this._wallStart = performance.now();
       this._ptsStart  = this._queue[0].pts;
     }
-
-    // Retoma o áudio no ponto certo
-    this._audio.play().catch(() => {});
+    this._audio.play().catch(err =>
+      console.warn(`${this._tag} resume audio.play():`, err));
     this.dispatchEvent(new Event('play'));
   }
 
-  // ── seek() ─────────────────────────────────────────────────────────────────
-  //
-  //  CORREÇÃO: seek() reinicia o pipeline do Rust com o novo offset.
-  //  Em seguida reconecta o áudio apontando para o novo offset via
-  //  AUDIO_SEEK_OFFSET (setado no Rust pelo WS de controle).
-  //
   async seek(time: number): Promise<void> {
     this.dispatchEvent(new Event('seeking'));
-
-    this.currentTime  = time;
+    this._currentTime = time;
     this._queue       = [];
     this._firstFrame  = true;
     this._clockSeeded = false;
-    this._glAlloc     = false;
 
-    // Envia seek para o Rust via invoke (reinicia o pipeline com novo -ss)
     try {
       await invoke('send_video_command', {
-        command: { cmd: 'seek', time },
+        sessionId: this._sessionId,
+        command:   { cmd: 'seek', time },
       });
     } catch (e) {
-      console.warn('[FFmpegVideo] seek invoke falhou, tentando via WS:', e);
+      console.warn(`${this._tag} seek invoke falhou:`, e);
       this._sendCmd({ cmd: 'seek', time });
     }
 
-    // Reconecta o áudio após seek (precisa de novo request HTTP com novo offset)
     this._stopAudio();
     if (this._renderAudio && !this.muted) {
-      // Pequeno delay para o Rust atualizar AUDIO_SEEK_OFFSET antes do fetch
-      setTimeout(() => this._connectAudio(), 300);
+      if (this._audioRetry) clearTimeout(this._audioRetry);
+      this._audioRetry = setTimeout(() => {
+        this._audioRetry = null;
+        this._connectAudio();
+      }, 400);
     }
-
     this.dispatchEvent(new Event('seeked'));
   }
 
-  // ── WebSocket vídeo (9001) ─────────────────────────────────────────────────
-
-  private _connectVideoWS(w: number, h: number, retries = 8): void {
+  private _connectVideoWS(retries = 12): void {
     if (!this._playing) return;
 
-    const ws = new WebSocket('ws://127.0.0.1:9001');
+    const ws = new WebSocket(`ws://127.0.0.1:9001/${this._sessionId}`);
     ws.binaryType = 'arraybuffer';
     this._ws = ws;
 
-    ws.onopen = () => {
-      console.log('[FFmpegVideo] WS vídeo conectado');
-      this._startRenderLoop();
-    };
-
+    ws.onopen = () => this._startRenderLoop();
     ws.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => {
-      if (!this._playing || this.paused) return;
-      this._enqueue(new Uint8Array(data), w, h);
+      if (!this._playing) return;
+      this._enqueue(new Uint8Array(data));
     };
-
     ws.onerror = () => {};
-
     ws.onclose = () => {
       if (!this._playing) return;
       if (retries > 0) {
         this._retryTimer = setTimeout(() => {
           this._retryTimer = null;
-          this._connectVideoWS(w, h, retries - 1);
-        }, 400);
+          this._connectVideoWS(retries - 1);
+        }, 350);
       } else {
         this._playing = false;
         this.paused   = true;
@@ -306,17 +344,14 @@ export class FFmpegVideo extends HTMLElement {
     };
   }
 
-  // ── WebSocket controle (9003) ──────────────────────────────────────────────
-
   private _connectCtrlWS(retries = 5): void {
     if (!this._playing) return;
-    const ws = new WebSocket('ws://127.0.0.1:9003');
+    const ws = new WebSocket(`ws://127.0.0.1:9003/${this._sessionId}`);
     this._ctrlWs = ws;
-    ws.onopen  = () => console.log('[FFmpegVideo] WS ctrl conectado');
     ws.onclose = () => {
       this._ctrlWs = null;
       if (this._playing && retries > 0)
-        setTimeout(() => this._connectCtrlWS(retries - 1), 500);
+        setTimeout(() => this._connectCtrlWS(retries - 1), 400);
     };
     ws.onerror = () => {};
   }
@@ -326,55 +361,166 @@ export class FFmpegVideo extends HTMLElement {
       this._ctrlWs.send(JSON.stringify(cmd));
   }
 
-  // ── Áudio (HTTP 9002) ──────────────────────────────────────────────────────
-  //
-  //  CORREÇÃO "SEM ÁUDIO":
-  //  1. fetch HEAD verifica se o servidor já está pronto antes de setar src
-  //  2. Cache-buster (?t=) força novo request a cada play/seek
-  //  3. crossOrigin = 'anonymous' para evitar bloqueio CORS no WebView
-  //  4. Sem autoplay bloqueado: play() é chamado só depois de src ser setado
-  //
+  // ── ÁUDIO ─────────────────────────────────────────────────────────────────
 
-  private _connectAudio(retries = 10): void {
+  private async _connectAudio(): Promise<void> {
     if (!this._playing || this.muted) return;
 
-    const url = `http://127.0.0.1:9002/stream.aac?t=${Date.now()}`;
+    if (!('MediaSource' in window)) {
+      console.warn(`${this._tag} MediaSource indisponível`);
+      return;
+    }
 
-    fetch(url, { method: 'HEAD' })
-      .then(res => {
-        // Aceita qualquer 2xx ou mesmo 404 — o que importa é que o servidor respondeu
+    const mime = 'audio/mp4; codecs="mp4a.40.2"';
+    if (!MediaSource.isTypeSupported(mime)) {
+      console.warn(`${this._tag} audio/mp4 AAC-LC não suportado`);
+      return;
+    }
+
+    this._audioAbort = new AbortController();
+    const url = `http://127.0.0.1:9002/${this._sessionId}/stream.mp4?t=${Date.now()}`;
+    console.log(`${this._tag} fetch áudio:`, url);
+
+    try {
+      const res = await fetch(url, { signal: this._audioAbort.signal });
+      console.log(`${this._tag} fetch áudio resposta:`, res.status, res.headers.get('content-type'));
+      if (!res.ok || !res.body) {
+        console.warn(`${this._tag} fetch áudio falhou:`, res.status);
+        return;
+      }
+      this._setupMediaSource(mime);
+      await this._pumpToMediaSource(res.body.getReader());
+    } catch (e: any) {
+      if (e.name !== 'AbortError')
+        console.warn(`${this._tag} áudio erro:`, e);
+    }
+  }
+
+  private _setupMediaSource(mime: string): void {
+    const ms = new MediaSource();
+    this._mediaSource = ms;
+    this._audioURL    = URL.createObjectURL(ms);
+
+    // Listeners de diagnóstico
+    ms.addEventListener('sourceopen',   () => console.log(`${this._tag} MSE sourceopen`));
+    ms.addEventListener('sourceclose',  () => console.log(`${this._tag} MSE sourceclose`));
+    ms.addEventListener('sourceended',  () => console.log(`${this._tag} MSE sourceended`));
+
+    this._audio.src    = this._audioURL;
+    this._audio.volume = this.volume;
+    this._audio.muted  = this.muted;
+
+    // Diagnóstico do elemento <audio>
+    this._audio.onerror = () => {
+      const err = this._audio.error;
+      console.warn(`${this._tag} <audio> error:`, err?.code, err?.message);
+    };
+    this._audio.oncanplay = () => console.log(`${this._tag} <audio> canplay`);
+    this._audio.onplaying = () => console.log(`${this._tag} <audio> playing`);
+    this._audio.onstalled = () => console.warn(`${this._tag} <audio> stalled`);
+
+    ms.addEventListener('sourceopen', () => {
+      try {
+        const sb = ms.addSourceBuffer(mime);
+        sb.mode = 'sequence';
+        this._sourceBuffer = sb;
+
+        sb.addEventListener('updateend', () => this._drainAudio());
+        sb.addEventListener('error',     (e) => console.warn(`${this._tag} SourceBuffer error:`, e));
+        sb.addEventListener('abort',     ()  => console.warn(`${this._tag} SourceBuffer abort`));
+
+        this._drainAudio();
+        this._tryAutoplay();
+      } catch (e) {
+        console.warn(`${this._tag} addSourceBuffer:`, e);
+      }
+    }, { once: true });
+  }
+
+  /// Tenta tocar o áudio. Se for bloqueado por autoplay policy, aguarda
+  /// gesture global e tenta de novo.
+  private _tryAutoplay(): void {
+    const playPromise = this._audio.play();
+    if (!playPromise || typeof playPromise.then !== 'function') return;
+
+    playPromise.catch(err => {
+      console.warn(`${this._tag} autoplay bloqueado (${err.name}) — aguardando gesture...`);
+      waitForGesture().then(() => {
         if (!this._playing || this.muted) return;
-
-        this._audio.src    = url;
-        this._audio.volume = this.volume;
-        this._audio.muted  = false;
-
-        // oncanplay garante que o buffer mínimo foi recebido antes de dar play
-        this._audio.oncanplay = () => {
-          this._audio.oncanplay = null;
-          this._audio.play().catch(e =>
-            console.warn('[FFmpegVideo] Audio autoplay bloqueado:', e));
-        };
-
-        // Força o carregamento do novo src
-        this._audio.load();
-      })
-      .catch(() => {
-        if (this._playing && !this.muted && retries > 0)
-          setTimeout(() => this._connectAudio(retries - 1), 200);
+        this._audio.play()
+          .then(() => console.log(`${this._tag} áudio destravado após gesture`))
+          .catch(e2 => console.warn(`${this._tag} play após gesture falhou:`, e2));
       });
+    });
+  }
+
+  private async _pumpToMediaSource(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+    this._audioReader = reader;
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        console.log(`${this._tag} stream áudio done, total=${totalBytes} bytes`);
+        try {
+          if (this._mediaSource?.readyState === 'open')
+            this._mediaSource.endOfStream();
+        } catch {}
+        break;
+      }
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      this._audioPending.push(toPlainU8(value));
+      this._drainAudio();
+    }
+  }
+
+  private _drainAudio(): void {
+    const sb = this._sourceBuffer;
+    if (!sb || sb.updating || this._audioPending.length === 0) return;
+
+    const chunk = this._audioPending.shift()!;
+    try {
+      sb.appendBuffer(chunk);
+    } catch (e: any) {
+      if (e.name === 'QuotaExceededError') {
+        try {
+          const b = sb.buffered;
+          if (b.length > 0) sb.remove(b.start(0), b.start(0) + 10);
+        } catch {}
+        this._audioPending.unshift(chunk);
+      } else {
+        console.warn(`${this._tag} appendBuffer:`, e);
+      }
+    }
   }
 
   private _stopAudio(): void {
+    if (this._audioRetry) { clearTimeout(this._audioRetry); this._audioRetry = null; }
+
+    if (this._audioAbort)  { try { this._audioAbort.abort();  } catch {} this._audioAbort  = null; }
+    if (this._audioReader) { try { this._audioReader.cancel();} catch {} this._audioReader = null; }
+    this._audioPending = [];
+
+    if (this._sourceBuffer && this._mediaSource?.readyState === 'open') {
+      try { this._mediaSource.endOfStream(); } catch {}
+    }
+    this._sourceBuffer = null;
+    this._mediaSource  = null;
+
+    this._audio.onerror  = null;
     this._audio.oncanplay = null;
+    this._audio.onplaying = null;
+    this._audio.onstalled = null;
     this._audio.pause();
     this._audio.removeAttribute('src');
     this._audio.load();
+
+    if (this._audioURL) { URL.revokeObjectURL(this._audioURL); this._audioURL = null; }
   }
 
-  // ── Fila de frames ─────────────────────────────────────────────────────────
+  // ── Queue ─────────────────────────────────────────────────────────────────
 
-  private _enqueue(data: Uint8Array, w: number, h: number): void {
+  private _enqueue(data: Uint8Array): void {
     const sep = data.indexOf(0x7C);
     if (sep === -1) return;
 
@@ -383,13 +529,20 @@ export class FFmpegVideo extends HTMLElement {
       meta = JSON.parse(new TextDecoder().decode(data.subarray(0, sep)));
     } catch { return; }
 
-    const pixels = data.subarray(sep + 1);
-    const ySize  = w * h;
-    const uvSize = (w >> 1) * (h >> 1);
-    if (pixels.byteLength < ySize + uvSize * 2) return;
+    const rw = meta.video_width  | 0;
+    const rh = meta.video_height | 0;
+    if (rw <= 0 || rh <= 0 || (rw & 1) !== 0 || (rh & 1) !== 0) return;
 
-    // subarray = view sem cópia (sem GC pressure)
-    const y = pixels.subarray(0,             ySize);
+    const cw = rw >> 1;
+    const ch = rh >> 1;
+    const ySize  = rw * rh;
+    const uvSize = cw * ch;
+    const expected = ySize + uvSize * 2;
+
+    const pixels = data.subarray(sep + 1);
+    if (pixels.byteLength < expected) return;
+
+    const y = pixels.subarray(0,              ySize);
     const u = pixels.subarray(ySize,          ySize + uvSize);
     const v = pixels.subarray(ySize + uvSize, ySize + uvSize * 2);
 
@@ -403,7 +556,6 @@ export class FFmpegVideo extends HTMLElement {
       this.dispatchEvent(new Event('canplaythrough'));
     }
 
-    // Recalibra clock no reinício do loop
     if (meta.loop_restart) {
       this._wallStart   = performance.now();
       this._ptsStart    = meta.pts;
@@ -411,7 +563,7 @@ export class FFmpegVideo extends HTMLElement {
     }
 
     if (this._queue.length >= this._maxQueue) this._queue.shift();
-    this._queue.push({ pts: meta.pts, y, u, v, _buf: data });
+    this._queue.push({ pts: meta.pts, y, u, v, w: rw, h: rh });
 
     if (this._firstFrame) {
       this._firstFrame  = false;
@@ -421,7 +573,7 @@ export class FFmpegVideo extends HTMLElement {
     }
   }
 
-  // ── Render loop ────────────────────────────────────────────────────────────
+  // ── Render loop ───────────────────────────────────────────────────────────
 
   private _startRenderLoop(): void {
     if (this._rafId) return;
@@ -430,33 +582,29 @@ export class FFmpegVideo extends HTMLElement {
       if (!this._playing) return;
       this._rafId = requestAnimationFrame(tick);
 
-      // Pausa: não consome frames mas mantém o rAF rodando para retomar suavemente
       if (this.paused || !this._clockSeeded || this._queue.length === 0) return;
 
       const elapsed   = (now - this._wallStart) / 1000;
       const targetPts = this._ptsStart + elapsed * this._rate;
+      const tol       = 0.5 / Math.max(this._fps, 1);
 
-      // Descarta frames atrasados, preserva o mais recente
-      while (this._queue.length > 1 && this._queue[0].pts < targetPts)
+      while (this._queue.length > 1 && this._queue[0].pts < targetPts - tol)
         this._queue.shift();
 
       const frame = this._queue[0];
       if (!frame) return;
-
-      // Aguarda se o frame está no futuro (tolerância de 1.5 frames)
-      if (frame.pts > targetPts + 1.5 / this._fps) return;
+      if (frame.pts > targetPts + 2 / this._fps) return;
 
       this._queue.shift();
-      this.currentTime = frame.pts;
+      this._currentTime = frame.pts;
       this.dispatchEvent(new CustomEvent('timeupdate', {
-        detail: { currentTime: this.currentTime },
+        detail: { currentTime: this._currentTime },
       }));
 
-      this._drawYUV(frame.y, frame.u, frame.v, this._renderW, this._renderH);
+      this._drawYUV(frame.y, frame.u, frame.v, frame.w, frame.h);
 
-      // Evento 'ended'
       if (!this.loop && this.duration > 0
-          && this.currentTime >= this.duration - 1 / this._fps
+          && this._currentTime >= this.duration - 1 / this._fps
           && this._queue.length === 0) {
         this.ended    = true;
         this.paused   = true;
@@ -468,13 +616,10 @@ export class FFmpegVideo extends HTMLElement {
     this._rafId = requestAnimationFrame(tick);
   }
 
-  // ── WebGL ──────────────────────────────────────────────────────────────────
+  // ── WebGL ─────────────────────────────────────────────────────────────────
 
   private _initGL(): void {
-    const gl  = this._gl;
-    const gl2 = this._isGL2 ? (gl as WebGL2RenderingContext) : null;
-
-    // UNPACK_ALIGNMENT=1: sem padding de linha para resoluções não-múltiplas de 4
+    const gl = this._gl;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
     const VS = `
@@ -485,7 +630,6 @@ export class FFmpegVideo extends HTMLElement {
         v_uv = vec2((a_pos.x + 1.0) * 0.5, 1.0 - (a_pos.y + 1.0) * 0.5);
       }`;
 
-    // BT.601 full-range (yuv420p sem colorspace tag = full-range em arquivos desktop)
     const FS = `
       precision mediump float;
       uniform sampler2D u_Y, u_U, u_V;
@@ -494,11 +638,15 @@ export class FFmpegVideo extends HTMLElement {
         float y = texture2D(u_Y, v_uv).r;
         float u = texture2D(u_U, v_uv).r - 0.5;
         float v = texture2D(u_V, v_uv).r - 0.5;
-        gl_FragColor = vec4(
-          clamp(y + 1.402 * v,                    0., 1.),
-          clamp(y - 0.344136 * u - 0.714136 * v,  0., 1.),
-          clamp(y + 1.772 * u,                    0., 1.),
-          1.0);
+
+        y = 1.164 * (y - 0.0625);
+        float r = y + 1.596 * v;
+        float g = y - 0.391 * u - 0.813 * v;
+        float b = y + 2.018 * u;
+
+        gl_FragColor = vec4(clamp(r, 0.0, 1.0),
+                            clamp(g, 0.0, 1.0),
+                            clamp(b, 0.0, 1.0), 1.0);
       }`;
 
     const mkShader = (t: number, s: string) => {
@@ -541,39 +689,64 @@ export class FFmpegVideo extends HTMLElement {
     this._texU = mkTex(1, 'u_U');
     this._texV = mkTex(2, 'u_V');
 
-    // PBOs — alocados UMA VEZ, tamanho máximo esperado
+    this._glReady = true;
+  }
+
+  private _ensureGLAlloc(w: number, h: number): void {
+    if (this._texW === w && this._texH === h) return;
+
+    const gl  = this._gl;
+    const gl2 = this._isGL2 ? gl as WebGL2RenderingContext : null;
+    const cw  = w >> 1, ch = h >> 1;
+    const ySize  = w * h;
+    const uvSize = cw * ch;
+
     if (gl2) {
-      const mkPBO = (sz: number) => {
-        const b = gl2.createBuffer()!;
+      const resetPBO = (existing: WebGLBuffer | null, size: number): WebGLBuffer => {
+        const b = existing ?? gl2.createBuffer()!;
         gl2.bindBuffer(gl2.PIXEL_UNPACK_BUFFER, b);
-        gl2.bufferData(gl2.PIXEL_UNPACK_BUFFER, sz, gl2.DYNAMIC_DRAW);
+        gl2.bufferData(gl2.PIXEL_UNPACK_BUFFER, size, gl2.DYNAMIC_DRAW);
         gl2.bindBuffer(gl2.PIXEL_UNPACK_BUFFER, null);
         return b;
       };
-      const W = this._renderW, H = this._renderH;
-      this._pboY = mkPBO(W * H);
-      this._pboU = mkPBO((W >> 1) * (H >> 1));
-      this._pboV = mkPBO((W >> 1) * (H >> 1));
+      this._pboY = resetPBO(this._pboY, ySize);
+      this._pboU = resetPBO(this._pboU, uvSize);
+      this._pboV = resetPBO(this._pboV, uvSize);
 
-      // Aloca texturas R8 para WebGL2
-      const allocR8 = (tex: WebGLTexture, w: number, h: number) => {
+      const allocR8 = (tex: WebGLTexture, tw: number, th: number) => {
         gl2.bindTexture(gl2.TEXTURE_2D, tex);
-        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, w, h, 0, gl2.RED, gl2.UNSIGNED_BYTE, null);
+        gl2.texImage2D(gl2.TEXTURE_2D, 0, gl2.R8, tw, th, 0, gl2.RED, gl2.UNSIGNED_BYTE, null);
       };
-      allocR8(this._texY, W,        H);
-      allocR8(this._texU, W >> 1,   H >> 1);
-      allocR8(this._texV, W >> 1,   H >> 1);
-      this._glAlloc = true;
+      allocR8(this._texY, w,  h);
+      allocR8(this._texU, cw, ch);
+      allocR8(this._texV, cw, ch);
+    } else {
+      const allocL = (tex: WebGLTexture, tw: number, th: number) => {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, tw, th, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, null);
+      };
+      allocL(this._texY, w,  h);
+      allocL(this._texU, cw, ch);
+      allocL(this._texV, cw, ch);
     }
 
-    this._glReady = true;
+    this._texW = w;
+    this._texH = h;
   }
 
   private _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: number): void {
     if (!this._glReady) return;
+    this._ensureGLAlloc(w, h);
+
     const gl  = this._gl;
     const gl2 = this._isGL2 ? gl as WebGL2RenderingContext : null;
     const cw  = w >> 1, ch = h >> 1;
+    const ySize  = w * h;
+    const uvSize = cw * ch;
+
+    const yView = y.byteLength === ySize  ? y : y.subarray(0, ySize);
+    const uView = u.byteLength === uvSize ? u : u.subarray(0, uvSize);
+    const vView = v.byteLength === uvSize ? v : v.subarray(0, uvSize);
 
     if (gl2 && this._pboY && this._pboU && this._pboV) {
       const up = (pbo: WebGLBuffer, tex: WebGLTexture, d: Uint8Array, tw: number, th: number, unit: number) => {
@@ -584,45 +757,44 @@ export class FFmpegVideo extends HTMLElement {
         gl2.texSubImage2D(gl2.TEXTURE_2D, 0, 0, 0, tw, th, gl2.RED, gl2.UNSIGNED_BYTE, 0);
         gl2.bindBuffer(gl2.PIXEL_UNPACK_BUFFER, null);
       };
-      up(this._pboY, this._texY, y, w,  h,  0);
-      up(this._pboU, this._texU, u, cw, ch, 1);
-      up(this._pboV, this._texV, v, cw, ch, 2);
+      up(this._pboY, this._texY, yView, w,  h,  0);
+      up(this._pboU, this._texU, uView, cw, ch, 1);
+      up(this._pboV, this._texV, vView, cw, ch, 2);
     } else {
       const up = (tex: WebGLTexture, d: Uint8Array, tw: number, th: number, unit: number) => {
         gl.activeTexture(gl.TEXTURE0 + unit);
         gl.bindTexture(gl.TEXTURE_2D, tex);
-        if (!this._glAlloc)
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, tw, th, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, d);
-        else
-          gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, tw, th, gl.LUMINANCE, gl.UNSIGNED_BYTE, d);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, tw, th, gl.LUMINANCE, gl.UNSIGNED_BYTE, d);
       };
-      up(this._texY, y, w,  h,  0);
-      up(this._texU, u, cw, ch, 1);
-      up(this._texV, v, cw, ch, 2);
-      this._glAlloc = true;
+      up(this._texY, yView, w,  h,  0);
+      up(this._texU, uView, cw, ch, 1);
+      up(this._texV, vView, cw, ch, 2);
     }
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  // ── DOM ────────────────────────────────────────────────────────────────────
+  // ── DOM ───────────────────────────────────────────────────────────────────
 
   private _buildDOM(): void {
     const shadow = this.shadowRoot!;
     const style  = document.createElement('style');
     style.textContent = `
-      :host  { display: inline-block; }
-      div    { position: relative; width: 100%; height: 100%; overflow: hidden; }
-      canvas { width: 100%; height: 100%; display: block; }
-      audio  { display: none; }`;
+      :host  { display: inline-block; position: relative; }
+      div.wrap { position: relative; width: 100%; height: 100%; overflow: hidden; }
+      canvas { width: 100%; height: 100%; display: block; }`;
 
     this._canvas = document.createElement('canvas');
-    this._audio  = document.createElement('audio');
-    this._audio.crossOrigin = 'anonymous';
     this._canvas.width  = this._renderW;
     this._canvas.height = this._renderH;
 
-    // Contexto GL — UMA VEZ aqui, nunca recriar
+    // <audio> vai para o LIGHT DOM (fora do shadow) em connectedCallback.
+    // WebViews às vezes bloqueiam media policies em shadow DOM.
+    this._audio = document.createElement('audio');
+    this._audio.setAttribute('style', 'display:none;position:absolute;');
+    this._audio.preload = 'auto';
+    // NÃO usar crossOrigin aqui — src é blob, não há cross-origin.
+
     const gl2 = this._canvas.getContext('webgl2', { antialias: false }) as WebGL2RenderingContext | null;
     if (gl2) {
       this._gl = gl2; this._isGL2 = true;
@@ -633,16 +805,15 @@ export class FFmpegVideo extends HTMLElement {
     }
 
     const wrap = document.createElement('div');
+    wrap.className = 'wrap';
     wrap.appendChild(this._canvas);
-    wrap.appendChild(this._audio);
     shadow.appendChild(style);
     shadow.appendChild(wrap);
   }
 
-  // ── Teardown ───────────────────────────────────────────────────────────────
-
   private _teardown(): void {
     if (this._retryTimer) { clearTimeout(this._retryTimer); this._retryTimer = null; }
+    if (this._audioRetry) { clearTimeout(this._audioRetry); this._audioRetry = null; }
     cancelAnimationFrame(this._rafId);
     this._rafId = 0;
 
@@ -658,28 +829,21 @@ export class FFmpegVideo extends HTMLElement {
 
     this._stopAudio();
     this._queue   = [];
-    this._glAlloc = false;
     this._playing = false;
   }
 
-  // ── Path resolver ──────────────────────────────────────────────────────────
-
   private _resolvePath(src: string): string {
-    // Caminho absoluto do SO → passa direto
     if (src.match(/^[A-Za-z]:[/\\]/) || src.startsWith('/')) return src;
 
     let p = src;
-
     if (p.startsWith('asset://')) {
       p = p.replace(/^asset:\/\/localhost\//, '').replace(/^asset:\/\//, '');
     } else if (p.startsWith('http://asset.localhost/') || p.startsWith('https://asset.localhost/')) {
       p = p.replace(/^https?:\/\/asset\.localhost\//, '');
     }
-
     p = decodeURIComponent(p);
 
-    // Windows: converte barras e remove barra inicial antes do drive letter
-    if (navigator.platform.startsWith('Win') || /^[A-Za-z][:/]/.test(p)) {
+    if (isWindows() || /^[A-Za-z][:/]/.test(p)) {
       p = p.replace(/\//g, '\\');
       if (!/^[A-Za-z]:\\/.test(p)) p = p.replace(/^\\/, '');
     }

@@ -44,7 +44,7 @@
           "$APPLOCALDATA/**",
           "$APPCACHEDIR/**"]
       },
-       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost tauri: http://tauri.localhost http://asset.localhost https://1.1.1.1/; style-src 'self' 'unsafe-inline' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost blob: data:;"
+       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost tauri: http://tauri.localhost http://asset.localhost https://1.1.1.1/ ws://127.0.0.1:* http://127.0.0.1:*; style-src 'self' 'unsafe-inline' asset: http://asset.localhost; img-src 'self' asset: http://asset.localhost blob: data:; media-src 'self' asset: http://asset.localhost blob: data: http://127.0.0.1:*;"
     }
   },
   "bundle": {
