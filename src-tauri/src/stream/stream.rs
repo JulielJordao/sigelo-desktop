@@ -554,9 +554,21 @@ async fn frame_loop(
         let mut frames_emitted: u64 = 0;
 
         'read: loop {
+            // ── COALESCING DE SEEKS ──
+            // Drena TODOS os comandos pendentes antes de agir. Se houver
+            // múltiplos Seek na fila, apenas o ÚLTIMO é aplicado — os
+            // anteriores são descartados. Isso evita thrashing do FFmpeg
+            // quando o frontend envia seeks em rajada.
+            let mut pending_seek: Option<f64> = None;
+            let mut should_break_outer = false;
+            let mut new_rate: Option<f64> = None;
+
             loop {
                 match cmd_rx.try_recv() {
-                    Ok(PipelineCmd::Stop) => break 'outer,
+                    Ok(PipelineCmd::Stop) => {
+                        should_break_outer = true;
+                        break;
+                    }
                     Ok(PipelineCmd::Pause) => paused = true,
                     Ok(PipelineCmd::Resume) => {
                         paused = false;
@@ -564,21 +576,38 @@ async fn frame_loop(
                         frames_emitted = 0;
                     }
                     Ok(PipelineCmd::SetRate(r)) => {
-                        rate = r.clamp(0.25, 4.0);
-                        pipeline_start = tokio::time::Instant::now();
-                        frames_emitted = 0;
+                        new_rate = Some(r.clamp(0.25, 4.0));
                     }
                     Ok(PipelineCmd::Seek(t)) => {
-                        let _ = child.kill().await;
-                        seek = t;
-                        loop_count = 0;
-                        paused = false;
-                        *audio_offset.lock().unwrap() = t;
-                        continue 'outer;
+                        // Acumula — se vier outro Seek, este é ignorado
+                        pending_seek = Some(t);
                     }
-                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break 'outer,
-                    Err(_) => break,
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        should_break_outer = true;
+                        break;
+                    }
+                    Err(_) => break, // fila vazia
                 }
+            }
+
+            if should_break_outer {
+                break 'outer;
+            }
+
+            if let Some(r) = new_rate {
+                rate = r;
+                pipeline_start = tokio::time::Instant::now();
+                frames_emitted = 0;
+            }
+
+            // Aplica APENAS o último seek acumulado
+            if let Some(t) = pending_seek {
+                let _ = child.kill().await;
+                seek = t;
+                loop_count = 0;
+                paused = false;
+                *audio_offset.lock().unwrap() = t;
+                continue 'outer;
             }
 
             if paused {
@@ -1036,32 +1065,113 @@ fn dispatch_cmd(session_id: &str, fc: &FrontendCmd) {
     }
 }
 
+// =============================================================================
+// EXTRAÇÃO DE ÁUDIO LOCAL (com fallback robusto)
+// =============================================================================
+//
+// Estratégia:
+//   1. Tenta `-c:a copy` primeiro (rápido, sem re-encode).
+//      Funciona se o áudio já for AAC/ALAC compatível com .m4a.
+//   2. Se falhar, re-encoda para AAC (funciona com qualquer codec de entrada
+//      — Opus, Vorbis, FLAC, WMA etc).
+//   3. Se ainda falhar, sonda o arquivo para reportar erro útil.
+//
+
 #[tauri::command]
 pub async fn extract_audio_local(
-    app: tauri::AppHandle,
+    app: AppHandle,
     video_path: String,
-    audio_path: String, // <-- Apenas video_path e audio_path
+    audio_path: String,
 ) -> Result<(), String> {
-    
-    let ffmpeg = ffmpeg_bin(&app)?; 
+    let ffmpeg = ffmpeg_bin(&app)?;
 
-    let status = tokio::process::Command::new(&ffmpeg)
-        .args([
-            "-i", &video_path,
-            "-vn",          
-            "-c:a", "copy", 
-            "-y",           
-            &audio_path,
-        ])
-        .status()
+    // ── Tentativa 1: copy direto (rápido) ──
+    let copy_result = Command::new(&ffmpeg)
+        .args(["-i", &video_path, "-vn", "-c:a", "copy", "-y", &audio_path])
+        .output()
         .await
         .map_err(|e| e.to_string())?;
 
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Falha do FFmpeg ao extrair áudio para {}", audio_path))
+    if copy_result.status.success() {
+        println!("[extract_audio] copy OK: {}", audio_path);
+        return Ok(());
     }
+
+    let copy_stderr = String::from_utf8_lossy(&copy_result.stderr);
+    println!(
+        "[extract_audio] copy falhou — tentando re-encode. Motivo:\n{}",
+        copy_stderr.lines().take(3).collect::<Vec<_>>().join(" | ")
+    );
+
+    // ── Tentativa 2: re-encode para AAC (universal) ──
+    let encode_result = Command::new(&ffmpeg)
+        .args([
+            "-i",
+            &video_path,
+            "-vn",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-ac",
+            "2",
+            "-ar",
+            "44100",
+            "-y",
+            &audio_path,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if encode_result.status.success() {
+        println!("[extract_audio] re-encode AAC OK: {}", audio_path);
+        return Ok(());
+    }
+
+    let encode_stderr = String::from_utf8_lossy(&encode_result.stderr);
+    eprintln!("[extract_audio] re-encode falhou:\n{}", encode_stderr);
+
+    // ── Diagnóstico: verifica se o arquivo tem mesmo uma trilha de áudio ──
+    let ffprobe = ffprobe_bin(&app)?;
+    let probe_result = Command::new(&ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            &video_path,
+        ])
+        .output()
+        .await
+        .ok();
+
+    let audio_codec = probe_result
+        .as_ref()
+        .and_then(|o| String::from_utf8(o.stdout.clone()).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    if audio_codec.is_empty() {
+        return Err(format!(
+            "O arquivo não contém trilha de áudio: {}",
+            video_path
+        ));
+    }
+
+    Err(format!(
+        "Falha ao extrair áudio (codec origem: '{}'). Detalhe: {}",
+        audio_codec,
+        encode_stderr
+            .lines()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" | ")
+    ))
 }
 
 #[derive(Debug)]

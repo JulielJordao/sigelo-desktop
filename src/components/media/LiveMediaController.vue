@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { onMounted, ref, watch, computed } from 'vue';
 import { emit } from '@tauri-apps/api/event';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
-import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore'; // <-- NOVA STORE
+import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
+import FFmpegVideo from '../../FFmpegVideo.vue'; // ajuste o path
 
 const props = defineProps({
     isToolbar: {
@@ -14,32 +15,52 @@ const props = defineProps({
 
 const menuStore = useMenuStore();
 const statusPresStore = useStatusPresentationStore();
-const playbackStore = useMediaPlaybackStore(); // Instância da nova Store
+const playbackStore = useMediaPlaybackStore();
 const menuOpen = ref(false);
 
-const previewVideo = ref<HTMLVideoElement | null>(null);
+// ── Ref do FFmpegVideo de preview ──────────────────────────────────────────
+// Quando o usuário abre o menu, este componente é montado e usa <ffmpeg-video>
+// com `noAudio` para mostrar o preview SEM áudio (áudio toca só no telão).
+const previewVideo = ref<InstanceType<typeof FFmpegVideo> | null>(null);
 
-// Barra de progresso local (suavidade ao arrastar)
 const sliderValue = ref(0);
 
-// ==========================================
-// SINCRONIZAÇÃO DE TEMPO OFICIAL (Via Vídeo)
-// ==========================================
-const onLoadedMetadata = () => {
-    if (previewVideo.value) {
-        playbackStore.duration = previewVideo.value.duration;
+// ── Resolve path para passar ao FFmpegVideo ───────────────────────────────
+const previewSrc = computed(() => {
+    const file = statusPresStore.projectedFile;
+    if (!file?.url) return '';
+    return file.url;
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SINCRONIZAÇÃO DE TEMPO
+// ─────────────────────────────────────────────────────────────────────────
+// O preview emite eventos como o <video> nativo (loadedmetadata, timeupdate,
+// seeking, seeked). Usamos isso para atualizar a store sem hack de timer.
+
+const onLoadedMetadata = (e: any) => {
+    const target = e.target;
+    if (target?.duration) {
+        playbackStore.duration = target.duration;
     }
 };
 
-const onTimeUpdate = () => {
-    if (previewVideo.value && !playbackStore.isDragging) {
-        if (previewVideo.value.readyState >= 1) {
-            playbackStore.currentTime = previewVideo.value.currentTime;
-        }
+const onTimeUpdate = (e: any) => {
+    const target = e.target;
+    if (target && !playbackStore.isDragging) {
+        playbackStore.currentTime = target.currentTime ?? 0;
     }
 };
 
-// Sincroniza o slider local com o tempo da Store (se não estiver sendo arrastado)
+const onSeeked = () => {
+    // Disparado quando o ffmpeg-video terminou o seek e mostrou o primeiro frame
+    // (sem timeout fixo de 1s — usa o evento real)
+    if (_pendingResumeAfterSeek) {
+        _pendingResumeAfterSeek = false;
+        _resumeAfterSeek();
+    }
+};
+
 watch(() => playbackStore.currentTime, (newVal) => {
     if (!playbackStore.isDragging) {
         sliderValue.value = newVal;
@@ -53,49 +74,121 @@ const formatTime = (seconds: number) => {
     return `${m}:${s}`;
 };
 
-// ==========================================
-// LÓGICA DE ARRASTO (SCRUBBING)
-// ==========================================
+// ─────────────────────────────────────────────────────────────────────────
+// SCRUBBING (arrastar slider)
+// ─────────────────────────────────────────────────────────────────────────
+let _pendingResumeAfterSeek = false;
+let _wasPlayingBeforeDrag = false;
+
 const onDragStart = async () => {
     playbackStore.isDragging = true;
-    playbackStore.isPlaying = false;
-    if (previewVideo.value) previewVideo.value.pause();
+    _wasPlayingBeforeDrag = playbackStore.isPlaying;
 
+    // Pausa preview e telão durante o arrasto
+    if (previewVideo.value) previewVideo.value.pause();
     if (!playbackStore.isPreviewMode) {
         await emit('media-control', { action: 'pause' });
     }
 };
 
+// ─── Throttle para emit de seek ao telão ───
+// Em modo "Ao Vivo" o onDrag pode disparar 30-60 vezes/segundo. Enviar
+// todos os eventos via IPC Tauri satura o canal e atrapalha o FFmpegVideo
+// da outra janela. Throttle garante no máximo 1 emit a cada 120ms,
+// sempre enviando o ÚLTIMO valor quando termina o período.
+//
+let _lastLiveSeekTime = 0
+let _liveSeekThrottleTimer: ReturnType<typeof setTimeout> | null = null
+let _pendingLiveSeekVal: number | null = null
+
+async function _emitLiveSeek(val: number) {
+    const now = performance.now()
+    _pendingLiveSeekVal = val
+
+    // Se está em cooldown, agenda o envio para quando terminar
+    if (now - _lastLiveSeekTime < 120) {
+        if (!_liveSeekThrottleTimer) {
+            _liveSeekThrottleTimer = setTimeout(() => {
+                _liveSeekThrottleTimer = null
+                if (_pendingLiveSeekVal !== null && playbackStore.isDragging) {
+                    _lastLiveSeekTime = performance.now()
+                    const v = _pendingLiveSeekVal
+                    _pendingLiveSeekVal = null
+                    emit('media-control', { action: 'seek', time: v }).catch(() => { })
+                }
+            }, 120 - (now - _lastLiveSeekTime))
+        }
+        return
+    }
+
+    _lastLiveSeekTime = now
+    _pendingLiveSeekVal = null
+    await emit('media-control', { action: 'seek', time: val })
+}
+
 const onDrag = async (val: number) => {
     if (!playbackStore.isDragging) return;
+    sliderValue.value = val;
     playbackStore.currentTime = val;
-    if (previewVideo.value) previewVideo.value.currentTime = val;
 
+    // Preview local (mesma janela): atualização INSTANTÂNEA
+    if (previewVideo.value) {
+        try { previewVideo.value.currentTime = val; } catch { }
+    }
+
+    // Telão (outra janela via IPC): THROTTLED a 120ms
     if (!playbackStore.isPreviewMode) {
-        await emit('media-control', { action: 'seek', time: val });
+        _emitLiveSeek(val)
+    }
+};
+
+const _resumeAfterSeek = async () => {
+    if (_wasPlayingBeforeDrag) {
+        if (previewVideo.value) {
+            try { await previewVideo.value.play(); } catch { }
+        }
+        playbackStore.isPlaying = true;
+        await emit('media-control', { action: 'play' });
     }
 };
 
 const onDragEnd = async () => {
     playbackStore.isDragging = false;
+    const finalTime = sliderValue.value;
 
-    await emit('media-control', { action: 'pause' });
-    await emit('media-control', { action: 'seek', time: sliderValue.value });
+    // Cancela throttle pendente e envia o valor FINAL imediatamente
+    if (_liveSeekThrottleTimer) {
+        clearTimeout(_liveSeekThrottleTimer)
+        _liveSeekThrottleTimer = null
+    }
+    _pendingLiveSeekVal = null
+    _lastLiveSeekTime = 0  // reseta para próximo arrasto
 
-    setTimeout(async () => {
-        if (previewVideo.value) previewVideo.value.play();
-        playbackStore.isPlaying = true;
-        await emit('media-control', { action: 'play' });
-    }, 1000);
+    // Envia seek FINAL (tanto em modo Preview quanto Ao Vivo)
+    await emit('media-control', { action: 'seek', time: finalTime });
+
+    // Aguarda o evento `seeked` do preview local para retomar.
+    // Fallback de 2s caso algo trave.
+    if (_wasPlayingBeforeDrag) {
+        _pendingResumeAfterSeek = true;
+        setTimeout(() => {
+            if (_pendingResumeAfterSeek) {
+                _pendingResumeAfterSeek = false;
+                _resumeAfterSeek();
+            }
+        }, 2000);
+    }
 };
 
-// ==========================================
-// BOTÕES DE CONTROLE
-// ==========================================
+// ─────────────────────────────────────────────────────────────────────────
+// BOTÕES
+// ─────────────────────────────────────────────────────────────────────────
 const togglePlay = async () => {
     playbackStore.isPlaying = !playbackStore.isPlaying;
     if (playbackStore.isPlaying) {
-        if (previewVideo.value) previewVideo.value.play();
+        if (previewVideo.value) {
+            try { await previewVideo.value.play(); } catch { }
+        }
         await emit('media-control', { action: 'play' });
     } else {
         if (previewVideo.value) previewVideo.value.pause();
@@ -108,8 +201,10 @@ const restartMedia = async () => {
     sliderValue.value = 0;
 
     if (previewVideo.value) {
-        previewVideo.value.currentTime = 0;
-        previewVideo.value.play();
+        try {
+            previewVideo.value.currentTime = 0;
+            await previewVideo.value.play();
+        } catch { }
     }
     playbackStore.isPlaying = true;
     await emit('media-control', { action: 'restart' });
@@ -117,51 +212,54 @@ const restartMedia = async () => {
 
 const toggleVolume = async () => {
     playbackStore.isMuted = !playbackStore.isMuted;
+    // Preview SEMPRE muted (áudio toca só no telão).
+    // Apenas o telão recebe o comando real de volume.
     await emit('media-control', { action: playbackStore.isMuted ? 'mute' : 'unmute' });
 };
 
-// ==========================================
-// GESTÃO DE ESTADO E MEMÓRIA
-// ==========================================
-// Quando a mídia global muda, reseta a store.
+// ─────────────────────────────────────────────────────────────────────────
+// REATIVIDADE CRUZADA E REGISTROS
+// ─────────────────────────────────────────────────────────────────────────
 watch(() => statusPresStore.projectedFile?.id, () => {
     playbackStore.resetMedia();
+    sliderValue.value = 0;
 });
 
-// Reatividade cruzada: Se a outra instância (ex: Toolbar) pausar, a Standalone pausa junto.
-watch(() => playbackStore.isPlaying, (playing) => {
-    if (previewVideo.value) {
-        playing ? previewVideo.value.play() : previewVideo.value.pause();
-    }
+watch(() => playbackStore.isPlaying, async (playing) => {
+    if (!previewVideo.value) return;
+    try {
+        if (playing) await previewVideo.value.play();
+        else previewVideo.value.pause();
+    } catch { }
 });
 
-// REGISTRO DE VÍDEO & Pulo do Gato (Ao abrir o menu/aba)
-watch(previewVideo, (newVideoElement, oldVideoElement) => {
-    // Comunica a Store Global se o vídeo está ou não na tela
-    if (newVideoElement && !oldVideoElement) playbackStore.registerVideo();
-    if (!newVideoElement && oldVideoElement) playbackStore.unregisterVideo();
-
-    if (newVideoElement) {
+watch(previewVideo, (newRef, oldRef) => {
+    if (newRef && !oldRef) {
+        playbackStore.registerVideo();
+        // Sincroniza estado quando o preview é montado
         if (playbackStore.currentTime > 0) {
-            newVideoElement.currentTime = playbackStore.currentTime;
+            try { newRef.currentTime = playbackStore.currentTime; } catch { }
             sliderValue.value = playbackStore.currentTime;
         }
         if (!playbackStore.isPlaying) {
-            newVideoElement.pause();
+            try { newRef.pause(); } catch { }
         }
+    }
+    if (!newRef && oldRef) {
+        playbackStore.unregisterVideo();
     }
 });
 
-// Apenas garante que o relógio global está vivo assim que qualquer componente for montado
 onMounted(() => {
     playbackStore.startGhostTimer();
     sliderValue.value = playbackStore.currentTime;
 });
-
 </script>
 
 <template>
-    <div class="d-flex align-center" v-if="props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'">
+    <!-- ═══════════════ TOOLBAR (PILL) ═══════════════ -->
+    <div class="d-flex align-center"
+        v-if="props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'">
 
         <v-expand-x-transition>
             <div v-if="statusPresStore.projectedFile?.id" id="media-pill-activator"
@@ -177,7 +275,6 @@ onMounted(() => {
                             {{ formatTime(playbackStore.currentTime) }}
                         </span>
                     </template>
-
                     <template v-else>
                         <v-icon size="small" color="primary" style="pointer-events: none;">
                             mdi-image
@@ -191,11 +288,9 @@ onMounted(() => {
                     <template v-if="statusPresStore.projectedFile?.isVideo">
                         <v-btn :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'" size="x-small" variant="text"
                             color="medium-emphasis" @click.stop="togglePlay"></v-btn>
-
                         <v-btn icon="mdi-replay" size="x-small" variant="text" color="medium-emphasis"
                             @click.stop="restartMedia" title="Reiniciar vídeo"></v-btn>
                     </template>
-
                     <v-btn icon="mdi-stop" size="x-small" variant="text" color="error"
                         @click.stop="statusPresStore.clean"></v-btn>
                 </div>
@@ -238,11 +333,12 @@ onMounted(() => {
                         <div class="d-flex align-center mb-3">
                             <div class="preview-container mr-3 rounded border border-surface overflow-hidden flex-shrink-0 bg-black position-relative"
                                 style="width: 120px; aspect-ratio: 16/9;">
-                                <video v-if="statusPresStore.projectedFile?.isVideo && playbackStore.isPreviewMode"
-                                    ref="previewVideo" :src="statusPresStore.projectedFile?.url"
-                                    class="w-100 h-100 object-cover" muted autoplay @timeupdate="onTimeUpdate"
-                                    @loadedmetadata="onLoadedMetadata">
-                                </video>
+                                <!-- ── Preview com FFmpegVideo (MESMA engine do telão) ── -->
+                                <FFmpegVideo
+                                    v-if="statusPresStore.projectedFile?.isVideo && playbackStore.isPreviewMode && previewSrc"
+                                    ref="previewVideo" :src="previewSrc" autoplay muted no-audio object-fit="cover"
+                                    class="w-100 h-100" @loadedmetadata="onLoadedMetadata" @timeupdate="onTimeUpdate"
+                                    @seeked="onSeeked" />
                                 <v-img v-else :src="statusPresStore.projectedFile?.url" cover class="w-100 h-100"
                                     :class="{ 'opacity-40': statusPresStore.projectedFile?.isVideo }">
                                     <div v-if="statusPresStore.projectedFile?.isVideo"
@@ -251,7 +347,6 @@ onMounted(() => {
                                         MODO<br>AO VIVO
                                     </div>
                                 </v-img>
-
                             </div>
 
                             <div class="flex-grow-1 overflow-hidden">
@@ -280,12 +375,13 @@ onMounted(() => {
                         <v-expand-transition>
                             <div v-if="statusPresStore.projectedFile?.isVideo" class="mt-1 pb-1">
                                 <div class="d-flex align-center px-1 mb-n2">
-                                    <span class="text-caption font-weight-medium text-primary">{{
-                                        formatTime(playbackStore.currentTime) }}</span>
+                                    <span class="text-caption font-weight-medium text-primary">
+                                        {{ formatTime(playbackStore.currentTime) }}
+                                    </span>
                                     <v-spacer></v-spacer>
-                                    <span class="text-caption text-medium-emphasis">{{
-                                        formatTime(playbackStore.duration)
-                                        }}</span>
+                                    <span class="text-caption text-medium-emphasis">
+                                        {{ formatTime(playbackStore.duration) }}
+                                    </span>
                                 </div>
                                 <v-slider v-model="sliderValue" :max="playbackStore.duration" min="0" color="primary"
                                     hide-details class="media-slider" @start="onDragStart" @update:model-value="onDrag"
@@ -298,8 +394,10 @@ onMounted(() => {
         </v-menu>
     </div>
 
-    <v-card v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'" class="border-md d-flex flex-column"
-        style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
+    <!-- ═══════════════ STANDALONE (CARD) ═══════════════ -->
+    <v-card
+        v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'"
+        class="border-md d-flex flex-column" style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
         <div class="bg-error px-3 py-1 d-flex align-center text-white" style="height: 40px;">
             <v-icon start size="small" class="blink-anim mr-2">mdi-record-circle-outline</v-icon>
             <span class="text-caption font-weight-bold">AO VIVO NO TELÃO</span>
@@ -328,10 +426,11 @@ onMounted(() => {
             <div class="d-flex align-center mb-3">
                 <div class="preview-container mr-3 rounded border border-surface overflow-hidden flex-shrink-0 bg-black position-relative"
                     style="width: 120px; aspect-ratio: 16/9;">
-                    <video v-if="statusPresStore.projectedFile.isVideo && playbackStore.isPreviewMode"
-                        ref="previewVideo" :src="statusPresStore.projectedFile.url" class="w-100 h-100 object-cover"
-                        muted autoplay @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata">
-                    </video>
+                    <FFmpegVideo
+                        v-if="statusPresStore.projectedFile.isVideo && playbackStore.isPreviewMode && previewSrc"
+                        ref="previewVideo" :src="previewSrc" autoplay muted no-audio object-fit="cover"
+                        class="w-100 h-100" @loadedmetadata="onLoadedMetadata" @timeupdate="onTimeUpdate"
+                        @seeked="onSeeked" />
                     <v-img v-else :src="statusPresStore.projectedFile.url" cover class="w-100 h-100"
                         :class="{ 'opacity-40': statusPresStore.projectedFile.isVideo }">
                         <div v-if="statusPresStore.projectedFile.isVideo"
@@ -367,10 +466,13 @@ onMounted(() => {
             <v-expand-transition>
                 <div v-if="statusPresStore.projectedFile.isVideo" class="mt-1 pb-1">
                     <div class="d-flex align-center px-1 mb-n2">
-                        <span class="text-caption font-weight-medium text-primary">{{
-                            formatTime(playbackStore.currentTime) }}</span>
+                        <span class="text-caption font-weight-medium text-primary">
+                            {{ formatTime(playbackStore.currentTime) }}
+                        </span>
                         <v-spacer></v-spacer>
-                        <span class="text-caption text-medium-emphasis">{{ formatTime(playbackStore.duration) }}</span>
+                        <span class="text-caption text-medium-emphasis">
+                            {{ formatTime(playbackStore.duration) }}
+                        </span>
                     </div>
                     <v-slider v-model="sliderValue" :max="playbackStore.duration" min="0" color="primary" hide-details
                         class="media-slider" @start="onDragStart" @update:model-value="onDrag"
