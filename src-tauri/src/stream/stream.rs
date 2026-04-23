@@ -229,19 +229,19 @@ pub async fn play_video(
         info.duration
     );
 
-    // Buffer adaptativo: frames grandes → menos slots para economizar RAM
-    // 1080p yuv420p = ~3MB/frame. 16 slots = 48MB. Para 4K seria 192MB.
+    // Buffer adaptativo: frames grandes → menos slots. Aumentado para dar
+    // folga ao seletor "frame mais próximo" do frontend.
     let est_frame_size = (info.src_width.max(1280) * info.src_height.max(720)) as usize * 3 / 2;
     let buf_slots = if est_frame_size > 6_000_000 {
-        4
+        8
     }
     // 4K+
     else if est_frame_size > 3_000_000 {
-        8
+        16
     }
     // 1440p
     else {
-        16
+        24
     }; // ≤1080p
 
     let (frame_tx, _) = broadcast::channel::<Arc<Vec<u8>>>(buf_slots);
@@ -676,39 +676,100 @@ async fn frame_loop(
 //   - frag_duration 200ms → canplay dispara rápido
 //
 
-fn audio_args_fmp4(vpath: &str, offset: f64) -> Vec<String> {
+/// Gera args do FFmpeg para formato de áudio específico.
+/// Retorna (args, content_type).
+fn audio_args(vpath: &str, offset: f64, format: &str) -> (Vec<String>, &'static str) {
     let mut args: Vec<String> = Vec::new();
     if offset > 0.0 {
         args.extend(["-ss".into(), format!("{:.3}", offset)]);
     }
-    args.extend([
-        "-i".into(),
-        vpath.into(),
-        "-vn".into(),
-        "-acodec".into(),
-        "aac".into(),
-        "-profile:a".into(),
-        "aac_low".into(),
-        "-b:a".into(),
-        "128k".into(),
-        "-ac".into(),
-        "2".into(),
-        "-ar".into(),
-        "44100".into(),
-        // fMP4 padrão — flags mínimas que funcionam em WKWebView + WebView2.
-        // NÃO usar separate_moof/omit_tfhd_offset: geram fMP4 inválido para
-        // <audio> tag direta (ok só para MSE).
-        "-f".into(),
-        "mp4".into(),
-        "-movflags".into(),
-        "frag_keyframe+empty_moov+default_base_moof+faststart".into(),
-        "-frag_duration".into(),
-        "500000".into(), // 500ms — fragmentos maiores = mais confiável
-        "-loglevel".into(),
-        "error".into(),
-        "pipe:1".into(),
-    ]);
-    args
+    args.extend(["-i".into(), vpath.into(), "-vn".into()]);
+
+    let content_type = match format {
+        // ── MP3 — compatibilidade máxima com <audio> direto ──
+        // WKWebView + WebView2 sempre aceitam MP3. Não é streaming MP4
+        // fragmentado, é MP3 stream puro (Icecast-like).
+        "mp3" => {
+            args.extend([
+                "-acodec".into(),
+                "libmp3lame".into(),
+                "-b:a".into(),
+                "192k".into(),
+                "-ac".into(),
+                "2".into(),
+                "-ar".into(),
+                "44100".into(),
+                "-f".into(),
+                "mp3".into(),
+                "-loglevel".into(),
+                "error".into(),
+                "pipe:1".into(),
+            ]);
+            "audio/mpeg"
+        }
+        // ── OGG Vorbis — alternativa livre de royalties ──
+        "ogg" => {
+            args.extend([
+                "-acodec".into(),
+                "libvorbis".into(),
+                "-b:a".into(),
+                "192k".into(),
+                "-ac".into(),
+                "2".into(),
+                "-ar".into(),
+                "44100".into(),
+                "-f".into(),
+                "ogg".into(),
+                "-loglevel".into(),
+                "error".into(),
+                "pipe:1".into(),
+            ]);
+            "audio/ogg"
+        }
+        // ── WAV — sem compressão, funciona sempre mas pesado ──
+        "wav" => {
+            args.extend([
+                "-acodec".into(),
+                "pcm_s16le".into(),
+                "-ac".into(),
+                "2".into(),
+                "-ar".into(),
+                "44100".into(),
+                "-f".into(),
+                "wav".into(),
+                "-loglevel".into(),
+                "error".into(),
+                "pipe:1".into(),
+            ]);
+            "audio/wav"
+        }
+        // ── fMP4 AAC (default) ──
+        _ => {
+            args.extend([
+                "-acodec".into(),
+                "aac".into(),
+                "-profile:a".into(),
+                "aac_low".into(),
+                "-b:a".into(),
+                "128k".into(),
+                "-ac".into(),
+                "2".into(),
+                "-ar".into(),
+                "44100".into(),
+                "-f".into(),
+                "mp4".into(),
+                "-movflags".into(),
+                "frag_keyframe+empty_moov+default_base_moof+faststart".into(),
+                "-frag_duration".into(),
+                "500000".into(),
+                "-loglevel".into(),
+                "error".into(),
+                "pipe:1".into(),
+            ]);
+            "audio/mp4"
+        }
+    };
+    (args, content_type)
 }
 
 fn start_warp_servers() {
@@ -739,106 +800,137 @@ fn start_warp_servers() {
                 })
             });
 
-    // ── 9002 — HTTP áudio fMP4 ────────────────────────────────────────────
-    let audio_get = warp::path!(String / "stream.mp4")
-        .and(warp::get())
-        .and_then(|sid: String| async move {
-            println!("[audio] GET /{}/stream.mp4", sid);
-            let (ffmpeg, vpath, offset, has_audio) = {
-                let map = SESSIONS.lock().unwrap();
-                match map.get(&sid) {
-                    Some(s) => (
-                        s.ffmpeg.clone(),
-                        s.path.clone(),
-                        *s.audio_offset.lock().unwrap(),
-                        s.has_audio,
-                    ),
-                    None => {
-                        println!("[audio] session {} não existe → 404", sid);
+    // ── 9002 — HTTP áudio em múltiplos formatos ────────────────────────────
+    //
+    // Rotas disponíveis:
+    //   GET /{sid}/stream.mp3  → audio/mpeg  (máxima compatibilidade)
+    //   GET /{sid}/stream.mp4  → audio/mp4   (fMP4 + AAC)
+    //   GET /{sid}/stream.ogg  → audio/ogg   (Vorbis)
+    //   GET /{sid}/stream.wav  → audio/wav   (PCM, sem compressão)
+    //
+    // O frontend pode testar cada um e usar o que o WebView aceitar.
+    //
+
+    fn build_audio_handler(
+        format: &'static str,
+    ) -> impl Filter<Extract = (Response<warp::hyper::Body>,), Error = warp::Rejection> + Clone
+    {
+        let ext = match format {
+            "mp3" => "stream.mp3",
+            "ogg" => "stream.ogg",
+            "wav" => "stream.wav",
+            _ => "stream.mp4",
+        };
+        warp::path::param::<String>()
+            .and(warp::path(ext))
+            .and(warp::path::end())
+            .and(warp::get())
+            .and_then(move |sid: String| {
+                let fmt = format;
+                async move {
+                    println!("[audio] GET /{}/stream.{}", sid, fmt);
+                    let (ffmpeg, vpath, offset, has_audio) = {
+                        let map = SESSIONS.lock().unwrap();
+                        match map.get(&sid) {
+                            Some(s) => (
+                                s.ffmpeg.clone(),
+                                s.path.clone(),
+                                *s.audio_offset.lock().unwrap(),
+                                s.has_audio,
+                            ),
+                            None => {
+                                return Ok::<_, warp::Rejection>(
+                                    Response::builder()
+                                        .status(404)
+                                        .header("Access-Control-Allow-Origin", "*")
+                                        .body(warp::hyper::Body::empty())
+                                        .unwrap(),
+                                );
+                            }
+                        }
+                    };
+
+                    if !has_audio || vpath.is_empty() || !ffmpeg.exists() {
                         return Ok::<_, warp::Rejection>(
                             Response::builder()
-                                .status(404)
+                                .status(204)
                                 .header("Access-Control-Allow-Origin", "*")
                                 .body(warp::hyper::Body::empty())
                                 .unwrap(),
                         );
                     }
-                }
-            };
 
-            if !has_audio || vpath.is_empty() || !ffmpeg.exists() {
-                println!("[audio] session {} sem áudio → 204", sid);
-                return Ok::<_, warp::Rejection>(
-                    Response::builder()
-                        .status(204)
-                        .header("Access-Control-Allow-Origin", "*")
-                        .body(warp::hyper::Body::empty())
-                        .unwrap(),
-                );
-            }
+                    let (args, content_type) = audio_args(&vpath, offset, fmt);
+                    println!("[audio] spawn ffmpeg fmt={} ct={}", fmt, content_type);
 
-            let args = audio_args_fmp4(&vpath, offset);
-            println!("[audio] spawn ffmpeg para {}", sid);
+                    let mut child = match Command::new(&ffmpeg)
+                        .args(&args)
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .kill_on_drop(true)
+                        .spawn()
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("[audio] spawn failed: {}", e);
+                            return Ok::<_, warp::Rejection>(
+                                Response::builder()
+                                    .status(500)
+                                    .header("Access-Control-Allow-Origin", "*")
+                                    .body(warp::hyper::Body::empty())
+                                    .unwrap(),
+                            );
+                        }
+                    };
 
-            let mut child = match Command::new(&ffmpeg)
-                .args(&args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true)
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("[audio] spawn failed: {}", e);
-                    return Ok::<_, warp::Rejection>(
-                        Response::builder()
-                            .status(500)
-                            .header("Access-Control-Allow-Origin", "*")
-                            .body(warp::hyper::Body::empty())
-                            .unwrap(),
-                    );
-                }
-            };
-
-            // Loga stderr do ffmpeg de áudio também
-            if let Some(stderr) = child.stderr.take() {
-                let sid2 = sid.clone();
-                tokio::spawn(async move {
-                    let mut reader = BufReader::new(stderr);
-                    let mut line = String::new();
-                    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-                        eprint!("[FFmpeg audio {}] {}", sid2, line);
-                        line.clear();
+                    if let Some(stderr) = child.stderr.take() {
+                        let sid2 = sid.clone();
+                        let fmt2 = fmt.to_string();
+                        tokio::spawn(async move {
+                            let mut reader = BufReader::new(stderr);
+                            let mut line = String::new();
+                            while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+                                eprint!("[FFmpeg audio {} fmt={}] {}", sid2, fmt2, line);
+                                line.clear();
+                            }
+                        });
                     }
-                });
-            }
 
-            let stdout = child.stdout.take().unwrap();
-            let stream = ReaderStream::new(stdout);
-            let body = warp::hyper::Body::wrap_stream(stream);
+                    let stdout = child.stdout.take().unwrap();
+                    let stream = ReaderStream::new(stdout);
+                    let body = warp::hyper::Body::wrap_stream(stream);
 
-            Ok::<_, warp::Rejection>(
-                Response::builder()
-                    .status(200)
-                    .header("Content-Type", "audio/mp4")
-                    .header("Cache-Control", "no-cache, no-store, must-revalidate")
-                    .header("Pragma", "no-cache")
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-                    .header("Access-Control-Allow-Headers", "*")
-                    .header(
-                        "Access-Control-Expose-Headers",
-                        "Content-Type, Content-Length",
+                    Ok::<_, warp::Rejection>(
+                        Response::builder()
+                            .status(200)
+                            .header("Content-Type", content_type)
+                            .header("Cache-Control", "no-cache, no-store, must-revalidate")
+                            .header("Pragma", "no-cache")
+                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                            .header("Access-Control-Allow-Headers", "*")
+                            .header(
+                                "Access-Control-Expose-Headers",
+                                "Content-Type, Content-Length",
+                            )
+                            .body(body)
+                            .unwrap(),
                     )
-                    .body(body)
-                    .unwrap(),
-            )
-        });
+                }
+            })
+    }
 
-    // HEAD — para probe sem consumir banda
-    let audio_head = warp::path!(String / "stream.mp4")
+    let audio_mp4 = build_audio_handler("mp4");
+    let audio_mp3 = build_audio_handler("mp3");
+    let audio_ogg = build_audio_handler("ogg");
+    let audio_wav = build_audio_handler("wav");
+
+    // HEAD genérico para probe — responde para qualquer formato
+    let audio_head = warp::path::param::<String>()
+        .and(warp::path::param::<String>()) // stream.mp3, stream.mp4, etc
+        .and(warp::path::end())
         .and(warp::head())
-        .map(|sid: String| {
+        .map(|sid: String, _file: String| {
             let has_audio = {
                 let map = SESSIONS.lock().unwrap();
                 map.get(&sid).map(|s| s.has_audio).unwrap_or(false)
@@ -846,24 +938,24 @@ fn start_warp_servers() {
             let status = if has_audio { 200 } else { 204 };
             Response::builder()
                 .status(status)
-                .header("Content-Type", "audio/mp4")
                 .header("Access-Control-Allow-Origin", "*")
                 .body(warp::hyper::Body::empty())
                 .unwrap()
         });
 
-    let audio_options =
-        warp::path!(String / "stream.mp4")
-            .and(warp::options())
-            .map(|_sid: String| {
-                Response::builder()
-                    .status(204)
-                    .header("Access-Control-Allow-Origin", "*")
-                    .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-                    .header("Access-Control-Allow-Headers", "*")
-                    .body(warp::hyper::Body::empty())
-                    .unwrap()
-            });
+    let audio_options = warp::path::param::<String>()
+        .and(warp::path::param::<String>())
+        .and(warp::path::end())
+        .and(warp::options())
+        .map(|_sid: String, _file: String| {
+            Response::builder()
+                .status(204)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                .header("Access-Control-Allow-Headers", "*")
+                .body(warp::hyper::Body::empty())
+                .unwrap()
+        });
 
     // ── 9003 — WS controle ────────────────────────────────────────────────
     let ctrl_ws =
@@ -892,9 +984,16 @@ fn start_warp_servers() {
         warp::serve(video_ws).run(([127, 0, 0, 1], 9001)).await;
     });
     tokio::spawn(async move {
-        warp::serve(audio_options.or(audio_head).or(audio_get))
-            .run(([127, 0, 0, 1], 9002))
-            .await;
+        warp::serve(
+            audio_options
+                .or(audio_head)
+                .or(audio_mp3)
+                .or(audio_mp4)
+                .or(audio_ogg)
+                .or(audio_wav),
+        )
+        .run(([127, 0, 0, 1], 9002))
+        .await;
     });
     tokio::spawn(async move {
         warp::serve(ctrl_ws).run(([127, 0, 0, 1], 9003)).await;
@@ -934,6 +1033,34 @@ fn dispatch_cmd(session_id: &str, fc: &FrontendCmd) {
         if let Some(tx) = tx {
             let _ = tx.try_send(cmd);
         }
+    }
+}
+
+#[tauri::command]
+pub async fn extract_audio_local(
+    app: tauri::AppHandle,
+    video_path: String,
+    audio_path: String, // <-- Apenas video_path e audio_path
+) -> Result<(), String> {
+    
+    let ffmpeg = ffmpeg_bin(&app)?; 
+
+    let status = tokio::process::Command::new(&ffmpeg)
+        .args([
+            "-i", &video_path,
+            "-vn",          
+            "-c:a", "copy", 
+            "-y",           
+            &audio_path,
+        ])
+        .status()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Falha do FFmpeg ao extrair áudio para {}", audio_path))
     }
 }
 

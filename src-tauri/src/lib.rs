@@ -88,8 +88,9 @@ pub fn run() {
             stream::stop_video,
             stream::send_video_command,
             stream::get_video_preview,
-            stream::get_video_info,            
-            is_online
+            stream::get_video_info,    
+            stream::extract_audio_local,        
+            is_online,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -167,3 +168,4 @@ pub fn run() {
             _ => {} // Ignora outros eventos do ciclo de vida
         });
 }
+

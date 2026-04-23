@@ -2,12 +2,13 @@
     <div class="ffv-wrap">
         <canvas ref="canvasEl" :width="_renderW" :height="_renderH" />
         <img ref="previewImgEl" class="ffv-preview" :style="{ objectFit: objectFit }" />
-        <!-- <audio> SEMPRE no DOM — nunca atrás de v-if — senão Vue destrói e recria -->
-        <audio ref="audioEl" class="ffv-audio" preload="auto" crossorigin="anonymous" />
+        <audio ref="audioEl" class="ffv-audio" preload="auto" />
     </div>
 </template>
 
 <script setup lang="ts">
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { dirname, basename, extname, join } from '@tauri-apps/api/path';
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -19,7 +20,6 @@ interface QueuedFrame { pts: number; y: Uint8Array; u: Uint8Array; v: Uint8Array
 let __seq = 0
 const uid = () => `ffv${Date.now().toString(36)}${(++__seq).toString(36)}${(Math.random() * 1e6 | 0).toString(36)}`
 
-// TextDecoder compartilhado entre instâncias (criado uma vez no módulo)
 const _textDecoder = new TextDecoder()
 
 function isWindows(): boolean {
@@ -28,7 +28,7 @@ function isWindows(): boolean {
     return /Windows/i.test(navigator.userAgent)
 }
 
-// ── Gesture unlock global (compartilhado entre todas as instâncias) ─────────
+// ── Gesture unlock global ───────────────────────────────────────────────────
 let _gestureOk = false
 const _gestureQ: (() => void)[] = []
 function _onGesture() {
@@ -102,6 +102,7 @@ const playbackRate = computed({
     set: (v: number) => {
         _rate = Math.max(0.25, Math.min(4.0, v))
         _sendCmd({ cmd: 'set_rate', rate: _rate })
+        if (audioEl.value) audioEl.value.playbackRate = _rate
     }
 })
 
@@ -145,14 +146,13 @@ let _pboV: WebGLBuffer | null = null
 let _glReady = false
 let _texW = 0; let _texH = 0
 
-// Cache do viewport para evitar recalcular toda frame
 let _cachedViewport: [number, number, number, number] = [0, 0, 0, 0]
 let _viewportDirty = true
 
 let _ws: WebSocket | null = null
 let _ctrlWs: WebSocket | null = null
 let _queue: QueuedFrame[] = []
-const _maxQueue = 6  // reduzido de 12 — menos buffer, menos delay
+const _maxQueue = 12  // Buffer maior: dá margem pro seletor "frame mais próximo"
 
 let _wallStart = 0; let _ptsStart = 0
 let _clockSeeded = false
@@ -167,7 +167,15 @@ let _audioFallbackTimer: ReturnType<typeof setTimeout> | null = null
 let _audioConnected = false
 let _fps = 30
 
-// Debounce para watcher de src (evita teardown/play múltiplos)
+// ── Flags de controle de seek ──────────────────────────────────────────────
+// _seeking: true enquanto aguarda o primeiro frame após seek chegar do Rust.
+//   Durante esse período o áudio fica pausado para evitar dessincronia.
+// _pendingSeekTime: timestamp alvo do seek; o <audio> é ajustado para lá
+//   somente quando o primeiro frame do novo pipeline chega (garantindo que
+//   o vídeo esteja realmente em sync).
+let _seeking = false
+let _pendingSeekTime = 0
+
 let _srcChangeTimer: ReturnType<typeof setTimeout> | null = null
 
 // ── Mock Event ──────────────────────────────────────────────────────────────
@@ -215,9 +223,10 @@ function _teardown(): void {
     _stopAudio()
     _queue.length = 0
     _playing = false
+    _seeking = false
 }
 
-// ── WebGL ───────────────────────────────────────────────────────────────────
+// ── WebGL (inalterado) ──────────────────────────────────────────────────────
 function _initGL(): void {
     if (!canvasEl.value) return
     const gl2 = canvasEl.value.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false }) as WebGL2RenderingContext | null
@@ -284,13 +293,11 @@ function _initGL(): void {
     }
 
     _texY = mkT(0, 'u_Y'); _texU = mkT(1, 'u_U'); _texV = mkT(2, 'u_V')
-    // Define clear color uma vez (não muda entre frames)
     gl.clearColor(0, 0, 0, 1)
     _glReady = true
     _viewportDirty = true
 }
 
-/// Calcula viewport do object-fit e guarda em cache. Só recalcula se dirty.
 function _computeViewport(): [number, number, number, number] {
     if (!_glReady || !canvasEl.value) return [0, 0, 0, 0]
     const fit = objectFit.value
@@ -310,7 +317,7 @@ function _computeViewport(): [number, number, number, number] {
         else { vpH = ch; vpW = Math.round(ch * videoRatio) }
     } else if (fit === 'none') {
         vpW = vw; vpH = vh
-    } else { // contain
+    } else {
         if (canvasRatio > videoRatio) { vpH = ch; vpW = Math.round(ch * videoRatio) }
         else { vpW = cw; vpH = Math.round(cw / videoRatio) }
     }
@@ -360,7 +367,6 @@ function _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: num
     const uV = u.byteLength === uvS ? u : u.subarray(0, uvS)
     const vV = v.byteLength === uvS ? v : v.subarray(0, uvS)
 
-    // Recalcula viewport só quando muda (não toda frame)
     if (_viewportDirty) {
         _cachedViewport = _computeViewport()
         _viewportDirty = false
@@ -370,7 +376,6 @@ function _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: num
     const canvasW = canvasEl.value.width
     const canvasH = canvasEl.value.height
 
-    // Só precisa limpar se houver letterbox (contain ou none). Cover/fill preenchem tudo.
     if (vpX !== 0 || vpY !== 0 || vpW !== canvasW || vpH !== canvasH) {
         gl.viewport(0, 0, canvasW, canvasH)
         gl.clear(gl.COLOR_BUFFER_BIT)
@@ -427,88 +432,44 @@ function _connectCtrlWS(retries = 5): void {
 }
 
 // ── Áudio ───────────────────────────────────────────────────────────────────
-/// Verifica via HEAD se a sessão existe e tem áudio.
-/// Faz retry porque o play_video pode ainda estar registrando a sessão no Rust.
-async function _probeAudio(): Promise<boolean> {
-    const url = `http://127.0.0.1:9002/${_sid}/stream.mp4`
-    for (let attempt = 0; attempt < 6; attempt++) {
-        try {
-            const ctrl = new AbortController()
-            const to = setTimeout(() => ctrl.abort(), 1000)
-            const r = await fetch(url, { method: 'HEAD', signal: ctrl.signal })
-            clearTimeout(to)
-            console.log(`${_tag()} probe attempt=${attempt} status=${r.status}`)
-            if (r.status === 200) return true
-            if (r.status === 204) return false   // sem áudio confirmado
-            // 404 → sessão ainda não existe no Rust, tenta de novo
-        } catch (e) {
-            console.warn(`${_tag()} probe falhou (${attempt}):`, e)
-        }
-        await new Promise(r => setTimeout(r, 300))
-    }
-    return false
-}
-
-async function _connectAudio(): Promise<void> {
+async function _connectAudio(startTime = 0): Promise<void> {
     if (!_playing || currentMuted.value || noAudio.value || !audioEl.value) return
-    if (_audioConnected) return
-
     const audio = audioEl.value
 
-    // Probe ANTES de setar src — se endpoint retorna 204, nem tenta
-    const hasAudio = await _probeAudio()
-    if (!hasAudio) {
-        console.log(`${_tag()} audio: endpoint sem áudio (204)`)
-        return
+    // Carrega .m4a adjacente apenas uma vez por sessão
+    if (!_audioConnected) {
+        try {
+            const sourcePath = _resolvePath(src.value || "")
+            const dir = await dirname(sourcePath)
+            const ext = await extname(sourcePath)
+            const base = await basename(sourcePath, `.${ext}`)
+            const audioPath = await join(dir, `${base}.m4a`)
+            audio.src = convertFileSrc(audioPath)
+            audio.volume = currentVolume.value
+            audio.muted = false
+            audio.loop = currentLoop.value
+            audio.playbackRate = _rate
+            audio.load()
+            _audioConnected = true
+        } catch (e) {
+            console.warn(`${_tag()} falha ao carregar áudio:`, e)
+            return
+        }
     }
 
-    if (!_playing || currentMuted.value) return  // pode ter mudado durante o probe
+    audio.currentTime = startTime > 0 ? startTime : _currentTime
 
-    const url = `http://127.0.0.1:9002/${_sid}/stream.mp4?t=${Date.now()}`
-    console.log(`${_tag()} audio →`, url)
-
-    audio.src = url
-    audio.volume = currentVolume.value
-    audio.muted = false
-    audio.load()
-
-    _audioConnected = true
-
-    const tryPlay = () => {
-        const p = audio.play()
-        if (!p || typeof p.then !== 'function') return
-        p.then(() => console.log(`${_tag()} ✔ audio playing`))
-            .catch(err => {
-                console.warn(`${_tag()} autoplay bloqueado (${err.name}) → gesture`)
-                waitGesture().then(() => {
-                    if (!_playing || currentMuted.value) return
-                    audio.play()
-                        .then(() => console.log(`${_tag()} ✔ audio após gesture`))
-                        .catch(e2 => console.warn(`${_tag()} ✘ audio após gesture:`, e2))
-                })
+    // Só dispara play se:
+    //   - vídeo não estiver pausado
+    //   - não estiver em processo de seek aguardando primeiro frame
+    //   - primeiro frame já chegou (_firstFrame=false)
+    if (!paused.value && !_seeking && !_firstFrame) {
+        audio.play().catch(err => {
+            console.warn(`${_tag()} autoplay bloqueado:`, err)
+            waitGesture().then(() => {
+                if (!paused.value && !_seeking) audio.play().catch(() => { })
             })
-    }
-
-    audio.oncanplay = () => {
-        audio.oncanplay = null
-        if (_audioFallbackTimer) { clearTimeout(_audioFallbackTimer); _audioFallbackTimer = null }
-        tryPlay()
-    }
-
-    // Fallback: forçar play mesmo sem canplay após 2.5s
-    if (_audioFallbackTimer) clearTimeout(_audioFallbackTimer)
-    _audioFallbackTimer = setTimeout(() => {
-        _audioFallbackTimer = null
-        if (!_playing || audio.readyState >= 2) return
-        console.log(`${_tag()} audio fallback play (rs=${audio.readyState})`)
-        tryPlay()
-    }, 2500)
-
-    audio.onerror = () => {
-        if (_audioFallbackTimer) { clearTimeout(_audioFallbackTimer); _audioFallbackTimer = null }
-        const e = audio.error
-        console.warn(`${_tag()} ✘ <audio> error code=${e?.code}`)
-        _audioConnected = false
+        })
     }
 }
 
@@ -517,8 +478,6 @@ function _stopAudio(): void {
     if (_audioFallbackTimer) { clearTimeout(_audioFallbackTimer); _audioFallbackTimer = null }
     _audioConnected = false
     if (!audioEl.value) return
-    audioEl.value.oncanplay = null
-    audioEl.value.onerror = null
     audioEl.value.pause()
     audioEl.value.removeAttribute('src')
     audioEl.value.load()
@@ -543,7 +502,8 @@ function _enqueue(data: Uint8Array): void {
     const u = pixels.subarray(ySize, ySize + uvSize)
     const v = pixels.subarray(ySize + uvSize, ySize + uvSize * 2)
 
-    if (_firstFrame) {
+    // Metadados na primeira vez absoluta (não em seeks subsequentes)
+    if (_firstFrame && duration.value === 0) {
         duration.value = meta.duration
         videoWidth.value = meta.video_width
         videoHeight.value = meta.video_height
@@ -558,48 +518,167 @@ function _enqueue(data: Uint8Array): void {
         _wallStart = performance.now()
         _ptsStart = meta.pts
         _clockSeeded = true
+        if (audioEl.value && _audioConnected) {
+            audioEl.value.currentTime = meta.pts
+        }
     }
 
     if (_queue.length >= _maxQueue) _queue.shift()
     _queue.push({ pts: meta.pts, y, u, v, w: rw, h: rh })
 
+    // Primeiro frame após play() OU após seek —— é onde sincronizamos relógios
     if (_firstFrame) {
         _firstFrame = false
         _wallStart = performance.now()
         _ptsStart = meta.pts
         _clockSeeded = true
+        _currentTime = meta.pts
+
+        // ── Recuperação de SEEK ──
+        // Se estávamos em seek, agora que o primeiro frame chegou do novo
+        // pipeline: alinha o áudio com o PTS real do frame (pode ser
+        // diferente do time pedido pois FFmpeg seek em keyframe mais próximo)
+        if (_seeking) {
+            _seeking = false
+            if (audioEl.value && _audioConnected) {
+                audioEl.value.currentTime = meta.pts
+                if (!paused.value) {
+                    audioEl.value.play().catch(() => { })
+                }
+            }
+            emit('seeked', getMockEvent())
+        } else if (audioEl.value && _audioConnected && !paused.value) {
+            // Caso normal (play inicial): só garante que áudio esteja tocando
+            if (Math.abs(audioEl.value.currentTime - meta.pts) > 0.3) {
+                audioEl.value.currentTime = meta.pts
+            }
+            audioEl.value.play().catch(() => { })
+        }
     }
 }
 
 function _startRenderLoop(): void {
     if (_rafId) return
     let _lastTimeupdate = 0
+
+    // Contador de drift para correção suave de áudio (quando vídeo é master)
+    let _driftSamples = 0
+    let _driftAccum = 0
+
     const tick = (now: DOMHighResTimeStamp) => {
         if (!_playing) return
         _rafId = requestAnimationFrame(tick)
         if (paused.value || !_clockSeeded || !_queue.length) return
 
-        const elapsed = (now - _wallStart) / 1000
-        const targetPts = _ptsStart + elapsed * _rate
-        const tol = 0.5 / Math.max(_fps, 1)
+        // ═══════════════════════════════════════════════════════════════════
+        // ÁUDIO COMO MASTER CLOCK (quando disponível)
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // O <audio> HTML tem um clock MUITO preciso baseado no hardware de
+        // áudio do SO. Players profissionais sempre usam áudio como master
+        // porque o ouvido humano percebe glitches de áudio (~5ms) muito mais
+        // que frames largados (até 100ms de atraso é aceitável visualmente).
+        //
+        // Estratégia:
+        //   1. Se áudio OK: targetPts = audio.currentTime (SEM atualizar
+        //      _ptsStart/_wallStart — deixa eles como fallback "frio")
+        //   2. Se áudio não OK: targetPts = wall clock (_ptsStart + elapsed)
+        //   3. Escolhe o frame da queue MAIS PRÓXIMO de targetPts (não o
+        //      primeiro "válido")
+        //
+        let targetPts: number
+        const audioMaster = _audioConnected
+            && audioEl.value
+            && !audioEl.value.paused
+            && audioEl.value.readyState >= 2
+            && !_seeking
+            && audioEl.value.currentTime > 0
 
-        while (_queue.length > 1 && _queue[0].pts < targetPts - tol) _queue.shift()
-        const frame = _queue[0]
-        if (!frame || frame.pts > targetPts + 2 / _fps) return
+        if (audioMaster) {
+            targetPts = audioEl.value!.currentTime
+        } else {
+            const elapsed = (now - _wallStart) / 1000
+            targetPts = _ptsStart + elapsed * _rate
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // SELEÇÃO DO FRAME MAIS PRÓXIMO
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // Em vez de "descartar até achar o atual e pegar o primeiro", escolhe
+        // o frame cujo PTS está MAIS PRÓXIMO de targetPts. Isso evita o
+        // problema de ficar centenas de ms adiantado/atrasado por causa de
+        // tolerâncias apertadas.
+        //
+        let bestIdx = -1
+        let bestDist = Infinity
+        for (let i = 0; i < _queue.length; i++) {
+            const d = Math.abs(_queue[i].pts - targetPts)
+            if (d < bestDist) {
+                bestDist = d
+                bestIdx = i
+            } else {
+                break  // queue está ordenada, distância só cresce depois do mínimo
+            }
+        }
+
+        if (bestIdx === -1) return
+
+        // Se o frame mais próximo ainda está muito no futuro, não renderiza ainda
+        // (aguarda o wall clock chegar lá, ou descarta se passou tempo demais).
+        const bestFrame = _queue[bestIdx]
+        const ahead = bestFrame.pts - targetPts
+
+        if (ahead > 0.1) {
+            // Frame alvo é mais que 100ms no futuro — aguarda
+            // Mas se passou MUITO (>1s), provavelmente o clock está atrasado
+            // e precisamos ressincar com o frame.
+            if (ahead > 1.0) {
+                _wallStart = now
+                _ptsStart = bestFrame.pts
+                if (audioMaster && audioEl.value) {
+                    audioEl.value.currentTime = bestFrame.pts
+                }
+            }
+            return
+        }
+
+        // Descarta frames que vieram antes do escolhido
+        if (bestIdx > 0) _queue.splice(0, bestIdx)
+
+        // ═══════════════════════════════════════════════════════════════════
+        // CORREÇÃO SUAVE DE DRIFT (áudio como master → video pode atrasar)
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // Se estamos usando áudio como master e o vídeo está consistentemente
+        // atrasado/adiantado, o problema não é sync — é o pacing do Rust
+        // emitindo frames em ritmo ligeiramente errado. Aqui não corrigimos
+        // nada direto: apenas registramos drift para log.
+        //
+        if (audioMaster) {
+            _driftAccum += bestFrame.pts - targetPts
+            _driftSamples++
+            if (_driftSamples >= 120) {
+                // const avgDrift = _driftAccum / _driftSamples
+                // console.log(`${_tag()} drift médio: ${(avgDrift * 1000).toFixed(1)}ms`)
+                _driftAccum = 0
+                _driftSamples = 0
+            }
+        }
 
         _queue.shift()
-        _currentTime = frame.pts
+        _currentTime = bestFrame.pts
 
-        // Throttle timeupdate a cada 250ms (API <video> faz similar)
         if (now - _lastTimeupdate > 250) {
             emit('timeupdate', getMockEvent())
             _lastTimeupdate = now
         }
 
-        _drawYUV(frame.y, frame.u, frame.v, frame.w, frame.h)
+        _drawYUV(bestFrame.y, bestFrame.u, bestFrame.v, bestFrame.w, bestFrame.h)
 
         if (!currentLoop.value && duration.value > 0 && _currentTime >= duration.value - 1 / _fps && !_queue.length) {
             ended.value = true; paused.value = true; _playing = false
+            if (audioEl.value) audioEl.value.pause()
             emit('ended', getMockEvent())
         }
     }
@@ -642,20 +721,14 @@ async function play(): Promise<void> {
     _teardown()
     _playing = true; paused.value = false; ended.value = false
     _firstFrame = true; _clockSeeded = false; _queue.length = 0
+    _seeking = false
 
-    // ── Detecta tamanho REAL do canvas renderizado ──────────────────────────
-    // Se o elemento está em 800×450 na tela, não faz sentido decodar em
-    // 1920×1080. Usa getBoundingClientRect × devicePixelRatio para pegar o
-    // tamanho exato em pixels físicos. Respeita props.width/height se setados
-    // explicitamente pelo usuário.
-    //
     let targetW = _renderW
     let targetH = _renderH
     if (canvasEl.value && !props.width && !props.height) {
         const rect = canvasEl.value.getBoundingClientRect()
         const dpr = window.devicePixelRatio || 1
         if (rect.width > 0 && rect.height > 0) {
-            // Limita a 1920 de largura máxima mesmo em displays 4K
             targetW = Math.min(1920, Math.ceil(rect.width * dpr))
             targetH = Math.min(1080, Math.ceil(rect.height * dpr))
             _renderW = targetW
@@ -712,45 +785,77 @@ function resume(): void {
         _wallStart = performance.now()
         _ptsStart = _queue[0].pts
     }
-    if (audioEl.value && audioEl.value.src) audioEl.value.play().catch(() => { })
+    if (audioEl.value && audioEl.value.src && !_seeking && !_firstFrame) {
+        audioEl.value.play().catch(() => { })
+    }
     emit('play', getMockEvent())
     emit('playing', getMockEvent())
 }
 
+// ── SEEK — reescrito sem travamento ────────────────────────────────────────
 async function seek(time: number): Promise<void> {
+    if (!isFinite(time) || time < 0) return
+
+    const clampedTime = Math.max(0, Math.min(time, duration.value || time))
     emit('seeking', getMockEvent())
-    _currentTime = time
+
+    // Marca estado de seek em andamento
+    _seeking = true
+    _pendingSeekTime = clampedTime
+    _currentTime = clampedTime
     _queue.length = 0
     _firstFrame = true
     _clockSeeded = false
 
-    try { await invoke('send_video_command', { sessionId: _sid, command: { cmd: 'seek', time } }) }
-    catch (e) { console.warn(`${_tag()} seek:`, e); _sendCmd({ cmd: 'seek', time }) }
-
-    _stopAudio()
-    if (!noAudio.value && !currentMuted.value) {
-        if (_audioRetry) clearTimeout(_audioRetry)
-        _audioRetry = setTimeout(() => { _audioRetry = null; _connectAudio().catch(() => { }) }, 400)
+    // Pausa áudio enquanto aguarda o vídeo chegar ao novo PTS
+    // (o _enqueue re-alinha e despausa quando o primeiro frame chegar)
+    if (audioEl.value && _audioConnected) {
+        audioEl.value.pause()
+        try { audioEl.value.currentTime = clampedTime } catch { }
     }
-    emit('seeked', getMockEvent())
+
+    try {
+        await invoke('send_video_command', {
+            sessionId: _sid,
+            command: { cmd: 'seek', time: clampedTime }
+        })
+    } catch (e) {
+        console.warn(`${_tag()} seek invoke falhou:`, e)
+        _sendCmd({ cmd: 'seek', time: clampedTime })
+    }
+
+    // Timeout de segurança: se o primeiro frame não chegar em 3s,
+    // força saída do estado de seek para não travar permanentemente.
+    setTimeout(() => {
+        if (_seeking && _pendingSeekTime === clampedTime) {
+            console.warn(`${_tag()} seek timeout — forçando reset`)
+            _seeking = false
+            _firstFrame = false
+            _clockSeeded = true
+            _wallStart = performance.now()
+            _ptsStart = clampedTime
+            if (audioEl.value && _audioConnected && !paused.value) {
+                audioEl.value.play().catch(() => { })
+            }
+            emit('seeked', getMockEvent())
+        }
+    }, 3000)
 }
 
 // ── Watchers ────────────────────────────────────────────────────────────────
-// Debounced — evita teardown/play múltiplos quando src muda rápido
 watch(src, (newSrc) => {
     if (_srcChangeTimer) clearTimeout(_srcChangeTimer)
     _srcChangeTimer = setTimeout(async () => {
         _srcChangeTimer = null
         if (!newSrc) return
         _teardown()
-        // Aguarda stop_video completar no Rust antes de nova sessão.
-        // Sem isso o probe HEAD pode pegar sessão antiga ou dar 404 na transição.
         try { await invoke('stop_video', { sessionId: _sid }) } catch { }
         _currentTime = 0
         _firstFrame = true
         _queue.length = 0
         ended.value = false
         readyState.value = 0
+        duration.value = 0     // reseta para que _enqueue dispare loadedmetadata de novo
         await nextTick()
         if (previewOnly.value) _loadPreview()
         else play().catch(console.error)
@@ -770,6 +875,8 @@ watch(() => props.height, (v) => {
     if (canvasEl.value) canvasEl.value.height = _renderH
     _invalidateViewport()
 })
+
+watch(currentLoop, v => { if (audioEl.value) audioEl.value.loop = v })
 
 // ── Ciclo de Vida ───────────────────────────────────────────────────────────
 onMounted(() => {
@@ -792,7 +899,6 @@ onUnmounted(() => {
     invoke('stop_video', { sessionId: _sid }).catch(() => { })
 })
 
-// ── API Exposta ─────────────────────────────────────────────────────────────
 defineExpose({
     play, pause, resume, seek,
     currentTime, playbackRate,

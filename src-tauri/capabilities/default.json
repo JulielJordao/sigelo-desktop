@@ -92,6 +92,9 @@
         },
         {
           "event": "handle-layout-keydown"
+        },
+        {
+          "event": "extract_audio_temp"
         }
       ]
     },
