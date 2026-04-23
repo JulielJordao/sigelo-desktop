@@ -5,6 +5,7 @@ import { useStatusPresentationStore } from '../../stores/statusPresentationStore
 import { useMenuStore } from '../../stores/menuStore';
 import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
 import FFmpegVideo from '../../FFmpegVideo.vue'; // ajuste o path
+import SmartVideo from '../SmartVideo.vue';
 
 const props = defineProps({
     isToolbar: {
@@ -131,12 +132,14 @@ const onDrag = async (val: number) => {
     sliderValue.value = val;
     playbackStore.currentTime = val;
 
-    // Preview local (mesma janela): atualização INSTANTÂNEA
+    // Preview local
     if (previewVideo.value) {
         try { previewVideo.value.currentTime = val; } catch { }
     }
 
-    // Telão (outra janela via IPC): THROTTLED a 120ms
+    // Telão: envia via IPC. O FFmpegVideo da outra janela tem locked mode
+    // que acumula seeks e executa apenas quando o pipeline estabiliza.
+    // Throttle leve aqui apenas para não saturar o canal IPC.
     if (!playbackStore.isPreviewMode) {
         _emitLiveSeek(val)
     }
@@ -395,8 +398,7 @@ onMounted(() => {
     </div>
 
     <!-- ═══════════════ STANDALONE (CARD) ═══════════════ -->
-    <v-card
-        v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'"
+    <v-card v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'"
         class="border-md d-flex flex-column" style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
         <div class="bg-error px-3 py-1 d-flex align-center text-white" style="height: 40px;">
             <v-icon start size="small" class="blink-anim mr-2">mdi-record-circle-outline</v-icon>

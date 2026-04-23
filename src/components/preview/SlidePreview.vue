@@ -153,7 +153,7 @@ watch(() => props.design.bgMedia, async () => {
         // videoRef.value.load(); // ← força o browser a recarregar o novo src
         if (!isVideoPaused.value) {
             videoRef.value.play().catch(() => { });
-        }
+        } 
     }
 });
 </script>
@@ -170,18 +170,18 @@ watch(() => props.design.bgMedia, async () => {
 
         <div v-if="props.isFixedPreview"> 
             <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
-            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio autoplay loop muted class="video-bg"
+            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio loop muted class="video-bg"
             :object-fit="design.bgFit"  preview-only/>
         </div>
         <div v-else>
             <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
-            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio autoplay loop muted class="video-bg"
+            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
             :object-fit="design.bgFit" />
         </div>
         
 
         <v-fade-transition>
-            <div v-if="design.bgIsVideo && isVideoPaused" class="video-paused-indicator">
+            <div v-if="design.bgIsVideo && isVideoPaused && !props.isFixedPreview" class="video-paused-indicator">
                 <v-icon color="white" size="48">mdi-play-circle-outline</v-icon>
             </div>
         </v-fade-transition>

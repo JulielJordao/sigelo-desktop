@@ -12,6 +12,7 @@ import { emit } from '@tauri-apps/api/event';
 import { useConfigStore } from '../stores/useConfigStore';
 
 import FFmpegVideo from '../FFmpegVideo.vue';
+import SmartVideo from '../components/SmartVideo.vue';
 
 const isDev = import.meta.env.DEV;
 

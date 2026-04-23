@@ -39,6 +39,9 @@ export const useConfigStore = defineStore('config', () => {
     bibleLayout: 'bottom-right',
     showVerseNumbers: false,
 
+    // useConfigStore.ts
+    videoEngine: 'smart' as 'ffmpeg' | 'native' | 'hybrid' | 'smart',
+
     // Limites de Segurança (Safe Area)
     marginTop: 0,
     marginBottom: 0,

@@ -188,6 +188,13 @@ let _expectedSeekTime = -1        // PTS alvo do seek mais recente (-1 = sem see
 let _seeking = false
 let _seekWatchdog: ReturnType<typeof setTimeout> | null = null
 
+// Debounce + limite máximo para seek
+let _pendingSeekTime: number | null = null
+let _seekDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let _firstPendingSeekAt = 0
+const _SEEK_DEBOUNCE_MS = 80
+const _SEEK_MAX_WAIT_MS = 250
+
 let _srcChangeTimer: ReturnType<typeof setTimeout> | null = null
 
 // ── Mock Event ──────────────────────────────────────────────────────────────
@@ -229,6 +236,7 @@ function _clearSeekState(): void {
     _seeking = false
     _expectedSeekTime = -1
     _pendingSeekTime = null
+    _firstPendingSeekAt = 0
     if (_seekWatchdog) { clearTimeout(_seekWatchdog); _seekWatchdog = null }
     if (_seekDebounceTimer) { clearTimeout(_seekDebounceTimer); _seekDebounceTimer = null }
 }
@@ -762,59 +770,55 @@ function resume(): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SEEK BULLETPROOF com DEBOUNCE
+// SEEK com DEBOUNCE + LIMITE MÁXIMO
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// Seeks em rajada (usuário arrastando slider em modo "Ao Vivo") podem matar
-// o FFmpeg do Rust repetidamente sem dar tempo dele completar nenhum pipeline.
-// Resultado: nenhum primeiro frame chega, e a UI trava no watchdog de 2s.
+// - Se seeks param por 80ms → commit imediato (baixa latência)
+// - Se seeks continuam chegando → commit FORÇADO a cada 250ms
+//   (mantém o vídeo acompanhando visualmente o slider)
 //
-// Estratégia de defesa em profundidade:
-//   1. UI atualiza INSTANTANEAMENTE (_currentTime visual)
-//   2. Comando ao Rust é DEBOUNCED 100ms: se novo seek chegar em 100ms,
-//      cancela o anterior e só envia o último
-//   3. Entre seeks, mantém áudio pausado mas NÃO reinicia pipeline de vídeo
-//   4. Watchdog continua como segurança final
-//
-
-let _pendingSeekTime: number | null = null
-let _seekDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 async function seek(time: number): Promise<void> {
     if (!isFinite(time) || time < 0) return
     const clampedTime = Math.max(0, Math.min(time, duration.value || time))
 
-    // ── 1. Feedback visual instantâneo (sem esperar o Rust) ──
+    const now = performance.now()
+
+    // Feedback visual instantâneo
     _currentTime = clampedTime
     _pendingSeekTime = clampedTime
     emit('seeking', getMockEvent())
 
-    // ── 2. Áudio vai para o tempo novo IMEDIATAMENTE (sem pausa agressiva) ──
-    // Como o áudio é um arquivo local (.m4a), seek nele é instantâneo e
-    // sem custo. Mantemos ele pausado durante o arrasto, mas no tempo certo.
+    // Áudio acompanha instantaneamente (arquivo local)
     if (audioEl.value && _audioConnected) {
         try { audioEl.value.currentTime = clampedTime } catch { }
-        // Não dá play — deixa pausado até o seek definitivo terminar
         audioEl.value.pause()
     }
 
-    // ── 3. Debounce do comando ao Rust ──
-    // Se outro seek chegar em <100ms, este é cancelado. Apenas o ÚLTIMO
-    // seek de uma rajada chega ao Rust, evitando thrashing do FFmpeg.
-    if (_seekDebounceTimer) {
-        clearTimeout(_seekDebounceTimer)
-        _seekDebounceTimer = null
+    if (_firstPendingSeekAt === 0) {
+        _firstPendingSeekAt = now
     }
 
+    // Se passou do limite máximo de espera, commit AGORA
+    const waitedTotal = now - _firstPendingSeekAt
+    if (waitedTotal >= _SEEK_MAX_WAIT_MS) {
+        if (_seekDebounceTimer) { clearTimeout(_seekDebounceTimer); _seekDebounceTimer = null }
+        _firstPendingSeekAt = 0
+        _commitSeek(clampedTime)
+        return
+    }
+
+    // Debounce normal
+    if (_seekDebounceTimer) clearTimeout(_seekDebounceTimer)
     _seekDebounceTimer = setTimeout(() => {
         _seekDebounceTimer = null
+        _firstPendingSeekAt = 0
         const finalTime = _pendingSeekTime
         if (finalTime === null) return
         _commitSeek(finalTime)
-    }, 100)
+    }, _SEEK_DEBOUNCE_MS)
 }
 
-/// Executa o seek real no Rust. Chamado apenas pelo debounce acima.
 async function _commitSeek(time: number): Promise<void> {
     const myGen = ++_seekGen
     _expectedSeekTime = time
@@ -836,10 +840,9 @@ async function _commitSeek(time: number): Promise<void> {
         _sendCmd({ cmd: 'seek', time })
     }
 
-    // Se outro seek aconteceu durante o invoke, abandona este
     if (myGen !== _seekGen) return
 
-    // Watchdog de recuperação
+    // Watchdog — se primeiro frame não chegar em 2.5s, recupera
     _seekWatchdog = setTimeout(() => {
         _seekWatchdog = null
         if (myGen !== _seekGen) return
@@ -874,17 +877,30 @@ watch(src, (newSrc) => {
     _srcChangeTimer = setTimeout(async () => {
         _srcChangeTimer = null
         if (!newSrc) return
+        
         _teardown()
         try { await invoke('stop_video', { sessionId: _sid }) } catch { }
+        
         _currentTime = 0
         _firstFrame = true
         _queue.length = 0
         ended.value = false
         readyState.value = 0
         duration.value = 0
+        
         await nextTick()
-        if (previewOnly.value) _loadPreview()
-        else play().catch(console.error)
+        
+        if (previewOnly.value) {
+            _loadPreview()
+        } else {
+            // Sempre iniciamos o play para "acordar" o FFmpeg e o WebSocket
+            await play().catch(console.error)
+            
+            // Se NÃO tiver autoplay, forçamos a pausa imediatamente após o comando de play
+            if (!props.autoplay) {
+                setTimeout(pause, 1000)
+            }
+        }
     }, 50)
 })
 
