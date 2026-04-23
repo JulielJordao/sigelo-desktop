@@ -405,7 +405,7 @@ onMounted(async () => {
 onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown);
 
-    if(unlistenHandleKeydown) unlistenHandleKeydown()
+    if (unlistenHandleKeydown) unlistenHandleKeydown()
 });
 
 watch(currentSlideIndex, () => {
@@ -661,10 +661,11 @@ const updateCurrentPreset = async () => {
 
                 <v-card-text class="flex-grow-1 overflow-hidden pa-0 d-flex flex-column">
 
-                    <v-window v-model="currentTab" class="flex-grow-1">
+                    <v-window v-model="currentTab" class="flex-grow-1 h-100">
 
-                        <v-window-item value="slides" class="pa-4 h-100 overflow-y-auto">
-                            <TabSlides :slides="songSlides" v-model:currentSlideIndex="currentSlideIndex" />
+                        <v-window-item value="slides" class="pa-4 h-100 overflow-y-auto" style="min-height: 0;">
+                            <TabSlides :slides="songSlides" v-model:currentSlideIndex="currentSlideIndex"
+                               />
                         </v-window-item>
 
                         <v-window-item value="estrutura" class="pa-4 h-100 overflow-y-auto">
@@ -691,7 +692,8 @@ const updateCurrentPreset = async () => {
 
         <div v-else class="flex-grow-1 d-flex flex-column align-center justify-center text-medium-emphasis">
             <v-icon icon="mdi-projector-screen-outline" size="64" class="mb-4 text-disabled"></v-icon>
-            <h3 class="font-weight-medium">{{ !songInfo.activeSong?.id ? 'Selecione uma música no repertório' : 'Música sem letra cadastrada'}}</h3>
+            <h3 class="font-weight-medium">{{ !songInfo.activeSong?.id ? 'Selecione uma música no repertório' :
+                'Música sem letra cadastrada' }}</h3>
         </div>
     </div>
     <ModalSelectPreset v-model="isPresetModalOpen"></ModalSelectPreset>
