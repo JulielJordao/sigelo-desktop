@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, computed } from 'vue';
-import { emit } from '@tauri-apps/api/event';
+import { onMounted, onUnmounted, ref, watch, computed } from 'vue';
+import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
 import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
-import FFmpegVideo from '../../FFmpegVideo.vue'; // ajuste o path
-import SmartVideo from '../SmartVideo.vue';
+import SmartVideo from '../SmartVideo.vue'; // ajuste o path
 
 const props = defineProps({
     isToolbar: {
@@ -19,43 +18,77 @@ const statusPresStore = useStatusPresentationStore();
 const playbackStore = useMediaPlaybackStore();
 const menuOpen = ref(false);
 
-// ── Ref do FFmpegVideo de preview ──────────────────────────────────────────
-// Quando o usuário abre o menu, este componente é montado e usa <ffmpeg-video>
-// com `noAudio` para mostrar o preview SEM áudio (áudio toca só no telão).
-const previewVideo = ref<InstanceType<typeof FFmpegVideo> | null>(null);
+// ═════════════════════════════════════════════════════════════════════════
+// REF DO PREVIEW
+// ─────────────────────────────────────────────────────────────────────────
+// Usamos tipo genérico `any` para aceitar tanto SmartVideo quanto FFmpegVideo
+// (mesma API pública). Se preferir tipar estrito, troque para:
+//   ref<InstanceType<typeof SmartVideo> | null>(null)
+// ═════════════════════════════════════════════════════════════════════════
+const previewVideo = ref<any>(null);
 
 const sliderValue = ref(0);
 
-// ── Resolve path para passar ao FFmpegVideo ───────────────────────────────
 const previewSrc = computed(() => {
     const file = statusPresStore.projectedFile;
     if (!file?.url) return '';
     return file.url;
 });
 
+// ═════════════════════════════════════════════════════════════════════════
+// SINCRONIZAÇÃO DE TEMPO — preview local + tempo fantasma
 // ─────────────────────────────────────────────────────────────────────────
-// SINCRONIZAÇÃO DE TEMPO
-// ─────────────────────────────────────────────────────────────────────────
-// O preview emite eventos como o <video> nativo (loadedmetadata, timeupdate,
-// seeking, seeked). Usamos isso para atualizar a store sem hack de timer.
+// Cenários:
+//
+// 1. MENU ABERTO + modo Ao Vivo/Preview: <SmartVideo> monta, emite
+//    timeupdate → sobrescreve playbackStore.currentTime.
+//
+// 2. MENU FECHADO: só existe o pill da toolbar mostrando o tempo.
+//    O preview NÃO está montado → timeupdate não é emitido.
+//    O "ghost timer" (no store) avança o tempo local baseado no wall clock.
+//    Quando o menu reabre, o preview seek para esse tempo.
+//
+// O ghost timer é controlado por `playbackStore.startGhostTimer()` e
+// é PAUSADO automaticamente quando o preview está vivo emitindo timeupdate
+// (ver watchdog abaixo).
+// ═════════════════════════════════════════════════════════════════════════
+
+let _lastTimeUpdateAt = 0;
+let _lastAcceptedTime = -1; // último tempo aceito (para detectar regressões falsas)
+let _ghostWatchdog: ReturnType<typeof setInterval> | null = null;
 
 const onLoadedMetadata = (e: any) => {
     const target = e.target;
-    if (target?.duration) {
-        playbackStore.duration = target.duration;
+    const dur = target?.duration?.value ?? target?.duration;
+    if (dur && isFinite(dur) && dur > 0) {
+        playbackStore.duration = dur;
     }
 };
 
 const onTimeUpdate = (e: any) => {
     const target = e.target;
-    if (target && !playbackStore.isDragging) {
-        playbackStore.currentTime = target.currentTime ?? 0;
+    // Lê currentTime de SmartVideo (computed ref) ou <video> nativo (number)
+    const rawCt = target?.currentTime;
+    const ct: number = (rawCt && typeof rawCt === 'object' && 'value' in rawCt)
+        ? rawCt.value
+        : (rawCt ?? -1);
+
+    // Descarta zeros — emitidos durante load/seek/buffering do <video> nativo
+    if (!isFinite(ct) || ct <= 0) return;
+
+    // Descarta regressões grandes (> 2s para trás) que não foram seek explícito
+    // — evita o efeito de vai-e-volta quando o nativo emite frames antigos
+    if (_lastAcceptedTime > 0 && ct < _lastAcceptedTime - 2) return;
+
+    _lastTimeUpdateAt = performance.now();
+    _lastAcceptedTime = ct;
+
+    if (!playbackStore.isDragging) {
+        playbackStore.currentTime = ct;
     }
 };
 
 const onSeeked = () => {
-    // Disparado quando o ffmpeg-video terminou o seek e mostrou o primeiro frame
-    // (sem timeout fixo de 1s — usa o evento real)
     if (_pendingResumeAfterSeek) {
         _pendingResumeAfterSeek = false;
         _resumeAfterSeek();
@@ -75,9 +108,56 @@ const formatTime = (seconds: number) => {
     return `${m}:${s}`;
 };
 
+// ═════════════════════════════════════════════════════════════════════════
+// TEMPO FANTASMA (GHOST TIMER)
 // ─────────────────────────────────────────────────────────────────────────
+// Quando o preview NÃO está montado mas o vídeo do telão está rodando,
+// precisamos atualizar o tempo localmente via wall clock.
+//
+// Lógica:
+//   - Se `playbackStore.isPlaying === true` e `_lastTimeUpdateAt` foi há
+//     mais de 500ms (preview não está emitindo timeupdate) → avança o
+//     tempo localmente a cada 250ms.
+//   - Se o preview estiver emitindo timeupdate, o watchdog não faz nada
+//     (o onTimeUpdate já atualiza o tempo com valor real).
+//   - Loop back ao fim da duração.
+// ═════════════════════════════════════════════════════════════════════════
+
+function _startGhostWatchdog() {
+    if (_ghostWatchdog) return;
+    _ghostWatchdog = setInterval(() => {
+        if (!playbackStore.isPlaying) return;
+        if (playbackStore.isDragging) return;
+
+        const sincePreview = performance.now() - _lastTimeUpdateAt;
+        // Só atua se preview não emitiu timeupdate válido nos últimos 600ms
+        if (sincePreview < 600) return;
+
+        // Não avança a partir de zero — espera pelo menos um tempo real chegar
+        const current = playbackStore.currentTime;
+        if (current <= 0) return;
+
+        const delta = 0.25;
+        let next = current + delta;
+
+        if (playbackStore.duration > 0 && next >= playbackStore.duration) {
+            next = next % playbackStore.duration;
+        }
+        playbackStore.currentTime = next;
+    }, 250);
+}
+
+function _stopGhostWatchdog() {
+    if (_ghostWatchdog) {
+        clearInterval(_ghostWatchdog);
+        _ghostWatchdog = null;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
 // SCRUBBING (arrastar slider)
-// ─────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════
+
 let _pendingResumeAfterSeek = false;
 let _wasPlayingBeforeDrag = false;
 
@@ -85,7 +165,6 @@ const onDragStart = async () => {
     playbackStore.isDragging = true;
     _wasPlayingBeforeDrag = playbackStore.isPlaying;
 
-    // Pausa preview e telão durante o arrasto
     if (previewVideo.value) previewVideo.value.pause();
     if (!playbackStore.isPreviewMode) {
         await emit('media-control', { action: 'pause' });
@@ -93,38 +172,32 @@ const onDragStart = async () => {
 };
 
 // ─── Throttle para emit de seek ao telão ───
-// Em modo "Ao Vivo" o onDrag pode disparar 30-60 vezes/segundo. Enviar
-// todos os eventos via IPC Tauri satura o canal e atrapalha o FFmpegVideo
-// da outra janela. Throttle garante no máximo 1 emit a cada 120ms,
-// sempre enviando o ÚLTIMO valor quando termina o período.
-//
-let _lastLiveSeekTime = 0
-let _liveSeekThrottleTimer: ReturnType<typeof setTimeout> | null = null
-let _pendingLiveSeekVal: number | null = null
+let _lastLiveSeekTime = 0;
+let _liveSeekThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingLiveSeekVal: number | null = null;
 
 async function _emitLiveSeek(val: number) {
-    const now = performance.now()
-    _pendingLiveSeekVal = val
+    const now = performance.now();
+    _pendingLiveSeekVal = val;
 
-    // Se está em cooldown, agenda o envio para quando terminar
     if (now - _lastLiveSeekTime < 120) {
         if (!_liveSeekThrottleTimer) {
             _liveSeekThrottleTimer = setTimeout(() => {
-                _liveSeekThrottleTimer = null
+                _liveSeekThrottleTimer = null;
                 if (_pendingLiveSeekVal !== null && playbackStore.isDragging) {
-                    _lastLiveSeekTime = performance.now()
-                    const v = _pendingLiveSeekVal
-                    _pendingLiveSeekVal = null
-                    emit('media-control', { action: 'seek', time: v }).catch(() => { })
+                    _lastLiveSeekTime = performance.now();
+                    const v = _pendingLiveSeekVal;
+                    _pendingLiveSeekVal = null;
+                    emit('media-control', { action: 'seek', time: v }).catch(() => { });
                 }
-            }, 120 - (now - _lastLiveSeekTime))
+            }, 120 - (now - _lastLiveSeekTime));
         }
-        return
+        return;
     }
 
-    _lastLiveSeekTime = now
-    _pendingLiveSeekVal = null
-    await emit('media-control', { action: 'seek', time: val })
+    _lastLiveSeekTime = now;
+    _pendingLiveSeekVal = null;
+    await emit('media-control', { action: 'seek', time: val });
 }
 
 const onDrag = async (val: number) => {
@@ -132,16 +205,13 @@ const onDrag = async (val: number) => {
     sliderValue.value = val;
     playbackStore.currentTime = val;
 
-    // Preview local
+    // Preview local — funciona igual em FFmpegVideo e SmartVideo (computed writable)
     if (previewVideo.value) {
         try { previewVideo.value.currentTime = val; } catch { }
     }
 
-    // Telão: envia via IPC. O FFmpegVideo da outra janela tem locked mode
-    // que acumula seeks e executa apenas quando o pipeline estabiliza.
-    // Throttle leve aqui apenas para não saturar o canal IPC.
     if (!playbackStore.isPreviewMode) {
-        _emitLiveSeek(val)
+        _emitLiveSeek(val);
     }
 };
 
@@ -159,19 +229,28 @@ const onDragEnd = async () => {
     playbackStore.isDragging = false;
     const finalTime = sliderValue.value;
 
-    // Cancela throttle pendente e envia o valor FINAL imediatamente
     if (_liveSeekThrottleTimer) {
-        clearTimeout(_liveSeekThrottleTimer)
-        _liveSeekThrottleTimer = null
+        clearTimeout(_liveSeekThrottleTimer);
+        _liveSeekThrottleTimer = null;
     }
-    _pendingLiveSeekVal = null
-    _lastLiveSeekTime = 0  // reseta para próximo arrasto
+    _pendingLiveSeekVal = null;
+    _lastLiveSeekTime = 0;
 
-    // Envia seek FINAL (tanto em modo Preview quanto Ao Vivo)
+    // Aceita o novo tempo após seek (sem restrição de regressão)
+    _lastAcceptedTime = finalTime;
+
+    // Ativa sincronização pós-seek: quando o primeiro projection-time-sync
+    // chegar com o tempo real da projeção, ajustamos o preview.
+    // Timeout de segurança: se não chegar sync em 3s, cancela.
+    _pendingPostSeekSync = true;
+    if (_postSeekSyncTimeout) clearTimeout(_postSeekSyncTimeout);
+    _postSeekSyncTimeout = setTimeout(() => {
+        _pendingPostSeekSync = false;
+        _postSeekSyncTimeout = null;
+    }, 3000);
+
     await emit('media-control', { action: 'seek', time: finalTime });
 
-    // Aguarda o evento `seeked` do preview local para retomar.
-    // Fallback de 2s caso algo trave.
     if (_wasPlayingBeforeDrag) {
         _pendingResumeAfterSeek = true;
         setTimeout(() => {
@@ -183,9 +262,10 @@ const onDragEnd = async () => {
     }
 };
 
-// ─────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════
 // BOTÕES
-// ─────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════
+
 const togglePlay = async () => {
     playbackStore.isPlaying = !playbackStore.isPlaying;
     if (playbackStore.isPlaying) {
@@ -215,17 +295,97 @@ const restartMedia = async () => {
 
 const toggleVolume = async () => {
     playbackStore.isMuted = !playbackStore.isMuted;
-    // Preview SEMPRE muted (áudio toca só no telão).
-    // Apenas o telão recebe o comando real de volume.
     await emit('media-control', { action: playbackStore.isMuted ? 'mute' : 'unmute' });
 };
 
+// ═════════════════════════════════════════════════════════════════════════
+// SINCRONIZAÇÃO DE TEMPO — recebe da ProjectionWindow via emitTo('main')
 // ─────────────────────────────────────────────────────────────────────────
+// A ProjectionWindow faz emitTo('main', 'projection-time-sync', ...) a cada
+// 1s. Como usa emitTo específico, NÃO volta para a ProjectionWindow (sem loop).
+//
+// SINCRONIZAÇÃO PÓS-SEEK:
+// Dois <video> independentes fazem seek para keyframes diferentes, podendo
+// ficar até 4s dessincronizados. A projeção é a fonte da verdade.
+// Após um seek, quando o primeiro projection-time-sync chegar com o tempo
+// real da projeção, ajustamos o preview para esse tempo.
+// ═════════════════════════════════════════════════════════════════════════
+
+let _unlistenSync: UnlistenFn | null = null;
+let _pendingPostSeekSync = false   // aguardando o tempo real da projeção pós-seek
+let _postSeekSyncTimeout: ReturnType<typeof setTimeout> | null = null
+
+async function _startSyncListener() {
+    try {
+        _unlistenSync = await listen<{ currentTime: number; duration?: number }>(
+            'projection-time-sync',
+            (event) => {
+                if (playbackStore.isDragging) return;
+
+                const { currentTime, duration } = event.payload;
+
+                if (typeof currentTime !== 'number' || !isFinite(currentTime) || currentTime <= 0) return;
+                if (_lastAcceptedTime > 0 && currentTime < _lastAcceptedTime - 2) return;
+
+                // ── Sincronização pós-seek ────────────────────────────────
+                // Se acabou de fazer seek e o preview está em modo nativo,
+                // ajusta o preview para o tempo REAL da projeção (não o pedido).
+                if (_pendingPostSeekSync && previewVideo.value) {
+                    const previewCt = _getPreviewCurrentTime()
+                    const diff = Math.abs(previewCt - currentTime)
+
+                    if (diff > 0.3) {
+                        // Preview está dessincronizado — corrige silenciosamente
+                        try { previewVideo.value.seek
+                            ? previewVideo.value.seek(currentTime)
+                            : (previewVideo.value.currentTime = currentTime)
+                        } catch {}
+                    }
+                    _pendingPostSeekSync = false
+                    if (_postSeekSyncTimeout) { clearTimeout(_postSeekSyncTimeout); _postSeekSyncTimeout = null }
+                }
+
+                // Se preview está vivo e já está sincronizado, não sobrescreve
+                // (deixa o timeupdate local ser mais preciso)
+                if (performance.now() - _lastTimeUpdateAt < 800) {
+                    // Mesmo assim atualiza duration se necessário
+                    if (duration && duration > 0) playbackStore.duration = duration;
+                    return;
+                }
+
+                playbackStore.currentTime = currentTime;
+                _lastAcceptedTime = currentTime;
+                _lastTimeUpdateAt = performance.now();
+
+                if (duration && duration > 0) {
+                    playbackStore.duration = duration;
+                }
+            }
+        );
+    } catch (e) {
+        console.warn('[LiveMediaController] sync listener falhou:', e);
+    }
+}
+
+// Lê o currentTime atual do preview de forma segura (ComputedRef ou number)
+function _getPreviewCurrentTime(): number {
+    if (!previewVideo.value) return 0
+    const raw = previewVideo.value.currentTime
+    if (raw && typeof raw === 'object' && 'value' in raw) return raw.value ?? 0
+    return raw ?? 0
+}
+
+function _stopRustPoll() {} // mantido por compatibilidade
+
+// ═════════════════════════════════════════════════════════════════════════
 // REATIVIDADE CRUZADA E REGISTROS
-// ─────────────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════
+
 watch(() => statusPresStore.projectedFile?.id, () => {
     playbackStore.resetMedia();
     sliderValue.value = 0;
+    _lastTimeUpdateAt = 0;
+    _lastAcceptedTime = -1;
 });
 
 watch(() => playbackStore.isPlaying, async (playing) => {
@@ -239,7 +399,6 @@ watch(() => playbackStore.isPlaying, async (playing) => {
 watch(previewVideo, (newRef, oldRef) => {
     if (newRef && !oldRef) {
         playbackStore.registerVideo();
-        // Sincroniza estado quando o preview é montado
         if (playbackStore.currentTime > 0) {
             try { newRef.currentTime = playbackStore.currentTime; } catch { }
             sliderValue.value = playbackStore.currentTime;
@@ -250,12 +409,37 @@ watch(previewVideo, (newRef, oldRef) => {
     }
     if (!newRef && oldRef) {
         playbackStore.unregisterVideo();
+        // Preview desmontou — reseta timer para ghost assumir
+        _lastTimeUpdateAt = 0;
     }
 });
+
+// ═════════════════════════════════════════════════════════════════════════
+// CICLO DE VIDA
+// ═════════════════════════════════════════════════════════════════════════
 
 onMounted(() => {
     playbackStore.startGhostTimer();
     sliderValue.value = playbackStore.currentTime;
+    _startGhostWatchdog();
+    _startSyncListener();
+});
+
+onUnmounted(() => {
+    _stopGhostWatchdog();
+    _stopRustPoll();
+    if (_liveSeekThrottleTimer) {
+        clearTimeout(_liveSeekThrottleTimer);
+        _liveSeekThrottleTimer = null;
+    }
+    if (_postSeekSyncTimeout) {
+        clearTimeout(_postSeekSyncTimeout);
+        _postSeekSyncTimeout = null;
+    }
+    if (_unlistenSync) {
+        _unlistenSync();
+        _unlistenSync = null;
+    }
 });
 </script>
 
@@ -336,8 +520,8 @@ onMounted(() => {
                         <div class="d-flex align-center mb-3">
                             <div class="preview-container mr-3 rounded border border-surface overflow-hidden flex-shrink-0 bg-black position-relative"
                                 style="width: 120px; aspect-ratio: 16/9;">
-                                <!-- ── Preview com FFmpegVideo (MESMA engine do telão) ── -->
-                                <FFmpegVideo
+                                <!-- ── Preview com SmartVideo (mesma engine do telão) ── -->
+                                <SmartVideo
                                     v-if="statusPresStore.projectedFile?.isVideo && playbackStore.isPreviewMode && previewSrc"
                                     ref="previewVideo" :src="previewSrc" autoplay muted no-audio object-fit="cover"
                                     class="w-100 h-100" @loadedmetadata="onLoadedMetadata" @timeupdate="onTimeUpdate"
@@ -398,7 +582,8 @@ onMounted(() => {
     </div>
 
     <!-- ═══════════════ STANDALONE (CARD) ═══════════════ -->
-    <v-card v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'"
+    <v-card
+        v-else-if="!props.isToolbar && statusPresStore.projectedFile?.id && statusPresStore.status.isPresentation === 'Media'"
         class="border-md d-flex flex-column" style="border-color: rgb(var(--v-theme-error)) !important;" elevation="2">
         <div class="bg-error px-3 py-1 d-flex align-center text-white" style="height: 40px;">
             <v-icon start size="small" class="blink-anim mr-2">mdi-record-circle-outline</v-icon>
@@ -428,7 +613,7 @@ onMounted(() => {
             <div class="d-flex align-center mb-3">
                 <div class="preview-container mr-3 rounded border border-surface overflow-hidden flex-shrink-0 bg-black position-relative"
                     style="width: 120px; aspect-ratio: 16/9;">
-                    <FFmpegVideo
+                    <SmartVideo
                         v-if="statusPresStore.projectedFile.isVideo && playbackStore.isPreviewMode && previewSrc"
                         ref="previewVideo" :src="previewSrc" autoplay muted no-audio object-fit="cover"
                         class="w-100 h-100" @loadedmetadata="onLoadedMetadata" @timeupdate="onTimeUpdate"
@@ -503,17 +688,9 @@ onMounted(() => {
 }
 
 @keyframes blink-red {
-    0% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.4;
-    }
-
-    100% {
-        opacity: 1;
-    }
+    0% { opacity: 1; }
+    50% { opacity: 0.4; }
+    100% { opacity: 1; }
 }
 
 .header-toggle {

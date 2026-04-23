@@ -95,6 +95,9 @@
         },
         {
           "event": "extract_audio_temp"
+        },
+        {
+          "event": "projection-time-sync"
         }
       ]
     },
@@ -145,6 +148,9 @@
         },
         {
           "event": "handle-layout-keydown"
+        },
+        {
+          "event": "projection-time-sync"
         }
       ]
     },

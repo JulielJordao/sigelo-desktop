@@ -22,7 +22,12 @@
         <video
             v-else-if="resolvedEngine === 'native'"
             ref="nativeRef"
-            v-bind="nativeAttrs"
+            :src="props.src"
+            :autoplay="props.autoplay"
+            :muted="!!(props.muted || props.noAudio)"
+            :loop="props.loop"
+            playsinline
+            :style="nativeStyle"
             class="smart-native-video"
             @play="$emit('play', $event)"
             @playing="$emit('playing', $event)"
@@ -36,7 +41,7 @@
             @error="onNativeError"
         />
 
-        <!-- Loading / fallback indicator (só durante detecção) -->
+        <!-- Loading / fallback indicator -->
         <div v-if="resolvedEngine === null" class="smart-detecting">
             <v-progress-circular indeterminate size="24" color="primary" />
         </div>
@@ -44,15 +49,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useConfigStore } from '../stores/useConfigStore'
-import FFmpegVideo from '../../FFmpegVideo.vue'  // ajuste o path
+import FFmpegVideo from '../FFmpegVideo.vue'
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 type Engine = 'ffmpeg' | 'native'
 type EngineMode = 'ffmpeg' | 'native' | 'hybrid' | 'smart'
 
-// ── Props (espelha FFmpegVideo + <video> nativo) ─────────────────────────────
+// ── Props ────────────────────────────────────────────────────────────────────
 const props = withDefaults(defineProps<{
     src?: string
     width?: number | string
@@ -84,44 +89,31 @@ const ffmpegRef = ref<InstanceType<typeof FFmpegVideo> | null>(null)
 const nativeRef = ref<HTMLVideoElement | null>(null)
 const configStore = useConfigStore()
 
-// ── Motor resolvido (null = detectando) ──────────────────────────────────────
+// ── Motor resolvido ──────────────────────────────────────────────────────────
 const resolvedEngine = ref<Engine | null>(null)
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CODECS COMPATÍVEIS COM WEBKIT/WEBVIEW2 NATIVO
-// ─────────────────────────────────────────────────────────────────────────────
-// Extensões que o <video> nativo suporta sem FFmpeg na maioria dos sistemas.
-// .mp4 H.264+AAC é o caso raiz — funciona em todos os targets.
-// .mov só funciona no macOS/Safari WebKit.
-// ─────────────────────────────────────────────────────────────────────────────
+// DETECÇÃO DE MOTOR
+// ═════════════════════════════════════════════════════════════════════════════
 const NATIVE_COMPATIBLE_EXTENSIONS = new Set([
-    'mp4', 'm4v', 'webm', 'ogv',
+    'mp4', 'm4v', 'webm', 'ogv', 'mov'
 ])
 
-// Extensões que SÓ funcionam via FFmpeg
 const FFMPEG_ONLY_EXTENSIONS = new Set([
-    'mkv', 'avi', 'flv', 'wmv', 'ts', 'mts',
-    'mov',  // mov tem codecs variados; ffmpeg garante
-    'prores', 'mxf',
+    'mkv', 'avi', 'flv', 'wmv', 'ts', 'mts', 'prores', 'mxf'
 ])
 
 function detectEngine(src: string): Engine {
     const mode = (configStore.settings.videoEngine ?? 'smart') as EngineMode
 
     switch (mode) {
-        case 'ffmpeg':
-            return 'ffmpeg'
-
-        case 'native':
-            return 'native'
-
+        case 'ffmpeg': return 'ffmpeg'
+        case 'native': return 'native'
         case 'hybrid':
         case 'smart': {
-            // Extrai extensão
             const ext = src.split('?')[0].split('.').pop()?.toLowerCase() ?? ''
             if (FFMPEG_ONLY_EXTENSIONS.has(ext)) return 'ffmpeg'
             if (NATIVE_COMPATIBLE_EXTENSIONS.has(ext)) return 'native'
-            // Extensão desconhecida: smart → tenta nativo, hybrid → ffmpeg
             return mode === 'smart' ? 'native' : 'ffmpeg'
         }
     }
@@ -133,22 +125,18 @@ watch(() => props.src, (newSrc) => {
     resolvedEngine.value = detectEngine(newSrc)
 }, { immediate: true })
 
-// ── Em modo 'smart': se nativo falhar, faz fallback para FFmpeg ───────────────
-function onNativeError(e: Event) {
-    const mode = (configStore.settings.videoEngine ?? 'smart') as EngineMode
-    if (mode === 'smart' && resolvedEngine.value === 'native') {
-        console.warn('[SmartVideo] nativo falhou — fallback para FFmpeg')
-        resolvedEngine.value = 'ffmpeg'
-    } else {
-        emit('error', e)
-    }
-}
+// ── Reaplica volume/rate/muted quando nativo monta ───────────────────────────
+watch([resolvedEngine, nativeRef], async () => {
+    if (resolvedEngine.value !== 'native') return
+    await nextTick()
+    const v = nativeRef.value
+    if (!v) return
+    v.volume = props.volume ?? 1.0
+    v.muted = !!(props.muted || props.noAudio)
+    v.playbackRate = props.playbackRate ?? 1.0
+}, { immediate: true })
 
-function onFFmpegError(e: any) {
-    emit('error', e)
-}
-
-// ── Props para cada motor ─────────────────────────────────────────────────────
+// ── Props para FFmpegVideo ────────────────────────────────────────────────────
 const ffmpegProps = computed(() => ({
     src: props.src,
     width: props.width,
@@ -163,37 +151,69 @@ const ffmpegProps = computed(() => ({
     objectFit: props.objectFit,
 }))
 
-const nativeAttrs = computed(() => {
-    const style: Record<string, string> = {
-        width: '100%',
-        height: '100%',
-        objectFit: props.objectFit === 'none' ? 'fill' : (props.objectFit ?? 'contain'),
+// ── Estilo para <video> nativo (objectFit via CSS) ───────────────────────────
+const nativeStyle = computed<Record<string, string>>(() => ({
+    width: '100%',
+    height: '100%',
+    objectFit: props.objectFit === 'none' ? 'fill' : (props.objectFit ?? 'contain'),
+}))
+
+// ── Watchers para sincronizar atributos no nativo ─────────────────────────────
+watch(() => props.volume, (v) => {
+    if (nativeRef.value) nativeRef.value.volume = Math.max(0, Math.min(1, v ?? 1.0))
+})
+
+// ── Sincroniza muted em tempo real nos dois motores ───────────────────────────
+watch(() => props.muted, (m) => {
+    const isMuted = !!(m || props.noAudio)
+    // Nativo: setar via JS (atributo HTML não reage após mount)
+    if (nativeRef.value) {
+        nativeRef.value.muted = isMuted
+        nativeRef.value.volume = isMuted ? 0 : (props.volume ?? 1.0)
     }
-    return {
-        src: props.src,
-        autoplay: props.autoplay || undefined,
-        muted: props.muted || props.noAudio || undefined,
-        loop: props.loop || undefined,
-        playsinline: true,
-        style,
+    // FFmpeg: repassa via computed (FFmpegVideo observa props.muted via watch interno)
+    // Nada a fazer aqui — ffmpegProps já é reativo e FFmpegVideo reage
+})
+
+watch(() => props.noAudio, (noA) => {
+    const isMuted = !!(props.muted || noA)
+    if (nativeRef.value) {
+        nativeRef.value.muted = isMuted
+        nativeRef.value.volume = isMuted ? 0 : (props.volume ?? 1.0)
     }
 })
 
-// ── Sincroniza volume e playbackRate no nativo (não via attrs) ────────────────
-watch([() => props.volume, () => props.muted], () => {
-    if (!nativeRef.value) return
-    nativeRef.value.volume = props.volume ?? 1.0
-    nativeRef.value.muted = !!(props.muted || props.noAudio)
-}, { immediate: false })
+watch(() => props.volume, (v) => {
+    if (nativeRef.value) {
+        nativeRef.value.volume = Math.max(0, Math.min(1, v ?? 1.0))
+        // Se volume > 0, garante que não fique mudo (a menos que muted esteja ativo)
+        if ((v ?? 0) > 0 && !props.muted && !props.noAudio) {
+            nativeRef.value.muted = false
+        }
+    }
+})
 
 watch(() => props.playbackRate, (r) => {
     if (nativeRef.value) nativeRef.value.playbackRate = r ?? 1.0
 })
 
-// ── loadedmetadata do nativo — normaliza para mesmo formato do FFmpegVideo ───
+// ── Handlers ─────────────────────────────────────────────────────────────────
+function onNativeError(e: Event) {
+    const mode = (configStore.settings.videoEngine ?? 'smart') as EngineMode
+    if (mode === 'smart' && resolvedEngine.value === 'native') {
+        console.warn('[SmartVideo] nativo falhou — fallback para FFmpeg')
+        resolvedEngine.value = 'ffmpeg'
+    } else {
+        emit('error', e)
+    }
+}
+
+function onFFmpegError(e: any) {
+    emit('error', e)
+}
+
 function onNativeMeta(e: Event) {
     const el = e.target as HTMLVideoElement
-    // Aplica volume que pode não estar refletido pelo attr
     if (el) {
         el.volume = props.volume ?? 1.0
         el.muted = !!(props.muted || props.noAudio)
@@ -203,83 +223,171 @@ function onNativeMeta(e: Event) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// API EXPOSTA (espelha FFmpegVideo para que LiveMediaController não mude)
+// HELPER: Lê valor de FFmpegVideo, que pode estar unwrapped OU como Ref
 // ═════════════════════════════════════════════════════════════════════════════
-
-function getActiveEl() {
-    return resolvedEngine.value === 'native'
-        ? nativeRef.value
-        : ffmpegRef.value
+// Vue `defineExpose` pode retornar valores unwrapped no template, mas como
+// Refs quando acessado via `.value` em código. Para cobrir ambos os casos
+// sem erro de TypeScript, fazemos cast `as any` e testamos .value.
+//
+function readFromFFmpeg(prop: string, fallback: any = 0): any {
+    const f = ffmpegRef.value as any
+    if (!f) return fallback
+    const val = f[prop]
+    if (val === undefined || val === null) return fallback
+    // Se é um Ref (tem .value), usa .value; senão retorna direto
+    if (typeof val === 'object' && 'value' in val) return val.value
+    return val
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// API PÚBLICA — espelha HTMLVideoElement e FFmpegVideo
+// ═════════════════════════════════════════════════════════════════════════════
+
 async function play(): Promise<void> {
-    const el = getActiveEl()
-    if (!el) return
     if (resolvedEngine.value === 'native') {
-        await (el as HTMLVideoElement).play()
-    } else {
-        await (el as InstanceType<typeof FFmpegVideo>).play()
+        await nativeRef.value?.play().catch(() => {})
+    } else if (resolvedEngine.value === 'ffmpeg') {
+        await ffmpegRef.value?.play()
     }
 }
 
 function pause(): void {
-    const el = getActiveEl()
-    if (!el) return
-    (el as any).pause()
+    if (resolvedEngine.value === 'native') {
+        nativeRef.value?.pause()
+    } else if (resolvedEngine.value === 'ffmpeg') {
+        ffmpegRef.value?.pause()
+    }
 }
 
 function resume(): void {
-    const el = getActiveEl()
-    if (!el) return
     if (resolvedEngine.value === 'native') {
-        (el as HTMLVideoElement).play().catch(() => {})
-    } else {
-        (el as InstanceType<typeof FFmpegVideo>).resume()
+        nativeRef.value?.play().catch(() => {})
+    } else if (resolvedEngine.value === 'ffmpeg') {
+        ffmpegRef.value?.resume()
     }
 }
 
 async function seek(time: number): Promise<void> {
-    const el = getActiveEl()
-    if (!el) return
     if (resolvedEngine.value === 'native') {
-        (el as HTMLVideoElement).currentTime = time
-    } else {
-        await (el as InstanceType<typeof FFmpegVideo>).seek(time)
+        if (nativeRef.value) {
+            try { nativeRef.value.currentTime = time } catch {}
+        }
+    } else if (resolvedEngine.value === 'ffmpeg') {
+        await ffmpegRef.value?.seek(time)
     }
 }
 
-// currentTime get/set
-const currentTime = {
+function setMuted(val: boolean): void {
+    if (resolvedEngine.value === 'native') {
+        if (nativeRef.value) {
+            nativeRef.value.muted = val
+            nativeRef.value.volume = val ? 0 : (props.volume ?? 1.0)
+        }
+    } else if (resolvedEngine.value === 'ffmpeg' && ffmpegRef.value) {
+        // FFmpegVideo expõe muted como WritableComputedRef
+        const f = ffmpegRef.value as any
+        if (f.muted && typeof f.muted === 'object' && 'value' in f.muted) {
+            f.muted.value = val
+        }
+    }
+}
+
+function setVolume(val: number): void {
+    const v = Math.max(0, Math.min(1, val))
+    if (resolvedEngine.value === 'native' && nativeRef.value) {
+        nativeRef.value.volume = v
+        if (v > 0) nativeRef.value.muted = false
+    } else if (resolvedEngine.value === 'ffmpeg' && ffmpegRef.value) {
+        const f = ffmpegRef.value as any
+        if (f.volume && typeof f.volume === 'object' && 'value' in f.volume) {
+            f.volume.value = v
+        }
+    }
+}
+
+// ─── Propriedades reativas (computed com helper robusto) ──────────────────────
+const currentTime = computed<number>({
     get() {
-        const el = getActiveEl()
-        if (!el) return 0
-        if (resolvedEngine.value === 'native') return (el as HTMLVideoElement).currentTime
-        return (el as InstanceType<typeof FFmpegVideo>).currentTime.value
+        if (resolvedEngine.value === 'native') {
+            return nativeRef.value?.currentTime ?? 0
+        }
+        return readFromFFmpeg('currentTime', 0)
     },
     set(v: number) {
         seek(v)
     }
-}
+})
 
-const duration = {
-    get() {
-        const el = getActiveEl()
-        if (!el) return 0
-        if (resolvedEngine.value === 'native') return (el as HTMLVideoElement).duration || 0
-        return (el as InstanceType<typeof FFmpegVideo>).duration.value
+const duration = computed<number>(() => {
+    if (resolvedEngine.value === 'native') {
+        const d = nativeRef.value?.duration
+        return (d && isFinite(d)) ? d : 0
     }
-}
+    return readFromFFmpeg('duration', 0)
+})
 
-const paused = {
-    get() {
-        const el = getActiveEl()
-        if (!el) return true
-        if (resolvedEngine.value === 'native') return (el as HTMLVideoElement).paused
-        return (el as InstanceType<typeof FFmpegVideo>).paused.value
+const paused = computed<boolean>(() => {
+    if (resolvedEngine.value === 'native') {
+        return nativeRef.value?.paused ?? true
     }
-}
+    return readFromFFmpeg('paused', true)
+})
 
-defineExpose({ play, pause, resume, seek, currentTime, duration, paused, resolvedEngine })
+const ended = computed<boolean>(() => {
+    if (resolvedEngine.value === 'native') {
+        return nativeRef.value?.ended ?? false
+    }
+    return readFromFFmpeg('ended', false)
+})
+
+const videoWidth = computed<number>(() => {
+    if (resolvedEngine.value === 'native') {
+        return nativeRef.value?.videoWidth ?? 0
+    }
+    return readFromFFmpeg('videoWidth', 0)
+})
+
+const videoHeight = computed<number>(() => {
+    if (resolvedEngine.value === 'native') {
+        return nativeRef.value?.videoHeight ?? 0
+    }
+    return readFromFFmpeg('videoHeight', 0)
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// defineExpose
+// ═════════════════════════════════════════════════════════════════════════════
+// Acesso via ref pelo pai:
+//
+//   const videoRef = ref<InstanceType<typeof SmartVideo> | null>(null)
+//   videoRef.value?.play()
+//   videoRef.value?.seek(30)
+//   videoRef.value?.currentTime = 30       // ← funciona: computed writable
+//   const t = videoRef.value?.currentTime  // ← funciona: retorna number
+//
+// ATENÇÃO: quando acessado via `.value` (porque é ref), o Vue unwrappa
+// automaticamente os computeds. Então `videoRef.value.currentTime` JÁ É
+// o número (não um Ref). Para writable, a atribuição direta funciona.
+//
+
+defineExpose({
+    // Ações
+    play,
+    pause,
+    resume,
+    seek,
+    setMuted,
+    setVolume,
+    // Estados reativos
+    currentTime,
+    duration,
+    paused,
+    ended,
+    videoWidth,
+    videoHeight,
+    // Meta
+    resolvedEngine,
+})
 </script>
 
 <style scoped>

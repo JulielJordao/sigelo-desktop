@@ -2,12 +2,12 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
 import { useMediaStore } from '../stores/mediaStore';
 import { useNoticeStore } from '../stores/noticeStore';
 import type { MediaFile } from '../stores/mediaStore';
 import { useTimerStore } from '../stores/timerStore';
-import { emit } from '@tauri-apps/api/event';
+import { emit, emitTo } from '@tauri-apps/api/event';
 
 import { useConfigStore } from '../stores/useConfigStore';
 
@@ -15,6 +15,11 @@ import FFmpegVideo from '../FFmpegVideo.vue';
 import SmartVideo from '../components/SmartVideo.vue';
 
 const isDev = import.meta.env.DEV;
+
+// ── Time sync ─────────────────────────────────────────────────────────────────
+// Emite o tempo atual do vídeo para a janela PRINCIPAL a cada 1s.
+// Usamos emitTo('main') para evitar o loop (emit broadcast voltaria para si).
+let _timeSyncInterval: ReturnType<typeof setInterval> | null = null;
 
 // Apenas leitura
 const noticeStore = useNoticeStore()
@@ -44,7 +49,6 @@ const currentMedia = ref<MediaFile | null>(null);
 
 const debugLog = ref<string>("Iniciando...");
 
-// *** NOVO: Guarda o último dado do Rust para o setInterval não atrapalhar ***
 const lastBackendData = ref<string>('');
 
 let unlistenUpdate: UnlistenFn | null = null;
@@ -55,29 +59,44 @@ let unlistenClear: UnlistenFn | null = null;
 let unlistenMediaControl: UnlistenFn | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 
-// Listening de Avisos
 let unlistenNoticeSettings: UnlistenFn | null = null;
 let unlistenNoticePlayback: UnlistenFn | null = null;
 
-// Listening do Timer
 let unlistenTimerSettings: UnlistenFn | null = null;
 let unlistenTimerPlayback: UnlistenFn | null = null;
 let localTimerInterval: ReturnType<typeof setInterval> | null = null;
 
 let unlistenUpdateConfig: UnlistenFn | null = null;
 
-// let unlistenRemoveFixed: UnlistenFn | null = null;
-
-const videoRef = ref<HTMLVideoElement | null>(null);
+// ── videoRef tipado como `any` para aceitar SmartVideo e FFmpegVideo ──────────
+const videoRef = ref<any>(null);
 const bibleDataPayload = ref<any>(null);
 
-// Agora aceita um 'force'. Se for o setInterval, force = false. Se for o clique do botão, force = true.
+// ── Nome da janela principal (onde o LiveMediaController está) ────────────────
+// Em Tauri 2 a janela principal se chama 'main' por padrão.
+// Se o seu tauri.conf.json usa outro nome, ajuste aqui.
+const MAIN_WINDOW_LABEL = 'main';
+
+// ── Helpers para ler tempo de SmartVideo ou <video> nativo ───────────────────
+function _getVideoTime(): { ct: number; dur: number } | null {
+    const el = videoRef.value;
+    if (!el) return null;
+
+    const rawCt = el.currentTime;
+    const rawDur = el.duration;
+
+    const ct = (rawCt && typeof rawCt === 'object' && 'value' in rawCt) ? rawCt.value : (rawCt ?? 0);
+    const dur = (rawDur && typeof rawDur === 'object' && 'value' in rawDur) ? rawDur.value : (rawDur ?? 0);
+
+    // Não emite zeros — <video> nativo emite currentTime=0 durante load/seek
+    if (!isFinite(ct) || ct <= 0) return null;
+
+    return { ct, dur };
+}
+
 const processIncomingData = (data: string, force: boolean = false) => {
     if (!data || data.trim() === '') return;
-
-    if (!force && data === lastBackendData.value) {
-        return;
-    }
+    if (!force && data === lastBackendData.value) return;
 
     lastBackendData.value = data;
 
@@ -88,15 +107,12 @@ const processIncomingData = (data: string, force: boolean = false) => {
             slideData.value = parsed;
             return;
         }
-        // NOVO: Captura o tipo de projeção Bíblica
         if (parsed && parsed.type === 'bible') {
             projectionType.value = 'bible';
             bibleDataPayload.value = parsed;
             return;
         }
-    } catch (e) {
-        // Ignora erro de parse (provavelmente era string HTML pura)
-    }
+    } catch (e) { }
 
     projectionType.value = 'html';
     htmlContent.value = data;
@@ -105,28 +121,40 @@ const processIncomingData = (data: string, force: boolean = false) => {
 const loadCurrentHtml = async () => {
     try {
         const currentData = await invoke<string>('get_current_projection');
-        processIncomingData(currentData, false); // force = false (é apenas o loop automático)
+        processIncomingData(currentData, false);
     } catch (e) {
         console.error("Erro ao buscar projeção:", e);
     }
 };
 
-// Transforma a cor sólida do Store em um fundo com 30% de opacidade
 const getTransparentBackground = (hexColor: string, style: string) => {
     if (style !== 'solid') return 'transparent';
-    if (!hexColor) return 'rgba(0, 0, 0, 0.3)'; // Fallback de segurança
-
-    // Remove o '#'
+    if (!hexColor) return 'rgba(0, 0, 0, 0.3)';
     const hex = hexColor.replace('#', '');
-
-    // Converte para RGB
     const r = parseInt(hex.substring(0, 2), 16);
     const g = parseInt(hex.substring(2, 4), 16);
     const b = parseInt(hex.substring(4, 6), 16);
-
-    // Retorna com 30% de opacidade (quase transparente)
     return `rgba(${r}, ${g}, ${b}, 0.3)`;
 };
+
+// ── Time sync: emite para a janela principal a cada 1s ────────────────────────
+function _startTimeSync() {
+    if (_timeSyncInterval) return;
+    _timeSyncInterval = setInterval(_emitTimeSync, 1000);
+}
+
+async function _emitTimeSync() {
+    const data = _getVideoTime();
+    if (!data) return;
+    try {
+        await emitTo(MAIN_WINDOW_LABEL, 'projection-time-sync', {
+            currentTime: data.ct,
+            duration: data.dur > 0 ? data.dur : undefined
+        });
+    } catch {
+        // janela principal pode não estar pronta ainda
+    }
+}
 
 onMounted(async () => {
     configStore.autoSave = false;
@@ -136,9 +164,7 @@ onMounted(async () => {
     unlistenUpdate = await listen<string>('update-projection', async (event) => {
         await configStore.loadSettings()
         debugLog.value = `Opacidade: ${configStore.settings.bgOpacity}`;
-
-        processIncomingData(event.payload, true); // force = true (ação do usuário)
-
+        processIncomingData(event.payload, true);
     });
 
     unlistenScroll = await listen<ScrollPayload>('sync-pdf-scroll', (event) => {
@@ -153,8 +179,6 @@ onMounted(async () => {
         currentMedia.value = event.payload;
         projectionType.value = 'media';
         debugLog.value = `Projetando mídia: ${event.payload.name}`;
-
-        // NOVO: Faz a janela oculta aparecer na tela e ganhar foco
         try {
             const appWindow = getCurrentWindow();
             await appWindow.show();
@@ -165,17 +189,13 @@ onMounted(async () => {
 
     unlistenFixed = await listen<MediaFile>('set-fixed-media', async (event) => {
         const oldFixedMedia = { ...mediaStore.fixedMedia }
-
         debugLog.value = `Mídia fixa definida: ${event.payload?.isVideo}`;
         await mediaStore.setFixedMedia(event.payload);
-
         if ((projectionType.value === 'none' || projectionType.value === 'fixed') && oldFixedMedia.id != event.payload.id) {
             projectionType.value = 'fixed';
-
             try {
                 const appWindow = getCurrentWindow();
                 await appWindow.show();
-
             } catch (err) {
                 console.error("Erro ao exibir janela de projeção:", err);
             }
@@ -184,7 +204,6 @@ onMounted(async () => {
 
     unlistenClear = await listen<boolean>('clear-projection', (event) => {
         const cleanFixed = event.payload;
-
         projectionType.value = mediaStore.fixedMedia && !cleanFixed ? 'fixed' : 'none';
         debugLog.value = mediaStore.fixedMedia + "";
     });
@@ -196,26 +215,27 @@ onMounted(async () => {
         debugLog.value = `Comando recebido: ${action}`;
 
         try {
+            const el = videoRef.value;
             switch (action) {
                 case 'play':
-                    videoRef.value.play();
+                    el.play?.();
                     break;
                 case 'pause':
-                    videoRef.value.pause();
+                    el.pause?.();
                     break;
                 case 'mute':
-                    videoRef.value.muted = true;
+                    el.setMuted ? el.setMuted(true) : (el.muted = true)
                     break;
                 case 'unmute':
-                    videoRef.value.muted = false;
+                    el.setMuted ? el.setMuted(false) : (el.muted = false)
                     break;
                 case 'restart':
-                    videoRef.value.currentTime = 0;
-                    //videoRef.value.play();
+                    el.currentTime = 0;
                     break;
                 case 'seek':
                     if (time !== undefined) {
-                        videoRef.value.currentTime = time;
+                        // currentTime pode ser WritableComputedRef (SmartVideo) ou number (<video>)
+                        el.seek ? el.seek(time) : (el.currentTime = time);
                     }
                     break;
             }
@@ -234,27 +254,19 @@ onMounted(async () => {
         }
     });
 
-    // Escuta comandos de reprodução (Play, Pause, Stop) da janela principal
     unlistenNoticePlayback = await listen<{ action: string, isActive: boolean, isPaused: boolean }>('sync-notice-playback', (event) => {
         const { isActive, isPaused } = event.payload;
-
         debugLog.value = `Sync: ${isActive}`;
-
-        // Atualiza as variáveis de controle visual da projeção
         noticeStore.isActive = isActive;
         noticeStore.isPaused = isPaused;
-
         if (isActive) {
             try {
                 const appWindow = getCurrentWindow();
-                appWindow.show(); // Garante que a tela apareça se estiver oculta
+                appWindow.show();
             } catch (err) { }
         }
     });
 
-    // =========================================================================
-    // LISTENERS DO TIMER
-    // =========================================================================
     unlistenTimerSettings = await listen<string>('update-timer-settings', (event) => {
         try {
             const parsed = JSON.parse(event.payload);
@@ -273,21 +285,16 @@ onMounted(async () => {
 
     unlistenTimerPlayback = await listen<{ action: string, timeRemaining: number }>('sync-timer-playback', async (event) => {
         const { action, timeRemaining } = event.payload;
-
         timerStore.timeRemaining = timeRemaining;
 
         if (action === 'start' || action === 'resume') {
             projectionType.value = 'timer';
             timerStore.isActive = true;
             timerStore.isPaused = false;
-
-            // NOVO: Define a hora logo de cara pro relógio não piscar "00:00" na tela
             const now = new Date();
             timerStore.currentClockTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-
             if (localTimerInterval) clearInterval(localTimerInterval);
             localTimerInterval = setInterval(() => {
-                // NOVO: Condicional de Modo
                 if (timerStore.timerMode === 'clock') {
                     const now = new Date();
                     timerStore.currentClockTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -297,20 +304,16 @@ onMounted(async () => {
                     }
                 }
             }, 1000);
-
             try {
                 const appWindow = getCurrentWindow();
                 await appWindow.show();
             } catch (err) { }
-        }
-        else if (action === 'pause') {
+        } else if (action === 'pause') {
             timerStore.isPaused = true;
-        }
-        else if (action === 'stop') {
+        } else if (action === 'stop') {
             timerStore.isActive = false;
             timerStore.isPaused = false;
             if (localTimerInterval) clearInterval(localTimerInterval);
-
             if (projectionType.value === 'timer') {
                 projectionType.value = mediaStore.fixedMedia ? 'fixed' : 'none';
             }
@@ -319,16 +322,20 @@ onMounted(async () => {
 
     unlistenUpdateConfig = await listen<string>('update-settings', async () => {
         await configStore.loadSettings()
-    })
+    });
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Inicia sync de tempo para a janela principal
+    _startTimeSync();
 });
 
 const handleKeyDown = async (event: KeyboardEvent) => {
     debugLog.value = "key:" + event.key
     if (event.key === 'Escape') {
-        // Quando apertar ESC, chama o Rust para fechar/ocultar a tela
         await invoke('stop_projection');
-    } 
-    if(projectionType.value === "slide") await emit('handle-layout-keydown', event.key)       
+    }
+    if (projectionType.value === "slide") await emit('handle-layout-keydown', event.key)
 };
 
 const timerBackgroundStyle = computed(() => {
@@ -346,42 +353,33 @@ onUnmounted(() => {
     if (unlistenMedia) unlistenMedia();
     if (unlistenFixed) unlistenFixed();
     if (unlistenClear) unlistenClear();
-    if (unlistenMediaControl) unlistenMediaControl()
+    if (unlistenMediaControl) unlistenMediaControl();
     if (syncInterval) clearInterval(syncInterval);
-
     if (unlistenNoticeSettings) unlistenNoticeSettings();
     if (unlistenNoticePlayback) unlistenNoticePlayback();
-
     if (unlistenTimerSettings) unlistenTimerSettings();
     if (unlistenTimerPlayback) unlistenTimerPlayback();
     if (unlistenUpdateConfig) unlistenUpdateConfig();
     if (localTimerInterval) clearInterval(localTimerInterval);
-
+    if (_timeSyncInterval) { clearInterval(_timeSyncInterval); _timeSyncInterval = null; }
     window.removeEventListener('keydown', handleKeyDown);
 });
 
-onMounted(() => {
-    window.addEventListener('keydown', handleKeyDown);
-})
-
 function onVideoMeta(e: Event) {
-  const el = e.target as any;
-  console.log('=== FFmpegVideo Meta ===');
-  console.log('duration:', el.duration);
-  console.log('muted:', el.muted);
-  console.log('volume:', el.volume);
-  console.log('noAudio:', el.noAudio);
-  
-  // Inspeciona o <audio> no light DOM
-  const audio = el.querySelector('audio');
-  console.log('audio element:', audio);
-  console.log('audio.src:', audio?.src);
-  console.log('audio.muted:', audio?.muted);
-  console.log('audio.paused:', audio?.paused);
-  console.log('audio.readyState:', audio?.readyState);
-  console.log('audio.error:', audio?.error);
+    const el = e.target as any;
+    console.log('=== Video Meta ===');
+    console.log('duration:', el.duration?.value ?? el.duration);
+    console.log('muted:', el.muted);
+    console.log('volume:', el.volume);
 }
 
+// Emite o tempo real IMEDIATAMENTE após o seek terminar na projeção.
+// Isso permite que o LiveMediaController corrija o preview sem esperar o
+// próximo tick do setInterval de 1s.
+function onVideoSeeked() {
+    // Pequeno delay para garantir que currentTime já reflete o frame real
+    setTimeout(_emitTimeSync, 100);
+}
 </script>
 
 <template>
@@ -408,20 +406,12 @@ function onVideoMeta(e: Event) {
                 <div class="background-layer">
                     <div v-if="slideData.background.type === 'color'"
                         :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
-                    <FFmpegVideo 
-                        v-else-if="slideData.background.type === 'video'"
-                        :src="slideData.background.media"
-                        :autoplay="true" 
-                        :loop="true" 
-                        :muted="true"
-                        no-audio
-                        :object-fit="slideData.background.fit"
-                        style="width: 100%; height: 100%;" 
-                    />
+                    <FFmpegVideo v-else-if="slideData.background.type === 'video'" :src="slideData.background.media"
+                        :autoplay="true" :loop="true" :muted="true" no-audio :object-fit="slideData.background.fit"
+                        style="width: 100%; height: 100%;" />
                     <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
                         :style="{ objectFit: slideData.background.fit }" />
-                        
-                    </div>
+                </div>
                 <div class="dark-overlay"
                     :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
                 <div class="content-layer" :style="{ padding: slideData.layout.padding }">
@@ -444,22 +434,16 @@ function onVideoMeta(e: Event) {
             </div>
 
             <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-                <FFmpegVideo
-                        v-if="currentMedia.isVideo" 
-                        ref="videoRef" 
-                        :src="currentMedia.url" 
-                        autoplay 
-                        class="w-100 h-100"
-                        @loadedmetadata="onVideoMeta"
-                        :style="{ width: '100%', height: '100%' }" 
-                        />
+                <SmartVideo v-if="currentMedia.isVideo" ref="videoRef" :src="currentMedia.url" autoplay
+                    class="w-100 h-100" @loadedmetadata="onVideoMeta" @seeked="onVideoSeeked"
+                    :style="{ width: '100%', height: '100%' }" />
                 <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
             </div>
 
             <div v-else-if="projectionType === 'fixed' && mediaStore.fixedMedia"
                 class="media-fullscreen-container bg-black">
                 <FFmpegVideo v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
-                    class="w-100 h-100"  no-audio :object-fit="'cover'"></FFmpegVideo>
+                    class="w-100 h-100" no-audio :object-fit="'cover'"></FFmpegVideo>
                 <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
             </div>
 
@@ -481,40 +465,28 @@ function onVideoMeta(e: Event) {
             </div>
 
             <div v-else-if="projectionType === 'bible' && bibleDataPayload" class="slide-root-container"
-                 :class="`theme-${bibleDataPayload.config.activeTheme?.toLowerCase() || 'dark'}`" 
-                 :style="{
+                :class="`theme-${bibleDataPayload.config.activeTheme?.toLowerCase() || 'dark'}`" :style="{
                     backgroundColor: bibleDataPayload.config.chromaKey !== 'none' ? bibleDataPayload.config.chromaKey : 'transparent',
                     transition: `opacity 0.3s ${bibleDataPayload.config.transitionType === 'fade' ? 'ease-in-out' : 'none'}`
-                 }">
-                
+                }">
                 <div class="background-layer">
                     <div v-if="bibleDataPayload.settings.bgType === 'color'"
-                        :style="{ backgroundColor: bibleDataPayload.settings.bgColor, width: '100%', height: '100%' }"></div>
-                    <FFmpegVideo 
+                        :style="{ backgroundColor: bibleDataPayload.settings.bgColor, width: '100%', height: '100%' }">
+                    </div>
+                    <FFmpegVideo
                         v-else-if="bibleDataPayload.settings.bgIsVideo && bibleDataPayload.settings.bgMediaLocal"
-                        :src="bibleDataPayload.settings.bgMediaLocal"
-                        :autoplay="true" 
-                        :loop="true" 
-                        :muted="true"
-                        no-audio
-                        :object-fit="bibleDataPayload.settings.bgFit"
-                        style="width: 100%; height: 100%;" 
-                    />
+                        :src="bibleDataPayload.settings.bgMediaLocal" :autoplay="true" :loop="true" :muted="true"
+                        no-audio :object-fit="bibleDataPayload.settings.bgFit" style="width: 100%; height: 100%;" />
                     <img v-else-if="bibleDataPayload.settings.bgMedia" :src="bibleDataPayload.settings.bgMedia"
                         :style="{ objectFit: bibleDataPayload.settings.bgFit, width: '100%', height: '100%' }" />
                 </div>
-                
                 <div class="dark-overlay"
                     :style="{ backgroundColor: `rgba(0, 0, 0, ${bibleDataPayload.config.bgOpacity / 100})` }"></div>
-                
-                <div class="content-layer" :class="{ 'hide-verses': !bibleDataPayload.config.showVerseNumbers }" 
-                     :style="{ padding: `${bibleDataPayload.config.marginTop}% ${bibleDataPayload.config.marginRight}% ${bibleDataPayload.config.marginBottom}% ${bibleDataPayload.config.marginLeft}%` }">
-                     
+                <div class="content-layer" :class="{ 'hide-verses': !bibleDataPayload.config.showVerseNumbers }"
+                    :style="{ padding: `${bibleDataPayload.config.marginTop}% ${bibleDataPayload.config.marginRight}% ${bibleDataPayload.config.marginBottom}% ${bibleDataPayload.config.marginLeft}%` }">
                     <div style="position: relative; width: 100%; height: 100%; container-type: inline-size;">
-                        
                         <div style="position: absolute; left: 5%; top: 5%; width: 90%; height: 90%; display: flex; align-items: center; justify-content: center;"
-                             :style="{ paddingTop: bibleDataPayload.config.bibleLayout === 'top' && bibleDataPayload.slide.reference ? (bibleDataPayload.settings.fontSize * 0.6) + 'cqi' : '0' }">
-                            
+                            :style="{ paddingTop: bibleDataPayload.config.bibleLayout === 'top' && bibleDataPayload.slide.reference ? (bibleDataPayload.settings.fontSize * 0.6) + 'cqi' : '0' }">
                             <div :style="{
                                 fontFamily: `'${bibleDataPayload.settings.fontFamily}', sans-serif`,
                                 fontSize: bibleDataPayload.settings.fontSize + 'cqi',
@@ -526,14 +498,14 @@ function onVideoMeta(e: Event) {
                                 overflow: 'hidden',
                                 lineHeight: bibleDataPayload.settings.textBackdrop ? '1.6' : '1.3'
                             }">
-                                <span :style="bibleDataPayload.settings.textBackdrop ? 'background-color: rgba(0, 0, 0, 0.65); padding: 0.15em 0.4em; border-radius: 12px; box-decoration-break: clone; -webkit-box-decoration-break: clone; backdrop-filter: blur(4px);' : ''" 
-                                      v-html="bibleDataPayload.slide.htmlContent">
+                                <span
+                                    :style="bibleDataPayload.settings.textBackdrop ? 'background-color: rgba(0, 0, 0, 0.65); padding: 0.15em 0.4em; border-radius: 12px; box-decoration-break: clone; -webkit-box-decoration-break: clone; backdrop-filter: blur(4px);' : ''"
+                                    v-html="bibleDataPayload.slide.htmlContent">
                                 </span>
                             </div>
                         </div>
-
                         <div v-if="bibleDataPayload.slide.reference && bibleDataPayload.config.bibleLayout !== 'hidden'"
-                             :style="{
+                            :style="{
                                 position: 'absolute',
                                 left: bibleDataPayload.config.bibleLayout === 'top' ? '5%' : 'auto',
                                 right: bibleDataPayload.config.bibleLayout === 'bottom-right' ? '5%' : 'auto',
@@ -546,13 +518,12 @@ function onVideoMeta(e: Event) {
                                 textAlign: bibleDataPayload.config.bibleLayout === 'top' ? bibleDataPayload.settings.align : 'right',
                                 fontWeight: 'bold',
                                 zIndex: 10
-                             }">
+                            }">
                             {{ bibleDataPayload.slide.reference }}
                         </div>
                     </div>
                 </div>
             </div>
-            
 
             <div v-else class="w-100 h-100 bg-black"></div>
 
@@ -564,12 +535,10 @@ function onVideoMeta(e: Event) {
                     color: noticeStore.format.color,
                     backgroundColor: getTransparentBackground(noticeStore.format.bgColor, noticeStore.format.style)
                 }">
-
                     <div class="notice-animator" :class="`anim-${noticeStore.format.animation}`"
                         :style="{ animationPlayState: noticeStore.isPaused ? 'paused' : 'running' }">
                         <span class="notice-text">{{ noticeStore.text }}</span>
                     </div>
-
                 </div>
             </transition>
 
@@ -592,39 +561,26 @@ function onVideoMeta(e: Event) {
 .projection-window-container {
     position: fixed;
     inset: 0;
-    /* atalho para top/left/right/bottom 0 */
     background-color: #000;
-    /* As bordas pretas ficam aqui! */
     z-index: 9999;
     overflow: hidden;
-
-    /* Configura o container para centralizar o palco */
     display: flex;
     align-items: center;
     justify-content: center;
 }
 
-/* --------------------------------- */
-/* NOVO: PALCO DE PROJEÇÃO           */
-/* --------------------------------- */
 .projection-stage {
     width: 100%;
     height: 100%;
     position: relative;
     overflow: hidden;
     background-color: #000;
-    /* Essencial para as fontes dinâmicas (cqi) continuarem funcionando perfeitamente */
     container-type: inline-size;
 }
 
-/* --------------------------------- */
-/* ESTRUTURA DOS SLIDES (COM TEXTO)  */
-/* --------------------------------- */
 .slide-root-container {
     width: 100%;
-    /* Antigo 100vw */
     height: 100%;
-    /* Antigo 100vh */
     position: relative;
 }
 
@@ -672,14 +628,9 @@ function onVideoMeta(e: Event) {
     container-type: inline-size;
 }
 
-/* --------------------------------- */
-/* MÍDIAS AVULSAS E FUNDO FIXO       */
-/* --------------------------------- */
 .media-fullscreen-container {
     width: 100%;
-    /* Antigo 100vw */
     height: 100%;
-    /* Antigo 100vh */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -693,23 +644,17 @@ function onVideoMeta(e: Event) {
     object-fit: cover;
 }
 
-/* ================================================================== */
-/* ESTILIZAÇÃO E ANIMAÇÃO DOS AVISOS                                  */
-/* ================================================================== */
 .notice-overlay {
     position: absolute;
     left: 0;
     width: 100%;
-    /* Antigo 100vw */
     z-index: 999999;
     display: flex;
     align-items: center;
     overflow: hidden;
     padding: 2% 2%;
-    /* Antigo 2vh 2vw */
     box-sizing: border-box;
     font-size: clamp(32px, 5cqi, 80px);
-    /* Trocado vw por cqi para respeitar o palco */
     font-family: sans-serif;
     font-weight: bold;
 }
@@ -727,10 +672,8 @@ function onVideoMeta(e: Event) {
 }
 
 .style-transparent {
-    text-shadow:
-        3px 3px 0 #000, -1px -1px 0 #000,
-        1px -1px 0 #000, -1px 1px 0 #000,
-        1px 1px 0 #000, 0px 5px 15px rgba(0, 0, 0, 0.8);
+    text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000,
+        -1px 1px 0 #000, 1px 1px 0 #000, 0px 5px 15px rgba(0, 0, 0, 0.8);
 }
 
 .notice-animator {
@@ -803,8 +746,6 @@ function onVideoMeta(e: Event) {
     }
 }
 
-/** ## Timer */
-
 .timer-projection-layer {
     position: absolute;
     inset: 0;
@@ -819,20 +760,17 @@ function onVideoMeta(e: Event) {
     padding-top: 10%;
 }
 
-/* Antigo 10vh */
 .pos-bottom {
     align-items: flex-end;
     padding-bottom: 10%;
 }
 
-/* Antigo 10vh */
 .pos-center {
     align-items: center;
 }
 
 .timer-display {
     font-size: 25cqi;
-    /* Alterado de vw para cqi para escalonar perfeitamente com o palco */
     font-weight: 800;
     color: white;
     text-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
