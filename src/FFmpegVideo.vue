@@ -166,6 +166,7 @@ let _audioRetry: ReturnType<typeof setTimeout> | null = null
 let _audioFallbackTimer: ReturnType<typeof setTimeout> | null = null
 let _audioConnected = false
 let _fps = 30
+let _lastFrame: QueuedFrame | null = null
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SEEK BULLETPROOF — sistema de gerações
@@ -251,6 +252,7 @@ function _teardown(): void {
     if (_ctrlWs) { _ctrlWs.onclose = null; _ctrlWs.onerror = null; _ctrlWs.close(); _ctrlWs = null }
     _stopAudio()
     _queue.length = 0
+    _lastFrame = null
     _playing = false
 }
 
@@ -327,33 +329,74 @@ function _initGL(): void {
 }
 
 function _computeViewport(): [number, number, number, number] {
-    if (!_glReady || !canvasEl.value) return [0, 0, 0, 0]
+    if (!_glReady || !canvasEl.value) return [0, 0, _renderW, _renderH]
     const fit = objectFit.value
-    const cw = canvasEl.value.width
-    const ch = canvasEl.value.height
-    const vw = videoWidth.value || cw
+    const cw = canvasEl.value.width  || _renderW
+    const ch = canvasEl.value.height || _renderH
+    const vw = videoWidth.value  || cw
     const vh = videoHeight.value || ch
 
     if (fit === 'fill' || vw === 0 || vh === 0) return [0, 0, cw, ch]
 
     const canvasRatio = cw / ch
-    const videoRatio = vw / vh
-    let vpW: number, vpH: number, vpX: number, vpY: number
+    const videoRatio  = vw / vh
+    let vpW: number, vpH: number
 
     if (fit === 'cover') {
         if (canvasRatio > videoRatio) { vpW = cw; vpH = Math.round(cw / videoRatio) }
-        else { vpH = ch; vpW = Math.round(ch * videoRatio) }
+        else                          { vpH = ch; vpW = Math.round(ch * videoRatio) }
     } else if (fit === 'none') {
         vpW = vw; vpH = vh
-    } else {
+    } else { // contain
         if (canvasRatio > videoRatio) { vpH = ch; vpW = Math.round(ch * videoRatio) }
-        else { vpW = cw; vpH = Math.round(cw / videoRatio) }
+        else                          { vpW = cw; vpH = Math.round(cw / videoRatio) }
     }
-    vpX = Math.round((cw - vpW) / 2); vpY = Math.round((ch - vpH) / 2)
+    const vpX = Math.round((cw - vpW) / 2)
+    const vpY = Math.round((ch - vpH) / 2)
     return [vpX, vpY, vpW, vpH]
 }
 
-function _invalidateViewport(): void { _viewportDirty = true }
+function _invalidateViewport(): void {
+    _viewportDirty = true
+    console.log(`${_tag()} _invalidateViewport  playing=${_playing} paused=${paused.value} hasLast=${!!_lastFrame} glReady=${_glReady}`)
+    _redrawLastFrame()
+}
+
+// Guarda o último frame desenhado para poder redesenhá-lo on demand.
+function _redrawLastFrame(): void {
+    if (!_glReady) { console.log(`${_tag()} _redrawLastFrame abortado: gl não pronto`); return }
+    if (!_lastFrame) { console.log(`${_tag()} _redrawLastFrame abortado: sem _lastFrame`); return }
+    _cachedViewport = _computeViewport()
+    _viewportDirty = false
+    const [vpX, vpY, vpW, vpH] = _cachedViewport
+    console.log(`${_tag()} _redrawLastFrame fit=${objectFit.value} viewport=[${vpX},${vpY},${vpW},${vpH}] canvas=${canvasEl.value?.width}x${canvasEl.value?.height} video=${videoWidth.value}x${videoHeight.value}`)
+    _drawYUV(_lastFrame.y, _lastFrame.u, _lastFrame.v, _lastFrame.w, _lastFrame.h)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sincroniza o tamanho interno do canvas com o tamanho do container.
+// Sem isso, o WebGL vê sempre aspect ratio fixo (ex: 1280/720 = 1.77),
+// e o cálculo de objectFit fica incorreto se o container tem outro ratio.
+// ═══════════════════════════════════════════════════════════════════════════
+let _resizeObs: ResizeObserver | null = null
+
+function _syncCanvasSize(): void {
+    if (!canvasEl.value) return
+    const rect = canvasEl.value.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)  // cap em 2 para não gastar GPU
+    const newW = Math.max(1, Math.round(rect.width  * dpr))
+    const newH = Math.max(1, Math.round(rect.height * dpr))
+
+    if (canvasEl.value.width !== newW || canvasEl.value.height !== newH) {
+        canvasEl.value.width  = newW
+        canvasEl.value.height = newH
+        _renderW = newW
+        _renderH = newH
+        _invalidateViewport()
+    }
+}
 
 function _ensureGLAlloc(w: number, h: number): void {
     if (_texW === w && _texH === h) return
@@ -560,6 +603,7 @@ function _enqueue(data: Uint8Array): void {
 
     if (_queue.length >= _maxQueue) _queue.shift()
     _queue.push({ pts: meta.pts, y, u, v, w: rw, h: rh })
+    _lastFrame = _queue[_queue.length - 1]  // ← atualiza referência
 
     // Primeiro frame após play() ou seek → sincroniza relógios
     if (_firstFrame) {
@@ -645,6 +689,7 @@ function _startRenderLoop(): void {
         if (bestIdx > 0) _queue.splice(0, bestIdx)
         _queue.shift()
         _currentTime = bestFrame.pts
+        _lastFrame = bestFrame  // ← guarda para redesenho on-demand
 
         if (now - _lastTimeupdate > 250) {
             emit('timeupdate', getMockEvent())
@@ -700,6 +745,16 @@ async function play(): Promise<void> {
     _firstFrame = true; _clockSeeded = false; _queue.length = 0
     _clearSeekState()
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // TAMANHO DE DECODIFICAÇÃO vs TAMANHO DO CANVAS
+    // ─────────────────────────────────────────────────────────────────────
+    // props.width/height define o tamanho do CANVAS (buffer WebGL).
+    // O Rust deve decodificar o vídeo respeitando seu aspect ratio original
+    // — caso contrário o frame já vem DEFORMADO e objectFit perde o sentido.
+    //
+    // Enviamos um "max box" (1920×1080 ou o tamanho do canvas, o que for
+    // maior) e o Rust escolhe uma resolução que respeite o ratio original.
+    // ═══════════════════════════════════════════════════════════════════════
     let targetW = _renderW
     let targetH = _renderH
     if (canvasEl.value && !props.width && !props.height) {
@@ -715,13 +770,19 @@ async function play(): Promise<void> {
         }
     }
 
+    // Pede ao Rust uma caixa MÁXIMA, não exata. Idealmente o Rust respeita
+    // o aspect ratio original e só limita pelo maior lado.
+    // Usamos 1920×1080 como teto universal para evitar vídeos 4K gastando GPU.
+    const decodeW = Math.max(targetW, 1920)
+    const decodeH = Math.max(targetH, 1080)
+
     const startSeek = _currentTime > 0 ? _currentTime : 0
     const path = _resolvePath(source)
     const skipAudio = noAudio.value || currentMuted.value
 
     try {
         await invoke('play_video', {
-            sessionId: _sid, path, width: targetW, height: targetH,
+            sessionId: _sid, path, width: decodeW, height: decodeH,
             noAudio: skipAudio, loopVideo: currentLoop.value
         })
     } catch (e) {
@@ -877,34 +938,24 @@ watch(src, (newSrc) => {
     _srcChangeTimer = setTimeout(async () => {
         _srcChangeTimer = null
         if (!newSrc) return
-        
         _teardown()
         try { await invoke('stop_video', { sessionId: _sid }) } catch { }
-        
         _currentTime = 0
         _firstFrame = true
         _queue.length = 0
         ended.value = false
         readyState.value = 0
         duration.value = 0
-        
         await nextTick()
-        
-        if (previewOnly.value) {
-            _loadPreview()
-        } else {
-            // Sempre iniciamos o play para "acordar" o FFmpeg e o WebSocket
-            await play().catch(console.error)
-            
-            // Se NÃO tiver autoplay, forçamos a pausa imediatamente após o comando de play
-            if (!props.autoplay) {
-                setTimeout(pause, 1000)
-            }
-        }
+        if (previewOnly.value) _loadPreview()
+        else play().catch(console.error)
     }, 50)
 })
 
-watch(objectFit, _invalidateViewport)
+watch(() => props.objectFit, (newFit, oldFit) => {
+    console.log(`${_tag()} objectFit: ${oldFit} → ${newFit}`)
+    _invalidateViewport()
+})
 watch(videoWidth, _invalidateViewport)
 watch(videoHeight, _invalidateViewport)
 watch(() => props.width, (v) => {
@@ -926,6 +977,10 @@ onMounted(() => {
         canvasEl.value.width = _renderW
         canvasEl.value.height = _renderH
         _initGL()
+        // Sincroniza tamanho interno do canvas com container (para objectFit funcionar)
+        _syncCanvasSize()
+        _resizeObs = new ResizeObserver(() => _syncCanvasSize())
+        _resizeObs.observe(canvasEl.value)
     }
     if (audioEl.value) {
         audioEl.value.muted = currentMuted.value
@@ -937,6 +992,7 @@ onMounted(() => {
 
 onUnmounted(() => {
     if (_srcChangeTimer) { clearTimeout(_srcChangeTimer); _srcChangeTimer = null }
+    if (_resizeObs) { _resizeObs.disconnect(); _resizeObs = null }
     _teardown()
     invoke('stop_video', { sessionId: _sid }).catch(() => { })
 })

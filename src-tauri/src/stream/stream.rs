@@ -390,12 +390,47 @@ async fn frame_loop(
         // Demais: limita a 1920 (FullHD)
         _ => 1920,
     };
-    let (w, h) = if width > max_w {
-        let ratio = max_w as f64 / width as f64;
-        let scaled_h = ((height as f64 * ratio) as u32 / 2) * 2;
-        ((max_w / 2) * 2, scaled_h)
+
+    // ── Cálculo de tamanho FINAL preservando aspect ratio ─────────────────
+    //
+    // `width` e `height` recebidos do frontend são tratados como uma
+    // CAIXA MÁXIMA (max_w × max_h), não dimensões exatas. O tamanho real
+    // de decode respeita o aspect ratio do vídeo original (`info.src_width`
+    // × `info.src_height`), cabendo dentro dessa caixa.
+    //
+    // Isso garante que o frame chegue ao canvas COM SEU RATIO ORIGINAL,
+    // deixando para o WebGL aplicar `objectFit` (contain/cover/fill).
+    //
+    let src_w = info.src_width.max(1);
+    let src_h = info.src_height.max(1);
+    let box_w = width.min(max_w).max(2);
+    let box_h = height.min(max_w).max(2); // usa max_w como limite geral
+
+    // Escala o vídeo para caber na caixa, preservando aspect ratio
+    let src_ratio = src_w as f64 / src_h as f64;
+    let box_ratio = box_w as f64 / box_h as f64;
+
+    let (w, h) = if src_ratio > box_ratio {
+        // Vídeo mais largo que a caixa — limita pela largura
+        let fit_w = box_w.min(src_w);
+        let fit_h = ((fit_w as f64 / src_ratio).round() as u32).max(2);
+        ((fit_w / 2) * 2, (fit_h / 2) * 2)
     } else {
-        ((width / 2) * 2, (height / 2) * 2)
+        // Vídeo mais alto/quadrado — limita pela altura
+        let fit_h = box_h.min(src_h);
+        let fit_w = ((fit_h as f64 * src_ratio).round() as u32).max(2);
+        ((fit_w / 2) * 2, (fit_h / 2) * 2)
+    };
+
+    // Garante que não exceda max_w em nenhuma dimensão
+    let (w, h) = if w > max_w {
+        let ratio = max_w as f64 / w as f64;
+        (
+            ((max_w / 2) * 2),
+            (((h as f64 * ratio) as u32 / 2) * 2).max(2),
+        )
+    } else {
+        (w, h)
     };
 
     let y_size = (w * h) as usize;

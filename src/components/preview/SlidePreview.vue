@@ -174,7 +174,7 @@ watch(() => props.design.bgMedia, async () => {
             :object-fit="design.bgFit"  preview-only/>
         </div>
         <div v-else>
-            <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
             :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
             :object-fit="design.bgFit" />
         </div>

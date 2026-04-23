@@ -66,7 +66,7 @@ export const useConfigStore = defineStore('config', () => {
       await tauriStore.set('app_config', newSettings);
       await tauriStore.save();
       await emit('update-settings')
-      
+
     },
     { deep: true }
   );
@@ -103,7 +103,7 @@ export const useConfigStore = defineStore('config', () => {
     if (confirmed) {
       settings.value = { ...defaultSettings };
       return true
-    } else { 
+    } else {
       return false
     }
   };
@@ -133,11 +133,47 @@ export const useConfigStore = defineStore('config', () => {
     return 16 / 9;
   });
 
+  const getSize = computed(() => {
+    const sett = settings.value
+
+    // CUSTOM
+    if (sett.aspectRatio === 'custom') {
+      return {
+        width: sett.customAspectW || 1920,
+        height: sett.customAspectH || 1080
+      }
+    }
+
+    // Aspect ratios pré-definidos (16:9, 4:3, 9:16, etc.)
+    const [aw, ah] = (sett.aspectRatio || '16:9').split(':').map(Number)
+
+    if (!aw || !ah || ah === 0) {
+      return { width: 1920, height: 1080 } // fallback seguro
+    }
+
+    // === CÁLCULO PRINCIPAL ===
+    // Mantemos a altura base em 1080p (padrão para projeção)
+    // e calculamos a largura proporcional ao aspect ratio
+    const baseHeight = 1080
+    const calculatedWidth = Math.round(baseHeight * (aw / ah))
+
+    // Se quiser limitar a largura máxima (ex: 1920 ou resolução do monitor)
+    const maxWidth = 1920
+    const finalWidth = Math.min(calculatedWidth, maxWidth)
+    const finalHeight = Math.round(finalWidth * (ah / aw))
+
+    return {
+      width: finalWidth,
+      height: finalHeight
+    }
+  })
+
   return {
     isDialogOpen,
     settings,
     autoSave,
     screenRatio,
+    getSize,
     openDialog,
     closeDialog,
     loadSettings,

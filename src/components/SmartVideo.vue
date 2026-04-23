@@ -46,7 +46,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useConfigStore } from '../stores/useConfigStore'
-import FFmpegVideo from '../FFmpegVideo.vue'  // ajuste o path
+import FFmpegVideo from '../../FFmpegVideo.vue'  // ajuste o path
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 type Engine = 'ffmpeg' | 'native'
