@@ -34,7 +34,7 @@ interface MediaControlPayload {
 
 interface ScrollPayload { x: number; y: number; }
 
-const projectionType = ref<'html' | 'slide' | 'media' | 'timer' | 'fixed' | 'none'>('none');
+const projectionType = ref<'html' | 'bible' | 'slide' | 'media' | 'timer' | 'fixed' | 'none'>('none');
 
 const htmlContent = ref<string>('<div style="color: white; display: flex; height: 100vh; align-items: center; justify-content: center;">Aguardando projeção...</div>');
 const slideData = ref<any>(null);
@@ -68,13 +68,12 @@ let unlistenUpdateConfig: UnlistenFn | null = null;
 // let unlistenRemoveFixed: UnlistenFn | null = null;
 
 const videoRef = ref<HTMLVideoElement | null>(null);
+const bibleDataPayload = ref<any>(null);
 
 // Agora aceita um 'force'. Se for o setInterval, force = false. Se for o clique do botão, force = true.
 const processIncomingData = (data: string, force: boolean = false) => {
     if (!data || data.trim() === '') return;
 
-    // Se o dado for igual ao último e não for uma atualização forçada, aborta.
-    // Isso protege a Mídia de ser esmagada pelo setInterval!
     if (!force && data === lastBackendData.value) {
         return;
     }
@@ -86,16 +85,20 @@ const processIncomingData = (data: string, force: boolean = false) => {
         if (parsed && parsed.type === 'slide') {
             projectionType.value = 'slide';
             slideData.value = parsed;
-            // debugLog.value = "Slide estruturado atualizado";
+            return;
+        }
+        // NOVO: Captura o tipo de projeção Bíblica
+        if (parsed && parsed.type === 'bible') {
+            projectionType.value = 'bible';
+            bibleDataPayload.value = parsed;
             return;
         }
     } catch (e) {
-        // Ignora erro de parse
+        // Ignora erro de parse (provavelmente era string HTML pura)
     }
 
     projectionType.value = 'html';
     htmlContent.value = data;
-    //debugLog.value = "HTML de PDF recebido";
 };
 
 const loadCurrentHtml = async () => {
@@ -125,6 +128,7 @@ const getTransparentBackground = (hexColor: string, style: string) => {
 };
 
 onMounted(async () => {
+    configStore.autoSave = false;
     await loadCurrentHtml();
     syncInterval = setInterval(loadCurrentHtml, 1000);
 
@@ -359,19 +363,6 @@ onMounted(() => {
     window.addEventListener('keydown', handleKeyDown);
 })
 
-function getLocalPathFromAssetUrl(url: string): string {
-    if (!url) return '';
-
-    // 1. Remove os prefixos do Tauri (v2 usa http://asset.localhost, v1 usa asset://localhost)
-    let cleanPath = url
-        .replace(/^https?:\/\/asset\.localhost\//, '')
-        .replace(/^asset:\/\/localhost\//, '');
-
-    console.log(decodeURIComponent(cleanPath))
-    // 2. Decodifica os caracteres da URL (%3A para :, %5C para \)
-    return decodeURIComponent(cleanPath);
-}
-
 function onVideoMeta(e: Event) {
   const el = e.target as any;
   console.log('=== FFmpegVideo Meta ===');
@@ -422,10 +413,12 @@ function onVideoMeta(e: Event) {
                         :autoplay="true" 
                         :loop="true" 
                         :muted="true"
+                        no-audio
                         :object-fit="slideData.background.fit"
                         style="width: 100%; height: 100%;" 
                     />
-                    
+                    <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
+                        :style="{ objectFit: slideData.background.fit }" />
                         
                     </div>
                 <div class="dark-overlay"
@@ -455,7 +448,7 @@ function onVideoMeta(e: Event) {
                         ref="videoRef" 
                         :src="currentMedia.url" 
                         autoplay 
-                        class="w-100 h-100 object-fit-contain"
+                        class="w-100 h-100"
                         @loadedmetadata="onVideoMeta"
                         :style="{ width: '100%', height: '100%' }" 
                         />
@@ -464,8 +457,8 @@ function onVideoMeta(e: Event) {
 
             <div v-else-if="projectionType === 'fixed' && mediaStore.fixedMedia"
                 class="media-fullscreen-container bg-black">
-                <video v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
-                    class="w-100 h-100 object-fit-cover"></video>
+                <FFmpegVideo v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
+                    class="w-100 h-100"  no-audio :object-fit="'cover'"></FFmpegVideo>
                 <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
             </div>
 
@@ -473,8 +466,8 @@ function onVideoMeta(e: Event) {
                 :class="`pos-${timerStore.position}`" :style="timerBackgroundStyle">
 
                 <div v-if="timerStore.bgType === 'media' && timerStore.bgMediaUrl" class="timer-bg-media">
-                    <video v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted
-                        class="w-100 h-100 object-fit-cover"></video>
+                    <FFmpegVideo v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted
+                        class="w-100 h-100" :object-fit="'cover'"></FFmpegVideo>
                     <img v-else :src="timerStore.bgMediaUrl" class="w-100 h-100 object-fit-cover" />
                 </div>
 
@@ -485,6 +478,80 @@ function onVideoMeta(e: Event) {
                     {{ timerStore.formattedTime }}
                 </div>
             </div>
+
+            <div v-else-if="projectionType === 'bible' && bibleDataPayload" class="slide-root-container"
+                 :class="`theme-${bibleDataPayload.config.activeTheme?.toLowerCase() || 'dark'}`" 
+                 :style="{
+                    backgroundColor: bibleDataPayload.config.chromaKey !== 'none' ? bibleDataPayload.config.chromaKey : 'transparent',
+                    transition: `opacity 0.3s ${bibleDataPayload.config.transitionType === 'fade' ? 'ease-in-out' : 'none'}`
+                 }">
+                
+                <div class="background-layer">
+                    <div v-if="bibleDataPayload.settings.bgType === 'color'"
+                        :style="{ backgroundColor: bibleDataPayload.settings.bgColor, width: '100%', height: '100%' }"></div>
+                    <FFmpegVideo 
+                        v-else-if="bibleDataPayload.settings.bgIsVideo && bibleDataPayload.settings.bgMediaLocal"
+                        :src="bibleDataPayload.settings.bgMediaLocal"
+                        :autoplay="true" 
+                        :loop="true" 
+                        :muted="true"
+                        no-audio
+                        :object-fit="bibleDataPayload.settings.bgFit"
+                        style="width: 100%; height: 100%;" 
+                    />
+                    <img v-else-if="bibleDataPayload.settings.bgMedia" :src="bibleDataPayload.settings.bgMedia"
+                        :style="{ objectFit: bibleDataPayload.settings.bgFit, width: '100%', height: '100%' }" />
+                </div>
+                
+                <div class="dark-overlay"
+                    :style="{ backgroundColor: `rgba(0, 0, 0, ${bibleDataPayload.config.bgOpacity / 100})` }"></div>
+                
+                <div class="content-layer" :class="{ 'hide-verses': !bibleDataPayload.config.showVerseNumbers }" 
+                     :style="{ padding: `${bibleDataPayload.config.marginTop}% ${bibleDataPayload.config.marginRight}% ${bibleDataPayload.config.marginBottom}% ${bibleDataPayload.config.marginLeft}%` }">
+                     
+                    <div style="position: relative; width: 100%; height: 100%; container-type: inline-size;">
+                        
+                        <div style="position: absolute; left: 5%; top: 5%; width: 90%; height: 90%; display: flex; align-items: center; justify-content: center;"
+                             :style="{ paddingTop: bibleDataPayload.config.bibleLayout === 'top' && bibleDataPayload.slide.reference ? (bibleDataPayload.settings.fontSize * 0.6) + 'cqi' : '0' }">
+                            
+                            <div :style="{
+                                fontFamily: `'${bibleDataPayload.settings.fontFamily}', sans-serif`,
+                                fontSize: bibleDataPayload.settings.fontSize + 'cqi',
+                                color: '#FFFFFF',
+                                textAlign: bibleDataPayload.settings.align,
+                                fontWeight: bibleDataPayload.settings.bold ? 'bold' : 'normal',
+                                width: '100%',
+                                maxHeight: '100%',
+                                overflow: 'hidden',
+                                lineHeight: bibleDataPayload.settings.textBackdrop ? '1.6' : '1.3'
+                            }">
+                                <span :style="bibleDataPayload.settings.textBackdrop ? 'background-color: rgba(0, 0, 0, 0.65); padding: 0.15em 0.4em; border-radius: 12px; box-decoration-break: clone; -webkit-box-decoration-break: clone; backdrop-filter: blur(4px);' : ''" 
+                                      v-html="bibleDataPayload.slide.htmlContent">
+                                </span>
+                            </div>
+                        </div>
+
+                        <div v-if="bibleDataPayload.slide.reference && bibleDataPayload.config.bibleLayout !== 'hidden'"
+                             :style="{
+                                position: 'absolute',
+                                left: bibleDataPayload.config.bibleLayout === 'top' ? '5%' : 'auto',
+                                right: bibleDataPayload.config.bibleLayout === 'bottom-right' ? '5%' : 'auto',
+                                top: bibleDataPayload.config.bibleLayout === 'top' ? '5%' : 'auto',
+                                bottom: bibleDataPayload.config.bibleLayout === 'bottom-right' ? '5%' : 'auto',
+                                width: bibleDataPayload.config.bibleLayout === 'top' ? '90%' : 'auto',
+                                fontFamily: `'${bibleDataPayload.settings.fontFamily}', sans-serif`,
+                                fontSize: (bibleDataPayload.settings.fontSize * 0.4) + 'cqi',
+                                color: 'rgba(255, 255, 255, 0.7)',
+                                textAlign: bibleDataPayload.config.bibleLayout === 'top' ? bibleDataPayload.settings.align : 'right',
+                                fontWeight: 'bold',
+                                zIndex: 10
+                             }">
+                            {{ bibleDataPayload.slide.reference }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
 
             <div v-else class="w-100 h-100 bg-black"></div>
 

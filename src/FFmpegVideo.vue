@@ -91,7 +91,7 @@ const currentTime = computed({
     get: () => _currentTime,
     set: (v: number) => {
         if (!isFinite(v) || v < 0) return
-        if (_playing.value) seek(v).catch(() => { })
+        if (_playing) seek(v).catch(() => { })
         else _currentTime = v
     }
 })
@@ -117,7 +117,7 @@ watch(currentVolume, v => { if (audioEl.value) audioEl.value.volume = v })
 watch(currentMuted, v => {
     if (audioEl.value) audioEl.value.muted = v
     if (v) _stopAudio()
-    else if (_playing.value && !_audioConnected) _connectAudio()
+    else if (_playing && !_audioConnected) _connectAudio()
 })
 
 const volume = computed({ get: () => currentVolume.value, set: (v: number) => { currentVolume.value = Math.max(0, Math.min(1, v)) } })
@@ -157,7 +157,7 @@ const _maxQueue = 6  // reduzido de 12 — menos buffer, menos delay
 let _wallStart = 0; let _ptsStart = 0
 let _clockSeeded = false
 let _rafId = 0
-const _playing = ref(false)
+let _playing = false
 let _renderW = Number(props.width) || 1280
 let _renderH = Number(props.height) || 720
 let _firstFrame = true
@@ -214,7 +214,7 @@ function _teardown(): void {
     if (_ctrlWs) { _ctrlWs.onclose = null; _ctrlWs.onerror = null; _ctrlWs.close(); _ctrlWs = null }
     _stopAudio()
     _queue.length = 0
-    _playing.value = false
+    _playing = false
 }
 
 // ── WebGL ───────────────────────────────────────────────────────────────────
@@ -398,30 +398,30 @@ function _drawYUV(y: Uint8Array, u: Uint8Array, v: Uint8Array, w: number, h: num
 
 // ── WebSocket ───────────────────────────────────────────────────────────────
 function _connectVideoWS(retries = 12): void {
-    if (!_playing.value) return
+    if (!_playing) return
     const ws = new WebSocket(`ws://127.0.0.1:9001/${_sid}`)
     ws.binaryType = 'arraybuffer'
     _ws = ws
     ws.onopen = () => _startRenderLoop()
     ws.onmessage = ({ data }: MessageEvent<ArrayBuffer>) => {
-        if (!_playing.value) return
+        if (!_playing) return
         _enqueue(new Uint8Array(data))
     }
     ws.onerror = () => { }
     ws.onclose = () => {
-        if (!_playing.value) return
+        if (!_playing) return
         if (retries > 0) _retryTimer = setTimeout(() => { _retryTimer = null; _connectVideoWS(retries - 1) }, 350)
-        else { _playing.value = false; paused.value = true; emit('error', getMockEvent()) }
+        else { _playing = false; paused.value = true; emit('error', getMockEvent()) }
     }
 }
 
 function _connectCtrlWS(retries = 5): void {
-    if (!_playing.value) return
+    if (!_playing) return
     const ws = new WebSocket(`ws://127.0.0.1:9003/${_sid}`)
     _ctrlWs = ws
     ws.onclose = () => {
         _ctrlWs = null
-        if (_playing.value && retries > 0) setTimeout(() => _connectCtrlWS(retries - 1), 400)
+        if (_playing && retries > 0) setTimeout(() => _connectCtrlWS(retries - 1), 400)
     }
     ws.onerror = () => { }
 }
@@ -431,29 +431,26 @@ function _connectCtrlWS(retries = 5): void {
 /// Faz retry porque o play_video pode ainda estar registrando a sessão no Rust.
 async function _probeAudio(): Promise<boolean> {
     const url = `http://127.0.0.1:9002/${_sid}/stream.mp4`
-    for (let attempt = 0; attempt < 10; attempt++) {   // +4 tentativas
+    for (let attempt = 0; attempt < 6; attempt++) {
         try {
             const ctrl = new AbortController()
-            const to = setTimeout(() => ctrl.abort(), 800)
+            const to = setTimeout(() => ctrl.abort(), 1000)
             const r = await fetch(url, { method: 'HEAD', signal: ctrl.signal })
             clearTimeout(to)
-
             console.log(`${_tag()} probe attempt=${attempt} status=${r.status}`)
-
             if (r.status === 200) return true
-            if (r.status === 204) return false
-            // 404 ou erro → sessão ainda não pronta
+            if (r.status === 204) return false   // sem áudio confirmado
+            // 404 → sessão ainda não existe no Rust, tenta de novo
         } catch (e) {
             console.warn(`${_tag()} probe falhou (${attempt}):`, e)
         }
-        await new Promise(r => setTimeout(r, 250))   // 250ms
+        await new Promise(r => setTimeout(r, 300))
     }
-    console.warn(`${_tag()} probe deu timeout após 10 tentativas`)
     return false
 }
 
 async function _connectAudio(): Promise<void> {
-    if (!_playing.value || currentMuted.value || noAudio.value || !audioEl.value) return
+    if (!_playing || currentMuted.value || noAudio.value || !audioEl.value) return
     if (_audioConnected) return
 
     const audio = audioEl.value
@@ -465,7 +462,7 @@ async function _connectAudio(): Promise<void> {
         return
     }
 
-    if (!_playing.value || currentMuted.value) return  // pode ter mudado durante o probe
+    if (!_playing || currentMuted.value) return  // pode ter mudado durante o probe
 
     const url = `http://127.0.0.1:9002/${_sid}/stream.mp4?t=${Date.now()}`
     console.log(`${_tag()} audio →`, url)
@@ -484,7 +481,7 @@ async function _connectAudio(): Promise<void> {
             .catch(err => {
                 console.warn(`${_tag()} autoplay bloqueado (${err.name}) → gesture`)
                 waitGesture().then(() => {
-                    if (!_playing.value || currentMuted.value) return
+                    if (!_playing || currentMuted.value) return
                     audio.play()
                         .then(() => console.log(`${_tag()} ✔ audio após gesture`))
                         .catch(e2 => console.warn(`${_tag()} ✘ audio após gesture:`, e2))
@@ -502,7 +499,7 @@ async function _connectAudio(): Promise<void> {
     if (_audioFallbackTimer) clearTimeout(_audioFallbackTimer)
     _audioFallbackTimer = setTimeout(() => {
         _audioFallbackTimer = null
-        if (!_playing.value || audio.readyState >= 2) return
+        if (!_playing || audio.readyState >= 2) return
         console.log(`${_tag()} audio fallback play (rs=${audio.readyState})`)
         tryPlay()
     }, 2500)
@@ -578,7 +575,7 @@ function _startRenderLoop(): void {
     if (_rafId) return
     let _lastTimeupdate = 0
     const tick = (now: DOMHighResTimeStamp) => {
-        if (!_playing.value) return
+        if (!_playing) return
         _rafId = requestAnimationFrame(tick)
         if (paused.value || !_clockSeeded || !_queue.length) return
 
@@ -602,7 +599,7 @@ function _startRenderLoop(): void {
         _drawYUV(frame.y, frame.u, frame.v, frame.w, frame.h)
 
         if (!currentLoop.value && duration.value > 0 && _currentTime >= duration.value - 1 / _fps && !_queue.length) {
-            ended.value = true; paused.value = true; _playing.value = false
+            ended.value = true; paused.value = true; _playing = false
             emit('ended', getMockEvent())
         }
     }
@@ -633,8 +630,8 @@ async function _loadPreview(): Promise<void> {
 }
 
 async function play(): Promise<void> {
-    if (_playing.value && !paused.value) return
-    if (_playing.value && paused.value) { resume(); return }
+    if (_playing && !paused.value) return
+    if (_playing && paused.value) { resume(); return }
 
     const source = src.value
     if (!source) return
@@ -643,8 +640,30 @@ async function play(): Promise<void> {
     if (canvasEl.value) canvasEl.value.style.display = 'block'
 
     _teardown()
-    _playing.value = true; paused.value = false; ended.value = false
+    _playing = true; paused.value = false; ended.value = false
     _firstFrame = true; _clockSeeded = false; _queue.length = 0
+
+    // ── Detecta tamanho REAL do canvas renderizado ──────────────────────────
+    // Se o elemento está em 800×450 na tela, não faz sentido decodar em
+    // 1920×1080. Usa getBoundingClientRect × devicePixelRatio para pegar o
+    // tamanho exato em pixels físicos. Respeita props.width/height se setados
+    // explicitamente pelo usuário.
+    //
+    let targetW = _renderW
+    let targetH = _renderH
+    if (canvasEl.value && !props.width && !props.height) {
+        const rect = canvasEl.value.getBoundingClientRect()
+        const dpr = window.devicePixelRatio || 1
+        if (rect.width > 0 && rect.height > 0) {
+            // Limita a 1920 de largura máxima mesmo em displays 4K
+            targetW = Math.min(1920, Math.ceil(rect.width * dpr))
+            targetH = Math.min(1080, Math.ceil(rect.height * dpr))
+            _renderW = targetW
+            _renderH = targetH
+            canvasEl.value.width = targetW
+            canvasEl.value.height = targetH
+        }
+    }
 
     const startSeek = _currentTime > 0 ? _currentTime : 0
     const path = _resolvePath(source)
@@ -652,12 +671,12 @@ async function play(): Promise<void> {
 
     try {
         await invoke('play_video', {
-            sessionId: _sid, path, width: _renderW, height: _renderH,
+            sessionId: _sid, path, width: targetW, height: targetH,
             noAudio: skipAudio, loopVideo: currentLoop.value
         })
     } catch (e) {
         console.error(`${_tag()} play_video falhou:`, e)
-        _playing.value = false; paused.value = true; return
+        _playing = false; paused.value = true; return
     }
 
     if (startSeek > 0) {
@@ -670,7 +689,7 @@ async function play(): Promise<void> {
 
     _retryTimer = setTimeout(() => {
         _retryTimer = null
-        if (!_playing.value) return
+        if (!_playing) return
         _connectVideoWS()
         _connectCtrlWS()
         if (!skipAudio) _connectAudio().catch(() => { })
@@ -686,7 +705,7 @@ function pause(): void {
 }
 
 function resume(): void {
-    if (!paused.value || !_playing.value) return
+    if (!paused.value || !_playing) return
     paused.value = false
     _sendCmd({ cmd: 'play' })
     if (_clockSeeded && _queue.length > 0) {

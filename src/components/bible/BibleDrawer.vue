@@ -71,7 +71,9 @@ const handleFileUpload = (event: Event) => {
 };
 
 const selectLocalMedia = (mediaFile: MediaFile) => {
+  console.log("mediaFile", mediaFile)
   projectionSettings.value.bgMedia = mediaFile.url;
+  projectionSettings.value.bgIsVideo = mediaFile.isVideo;
   projectionSettings.value.bgType = 'saved';
   isCustomColor.value = false;
 };

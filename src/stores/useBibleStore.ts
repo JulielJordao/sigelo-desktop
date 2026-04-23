@@ -170,7 +170,20 @@ export const useBibleStore = defineStore('bible', () => {
         step.value = 'book';
     };
 
-    // ATUALIZADO: Motor de Projeção com suporte a Negrito, Justificado e Fundo do Texto
+    function getLocalPathFromAssetUrl(url: string): string {
+        if (!url) return '';
+
+        // 1. Remove os prefixos do Tauri (v2 usa http://asset.localhost, v1 usa asset://localhost)
+        let cleanPath = url
+            .replace(/^https?:\/\/asset\.localhost\//, '')
+            .replace(/^asset:\/\/localhost\//, '');
+
+        console.log(decodeURIComponent(cleanPath))
+        // 2. Decodifica os caracteres da URL (%3A para :, %5C para \)
+        return decodeURIComponent(cleanPath);
+    }
+
+    // ATUALIZADO: Motor de Projeção enviando JSON estruturado em vez de HTML bruto
     const projectCurrentSlide = async () => {
         const currentSlide = bibleSlides.value[currentSlideIndex.value];
         if (!currentSlide) return;
@@ -178,60 +191,41 @@ export const useBibleStore = defineStore('bible', () => {
         const conf = configStore.settings;
         const settings = projectionSettings.value;
 
-        let bgHtml = '';
-        if (settings.bgType === 'color') {
-            bgHtml = `<div style="position: absolute; inset: 0; background-color: ${settings.bgColor}; z-index: -1;"></div>`;
-        } else if (settings.bgIsVideo && settings.bgMedia) {
-            bgHtml = `<video src="${settings.bgMedia}" crossorigin="anonymous" autoplay playsinline loop muted style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${settings.bgFit}; z-index: -1;"></video>`;
-        } else if (settings.bgMedia) {
-            bgHtml = `<img src="${settings.bgMedia}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: ${settings.bgFit}; z-index: -1;" />`;
-        }
-
-        let referenceHtml = '';
-        if (currentSlide.reference && conf.bibleLayout !== 'hidden') {
-            const refFontSize = settings.fontSize * 0.4;
-            if (conf.bibleLayout === 'top') {
-                referenceHtml = `<div style="position: absolute; left: 5%; top: 5%; width: 90%; font-family: '${settings.fontFamily}', sans-serif; font-size: ${refFontSize}cqi; color: rgba(255, 255, 255, 0.7); text-align: ${settings.align}; font-weight: bold; z-index: 10;">${currentSlide.reference}</div>`;
-            } else if (conf.bibleLayout === 'bottom-right') {
-                referenceHtml = `<div style="position: absolute; right: 5%; bottom: 5%; font-family: '${settings.fontFamily}', sans-serif; font-size: ${refFontSize}cqi; color: rgba(255, 255, 255, 0.7); text-align: right; font-weight: bold; z-index: 10;">${currentSlide.reference}</div>`;
+        // Construímos um objeto JSON com todos os dados necessários
+        const payload = {
+            type: 'bible',
+            slide: {
+                htmlContent: currentSlide.htmlContent,
+                reference: currentSlide.reference
+            },
+            settings: {
+                ...settings,
+                // O vídeo precisa do caminho local (limpo)
+                bgMediaLocal: getLocalPathFromAssetUrl(settings.bgMedia)
+            },
+            config: {
+                bibleLayout: conf.bibleLayout,
+                showVerseNumbers: conf.showVerseNumbers,
+                chromaKey: conf.chromaKey,
+                bgOpacity: conf.bgOpacity, 
+                transitionType: conf.transitionType,
+                marginTop: conf.marginTop,
+                marginBottom: conf.marginBottom,
+                marginLeft: conf.marginLeft,
+                marginRight: conf.marginRight,
+                activeTheme: conf.activeTheme || 'dark',
+                selectedMonitor: conf.selectedMonitor
             }
-        }
+        };
 
-        const hideVersesCss = !conf.showVerseNumbers ? `<style>sup, .verse-num, .verse-number { display: none !important; }</style>` : '';
-
-        // LÓGICA ATUALIZADA DO FUNDO: 
-        // Usamos 'box-decoration-break: clone' (e o prefixo -webkit- para o WebView2 do Windows)
-        // Usamos padding em 'em' para acompanhar a fonte e evitar quebra de layout.
-        const textBgStyle = settings.textBackdrop
-            ? `background-color: rgba(0, 0, 0, 0.65); padding: 0.15em 0.4em; border-radius: 12px; box-decoration-break: clone; -webkit-box-decoration-break: clone; backdrop-filter: blur(4px);`
-            : '';
-
-        // Lógica do line-height: Dá um respiro entre as linhas quando o fundo escuro está ativo
-        const dynamicLineHeight = settings.textBackdrop ? '1.6' : '1.3';
-
-        const htmlPayload = `
-      ${hideVersesCss}
-      <div id="projection-root" class="theme-${conf.activeTheme.toLowerCase()}" style="width: 100%; height: 100%; position: relative; overflow: hidden; background-color: ${conf.chromaKey !== 'none' ? conf.chromaKey : 'transparent'}; opacity: ${conf.bgOpacity / 100}; transition: opacity 0.3s ${conf.transitionType === 'fade' ? 'ease-in-out' : 'none'}; box-sizing: border-box; padding: ${conf.marginTop}% ${conf.marginRight}% ${conf.marginBottom}% ${conf.marginLeft}%;">
-          ${bgHtml}
-          <div style="position: relative; width: 100%; height: 100%; container-type: inline-size;">
-              <div style="position: absolute; left: 5%; top: 5%; width: 90%; height: 90%; display: flex; align-items: center; justify-content: center; padding-top: ${conf.bibleLayout === 'top' && currentSlide.reference ? (settings.fontSize * 0.6) + 'cqi' : '0'};">
-                  
-                  <div style="font-family: '${settings.fontFamily}', sans-serif; font-size: ${settings.fontSize}cqi; color: #FFFFFF; text-align: ${settings.align}; font-weight: ${settings.bold ? 'bold' : 'normal'}; width: 100%; max-height: 100%; overflow: hidden; line-height: ${dynamicLineHeight};">
-                    
-                    <span style="${textBgStyle}">
-                        ${currentSlide.htmlContent}
-                    </span>
-                    
-                  </div>
-                  
-              </div>
-              ${referenceHtml}
-          </div>
-      </div>
-    `;
+        console.log(payload)
 
         try {
-            await invoke('update_projection', { html: htmlPayload, targetMonitor: conf.selectedMonitor || null });
+            // Enviamos como string, o frontend vai dar o JSON.parse
+            await invoke('update_projection', { 
+                html: JSON.stringify(payload), 
+                targetMonitor: conf.selectedMonitor || null 
+            });
         } catch (error) {
             console.error("Erro ao projetar a bíblia:", error);
         }

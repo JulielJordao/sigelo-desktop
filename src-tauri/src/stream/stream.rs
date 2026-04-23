@@ -56,6 +56,9 @@ struct MediaInfo {
     duration: f64,
     fps: f64,
     has_audio: bool,
+    video_codec: String, // h264, hevc, prores, vp9, av1, etc.
+    src_width: u32,
+    src_height: u32,
 }
 
 struct Session {
@@ -144,6 +147,9 @@ async fn probe(ffprobe: &PathBuf, path: &str) -> MediaInfo {
         duration: 0.0,
         fps: 30.0,
         has_audio: false,
+        video_codec: String::new(),
+        src_width: 0,
+        src_height: 0,
     };
     if let Ok(o) = out {
         if let Ok(text) = String::from_utf8(o.stdout) {
@@ -164,6 +170,11 @@ async fn probe(ffprobe: &PathBuf, path: &str) -> MediaInfo {
                                         }
                                     }
                                 }
+                                if let Some(c) = s["codec_name"].as_str() {
+                                    info.video_codec = c.to_string();
+                                }
+                                info.src_width = s["width"].as_u64().unwrap_or(0) as u32;
+                                info.src_height = s["height"].as_u64().unwrap_or(0) as u32;
                             }
                             "audio" => info.has_audio = true,
                             _ => {}
@@ -209,11 +220,31 @@ pub async fn play_video(
     let skip_audio = no_audio.unwrap_or(false) || !info.has_audio;
 
     println!(
-        "[Backend] has_audio={}, skip_audio={}",
-        info.has_audio, skip_audio
+        "[Backend] has_audio={}, skip_audio={}, codec={}, src={}x{}, dur={:.1}s",
+        info.has_audio,
+        skip_audio,
+        info.video_codec,
+        info.src_width,
+        info.src_height,
+        info.duration
     );
 
-    let (frame_tx, _) = broadcast::channel::<Arc<Vec<u8>>>(16);
+    // Buffer adaptativo: frames grandes → menos slots para economizar RAM
+    // 1080p yuv420p = ~3MB/frame. 16 slots = 48MB. Para 4K seria 192MB.
+    let est_frame_size = (info.src_width.max(1280) * info.src_height.max(720)) as usize * 3 / 2;
+    let buf_slots = if est_frame_size > 6_000_000 {
+        4
+    }
+    // 4K+
+    else if est_frame_size > 3_000_000 {
+        8
+    }
+    // 1440p
+    else {
+        16
+    }; // ≤1080p
+
+    let (frame_tx, _) = broadcast::channel::<Arc<Vec<u8>>>(buf_slots);
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::channel::<PipelineCmd>(32);
     let audio_offset = Arc::new(Mutex::new(0.0f64));
 
@@ -314,42 +345,13 @@ pub async fn get_video_info(app: AppHandle, path: String) -> Result<serde_json::
     let ffprobe = ffprobe_bin(&app)?;
     let info = probe(&ffprobe, &path).await;
 
-    let out = Command::new(&ffprobe)
-        .args([
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_entries",
-            "stream=width,height,codec_type",
-            &path,
-        ])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let mut width: u32 = 0;
-    let mut height: u32 = 0;
-    if let Ok(text) = String::from_utf8(out.stdout) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(streams) = v["streams"].as_array() {
-                for s in streams {
-                    if s["codec_type"].as_str() == Some("video") {
-                        width = s["width"].as_u64().unwrap_or(0) as u32;
-                        height = s["height"].as_u64().unwrap_or(0) as u32;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
     Ok(json!({
         "duration":  info.duration,
         "fps":       info.fps,
         "has_audio": info.has_audio,
-        "width":     width,
-        "height":    height,
+        "width":     info.src_width,
+        "height":    info.src_height,
+        "codec":     info.video_codec,
     }))
 }
 
@@ -370,7 +372,24 @@ async fn frame_loop(
     mut cmd_rx: tokio::sync::mpsc::Receiver<PipelineCmd>,
     audio_offset: Arc<Mutex<f64>>,
 ) {
-    let max_w: u32 = 1920;
+    // ── Limite de resolução adaptativo ──────────────────────────────────────
+    //
+    // Regra: qualquer vídeo acima de 1920 de largura cai para 1920. Isso
+    // porque o render destino é uma janela (não um monitor 4K nativo) e
+    // decodificar 4K para depois scale para 1080 visual é desperdício.
+    //
+    // Para codecs pesados de decode (HEVC, AV1) com resolução alta, cair
+    // mais ainda ajuda porque o bottleneck é o decoder, não o scale.
+    //
+    let codec_hint = info.video_codec.as_str();
+    let max_w: u32 = match codec_hint {
+        // HEVC/AV1 em 4K são muito pesados — 1280 dá folga
+        "hevc" | "av1" if info.src_width > 2560 => 1280,
+        // ProRes/intraframe pesados em 4K
+        "prores" | "ffv1" | "huffyuv" | "dnxhd" | "mjpeg" if info.src_width > 2560 => 1280,
+        // Demais: limita a 1920 (FullHD)
+        _ => 1920,
+    };
     let (w, h) = if width > max_w {
         let ratio = max_w as f64 / width as f64;
         let scaled_h = ((height as f64 * ratio) as u32 / 2) * 2;
@@ -393,10 +412,68 @@ async fn frame_loop(
     'outer: loop {
         let mut args: Vec<String> = Vec::new();
 
+        let codec = info.video_codec.as_str();
+        let is_intraframe = matches!(
+            codec,
+            "prores" | "ffv1" | "huffyuv" | "mjpeg" | "rawvideo" | "dnxhd"
+        );
+
+        // Detecta se precisa fazer downscale significativo
+        let src_w = info.src_width;
+        let src_h = info.src_height;
+        let needs_downscale = src_w > 0 && w < src_w && (src_w - w) > 100;
+
         #[cfg(target_os = "windows")]
         {
-            args.extend(["-hwaccel".into(), "dxva2".into()]);
-            args.extend(["-threads".into(), "2".into()]);
+            if is_intraframe {
+                args.extend(["-threads".into(), "0".into()]);
+            } else if needs_downscale && matches!(codec, "h264" | "hevc") {
+                // ─── ESTRATÉGIA CHAVE PARA 4K → 1080p ───
+                //
+                // Scale no decoder D3D11VA usando hwaccel_output_format +
+                // scale_cuda/scale_qsv é complicado de configurar em todos
+                // os builds de FFmpeg. A solução robusta é:
+                //
+                // 1. Usar -noautorotate e -fflags +fastseek (evita análise)
+                // 2. Deixar o FFmpeg decodar em software com múltiplas threads
+                //    (H.264 software 4K @ 30fps é ~20% CPU moderno)
+                // 3. Scale em software com bilinear rápido
+                //
+                // Isso É PIOR em CPU mas MUITO melhor em GPU total (remove
+                // o overhead de transferência GPU↔CPU que estava causando
+                // 35-50% de uso).
+                //
+                args.extend(["-threads".into(), "0".into()]);
+                args.extend(["-fflags".into(), "+fastseek".into()]);
+            } else {
+                // Não precisa scale (vídeo já na resolução alvo): hwaccel puro
+                args.extend(["-hwaccel".into(), "auto".into()]);
+                args.extend(["-threads".into(), "4".into()]);
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // VideoToolbox no macOS tem scale integrado — hwaccel sempre vale
+            if is_intraframe {
+                args.extend(["-threads".into(), "0".into()]);
+            } else {
+                args.extend(["-hwaccel".into(), "videotoolbox".into()]);
+                args.extend(["-threads".into(), "4".into()]);
+            }
+        }
+
+        #[cfg(all(
+            target_os = "linux",
+            not(any(target_os = "windows", target_os = "macos"))
+        ))]
+        {
+            if is_intraframe || needs_downscale {
+                args.extend(["-threads".into(), "0".into()]);
+            } else {
+                args.extend(["-hwaccel".into(), "auto".into()]);
+                args.extend(["-threads".into(), "4".into()]);
+            }
         }
 
         if loop_video {
@@ -406,11 +483,25 @@ async fn frame_loop(
             args.extend(["-ss".into(), format!("{:.3}", seek)]);
         }
 
+        // ── Scale filter ───────────────────────────────────────────────────
+        let same_size = src_w > 0
+            && src_h > 0
+            && (src_w as i32 - w as i32).abs() < 4
+            && (src_h as i32 - h as i32).abs() < 4;
+
+        let vf = if same_size {
+            "format=yuv420p".to_string()
+        } else {
+            // fast_bilinear é a flag mais rápida para downscale.
+            // ~2× mais rápido que bicubic e visualmente idêntico em downscale.
+            format!("scale={}:{}:flags=fast_bilinear,format=yuv420p", w, h)
+        };
+
         args.extend([
             "-i".into(),
             path.clone(),
             "-vf".into(),
-            format!("scale={}:{},format=yuv420p", w, h),
+            vf,
             "-f".into(),
             "rawvideo".into(),
             "-pix_fmt".into(),
@@ -591,17 +682,30 @@ fn audio_args_fmp4(vpath: &str, offset: f64) -> Vec<String> {
         args.extend(["-ss".into(), format!("{:.3}", offset)]);
     }
     args.extend([
-        "-i".into(), vpath.into(),
+        "-i".into(),
+        vpath.into(),
         "-vn".into(),
-        "-acodec".into(), "aac".into(),
-        "-profile:a".into(), "aac_low".into(),
-        "-b:a".into(), "192k".into(),      // aumentei um pouco
-        "-ac".into(), "2".into(),
-        "-ar".into(), "44100".into(),
-        "-f".into(), "mp4".into(),
-        "-movflags".into(), "frag_keyframe+empty_moov+default_base_moof+omit_tfhd_offset".into(), // removido faststart
-        "-frag_duration".into(), "200000".into(),   // 200ms
-        "-loglevel".into(), "error".into(),
+        "-acodec".into(),
+        "aac".into(),
+        "-profile:a".into(),
+        "aac_low".into(),
+        "-b:a".into(),
+        "128k".into(),
+        "-ac".into(),
+        "2".into(),
+        "-ar".into(),
+        "44100".into(),
+        // fMP4 padrão — flags mínimas que funcionam em WKWebView + WebView2.
+        // NÃO usar separate_moof/omit_tfhd_offset: geram fMP4 inválido para
+        // <audio> tag direta (ok só para MSE).
+        "-f".into(),
+        "mp4".into(),
+        "-movflags".into(),
+        "frag_keyframe+empty_moov+default_base_moof+faststart".into(),
+        "-frag_duration".into(),
+        "500000".into(), // 500ms — fragmentos maiores = mais confiável
+        "-loglevel".into(),
+        "error".into(),
         "pipe:1".into(),
     ]);
     args

@@ -63,6 +63,7 @@ export const useMediaStore = defineStore('media', () => {
   watch(
     tagsByFiles,
     async (newListTagsByFiles) => {
+      console.log(newListTagsByFiles)
       if (!isLoaded.value || !tauriStore) return; // Só tenta salvar se o tauriStore já foi instanciado
       const tags = <string[]>[]
 
@@ -150,7 +151,7 @@ export const useMediaStore = defineStore('media', () => {
 
       mediaFiles.value = files;
 
-      tauriStore = await load('files.json', { autoSave: false, defaults: { favorite_files: [], list_tags_by_files: [] } });
+      tauriStore = await load('files.json', { autoSave: false, defaults: { favorite_files: [], list_tags_by_files: {}}});
 
       const savedFavorites = await tauriStore.get<string[]>('favorite_files');
  
