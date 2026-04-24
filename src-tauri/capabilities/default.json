@@ -98,6 +98,18 @@
         },
         {
           "event": "projection-time-sync"
+        },
+        {
+          "event":"update-stage-layout"
+        },
+        {
+          "event":"stage-speech-timer"
+        },
+        {
+          "event":"stage-preacher-notes"
+        },
+        {
+          "event":"stage-chordpro-data"
         }
       ]
     },
@@ -151,6 +163,18 @@
         },
         {
           "event": "projection-time-sync"
+        },
+        {
+          "event":"update-stage-layout"
+        },
+        {
+          "event":"stage-speech-timer"
+        },
+        {
+          "event":"stage-preacher-notes"
+        },
+        {
+          "event":"stage-chordpro-data"
         }
       ]
     },

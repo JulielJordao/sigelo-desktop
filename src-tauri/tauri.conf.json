@@ -4,9 +4,9 @@
   "version": "0.9.6",
   "identifier": "com.julieljordao.SigeloProjection",
   "build": {
-    "beforeDevCommand": "bun run dev",
+    "beforeDevCommand": "bun run build-premium && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build-premium && bun run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -30,6 +30,15 @@
         "label": "projection",
         "title": "Sigelo - Projeção",
         "url": "/projection", 
+        "resizable": true,
+        "visible": false, 
+        "fullscreen": false,
+        "alwaysOnTop": true
+      },
+      {
+        "label": "stage",
+        "title": "Sigelo - Projeção",
+        "url": "/stage-monitor", 
         "resizable": true,
         "visible": false, 
         "fullscreen": false,

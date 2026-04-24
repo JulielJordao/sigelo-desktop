@@ -21,6 +21,36 @@ use crate::state::app_state::AppState;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 use crate::stream::PipelineState;
+use tauri::command;
+use obfstr::obfstr;
+
+use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+
+#[tauri::command]
+fn load_premium_module() -> Result<String, String> {
+    // 1. O arquivo criptografado é embutido no executável
+    let file_data = include_bytes!("premium-bundle.dat");
+
+    if file_data.len() < 28 {
+        return Err("Módulo corrompido.".into());
+    }
+
+    // 2. Separa o IV (12 bytes) do restante (Dados + Auth Tag)
+    let (iv, data_and_tag) = file_data.split_at(12);
+    let nonce = Nonce::from_slice(iv);
+
+    // 3. Inicia o decodificador lendo a chave ofuscada DIRETAMENTE na chamada.
+    // Assim o Rust entende que a variável temporária só precisa viver nesta linha!
+    let cipher = Aes256Gcm::new_from_slice(obfstr!(env!("PRIVATE_KEY")).as_bytes())
+        .map_err(|_| "Falha ao iniciar cifra")?;
+
+    // 4. Descriptografa. Se a chave estiver errada ou o arquivo alterado, isso falha.
+    let decrypted_bytes = cipher.decrypt(nonce, data_and_tag)
+        .map_err(|_| "Licença inválida ou arquivo corrompido")?;
+
+    // 5. Retorna o JavaScript puro em formato de String para o Vue
+    String::from_utf8(decrypted_bytes).map_err(|_| "Erro de codificação UTF-8".into())
+}
 
 // Comando que o frontend vai chamar
 #[tauri::command]
@@ -59,6 +89,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         // 1. REGISTRAMOS OS COMANDOS AQUI:
         .invoke_handler(tauri::generate_handler![
+            load_premium_module,
             greet, // Seu comando de teste original
             crate::monitors::display::get_monitors,
             crate::monitors::detector::detect_projector_cmd,

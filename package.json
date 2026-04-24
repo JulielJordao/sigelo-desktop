@@ -4,6 +4,7 @@
   "version": "0.8.5",
   "type": "module",
   "scripts": {
+    "build-premium": "bun --env-file=.env build-premium.ts",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",

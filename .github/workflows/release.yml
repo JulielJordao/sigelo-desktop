@@ -64,6 +64,7 @@ jobs:
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
         env:
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # A MÁGICA ACONTECE AQUI:
           SIGELO_DECRYPT_KEY: ${{ secrets.SIGELO_DECRYPT_KEY }}

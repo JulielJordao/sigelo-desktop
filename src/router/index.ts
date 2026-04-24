@@ -29,6 +29,9 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/projection', component: () => import('../views/ProjectionView.vue')
+  },
+  {
+    path: '/stage-monitor', component: () => import('../premium-modules/stage-monitor/StageMonitor.vue')
   }
 ];
 

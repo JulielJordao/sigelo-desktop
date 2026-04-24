@@ -8,6 +8,7 @@ import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { useTheme } from 'vuetify';
 import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
+import { stageLayouts } from '../../premium-modules/stage-monitor/stageLayouts';
 
 const presentationStore = usePresentationStore()
 const theme = useTheme();
@@ -71,12 +72,6 @@ const bibleLayouts = [
   { title: 'Referência Acima do Texto', value: 'top' },
   { title: 'Referência Abaixo (Direita)', value: 'bottom-right' },
   { title: 'Ocultar Referência', value: 'hidden' }
-];
-
-const stageLayouts = [
-  { title: 'Slide Atual + Próximo + Relógio', value: 'full' },
-  { title: 'Apenas Slide Atual (Texto Maior)', value: 'current_only' },
-  { title: 'Texto contínuo (Rolagem)', value: 'scrolling' }
 ];
 
 // --- INTEGRAÇÃO COM TAURI (MONITORES) ---
