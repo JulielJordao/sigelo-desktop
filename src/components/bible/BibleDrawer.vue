@@ -6,6 +6,7 @@ import { useBibleStore } from '../../stores/useBibleStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from "../../stores/menuStore";
 import { useMediaStore, type MediaFile } from "../../stores/mediaStore";
+import SmartVideo from '../SmartVideo.vue';
 
 const emit = defineEmits(['project', 'close']);
 
@@ -327,8 +328,8 @@ onUnmounted(() => {
                           class="cursor-pointer position-relative overflow-hidden selector-card"
                           :class="{ 'is-selected': projectionSettings.bgType === 'saved' && projectionSettings.bgMedia === file.url }"
                           @click="selectLocalMedia(file)">
-                          <video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="`${file.url}#t=0.5`"
-                            class="w-100 h-100 object-cover" muted preload="metadata"></video>
+                          <smart-video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="file.url"
+                            class="w-100 h-100 object-cover" muted preload="metadata" preview-only></smart-video>
                           <v-img v-else :src="file.url" cover height="100%"></v-img>
                           <div v-if="file.isVideo"
                             class="position-absolute top-0 left-0 w-100 h-100 d-flex align-center justify-center overlay-dim">

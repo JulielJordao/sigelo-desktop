@@ -2,10 +2,12 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
-import FFmpegVideo from '../../FFmpegVideo.vue';
+import SmartVideo from '../SmartVideo.vue';
 
 const configStore = useConfigStore()
 const statusStore = useStatusPresentationStore()
+
+const isReloadEngine = ref(true);
 
 const props = defineProps({
     // Recebe o design e o estilo específicos
@@ -156,6 +158,15 @@ watch(() => props.design.bgMedia, async () => {
         } 
     }
 });
+
+watch(() => configStore.settings.videoEngine, (engine) => {
+    console.log("engine", engine)
+    isReloadEngine.value = false
+
+    setTimeout(() => {
+        isReloadEngine.value = true
+    })
+})
 </script>
 
 <template>
@@ -169,14 +180,14 @@ watch(() => props.design.bgMedia, async () => {
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
         <div v-if="props.isFixedPreview"> 
-            <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
+            <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
             :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio loop muted class="video-bg"
             :object-fit="design.bgFit"  preview-only/>
         </div>
         <div v-else>
-            <FFmpegVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia" 
+            <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia && isReloadEngine" 
             :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
-            :object-fit="design.bgFit" />
+            :object-fit="design.bgFit" :preview-timestamp="1" />
         </div>
         
 

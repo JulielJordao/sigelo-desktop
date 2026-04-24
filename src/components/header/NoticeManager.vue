@@ -97,7 +97,7 @@ watch(menuOpen, () => {
                           placeholder="Ex: Veículo placa ABC-1234 com farol aceso..."
                           variant="outlined" density="compact" rows="3" auto-grow hide-details class="mb-3"></v-textarea>
               
-              <v-row dense>
+              <v-row density="comfortable"'>
                 <v-col cols="6">
                   <v-text-field v-model.number="noticeStore.durationSecs" label="Duração (Segundos)"
                                 type="number" variant="outlined" density="compact" hide-details></v-text-field>

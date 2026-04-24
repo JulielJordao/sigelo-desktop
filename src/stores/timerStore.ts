@@ -58,6 +58,7 @@ export const useTimerStore = defineStore('timer', () => {
                 durationSecs: durationSecs.value,
                 position: position.value,
                 fontFamily: fontFamily.value,
+                bgIsVideo: bgIsVideo.value,
                 bgType: bgType.value,
                 bgMediaUrl: bgMediaUrl.value,
                 gradientColors: gradientColors.value

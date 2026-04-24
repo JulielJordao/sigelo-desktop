@@ -549,8 +549,8 @@ onUnmounted(() => {
 
             <div v-else-if="projectionType === 'fixed' && mediaStore.fixedMedia"
                 class="media-fullscreen-container bg-black">
-                <FFmpegVideo v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
-                    class="w-100 h-100" no-audio :object-fit="'cover'"></FFmpegVideo>
+                <SmartVideo v-if="mediaStore.fixedMedia?.isVideo" :src="mediaStore.fixedMedia?.url" autoplay loop muted
+                    class="w-100 h-100" no-audio :object-fit="'cover'"></SmartVideo>
                 <img v-else :src="mediaStore.fixedMedia?.url" class="w-100 h-100 object-fit-cover" />
             </div>
 
@@ -558,8 +558,8 @@ onUnmounted(() => {
                 :class="`pos-${timerStore.position}`" :style="timerBackgroundStyle">
 
                 <div v-if="timerStore.bgType === 'media' && timerStore.bgMediaUrl" class="timer-bg-media">
-                    <FFmpegVideo v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted
-                        class="w-100 h-100" :object-fit="'cover'"></FFmpegVideo>
+                    <SmartVideo v-if="timerStore.bgIsVideo" :src="timerStore.bgMediaUrl" autoplay loop muted
+                        class="w-100 h-100" :object-fit="'cover'"></SmartVideo>
                     <img v-else :src="timerStore.bgMediaUrl" class="w-100 h-100 object-fit-cover" />
                 </div>
 
@@ -580,7 +580,7 @@ onUnmounted(() => {
                     <div v-if="bibleDataPayload.settings.bgType === 'color'"
                         :style="{ backgroundColor: bibleDataPayload.settings.bgColor, width: '100%', height: '100%' }">
                     </div>
-                    <FFmpegVideo
+                    <SmartVideo
                         v-else-if="bibleDataPayload.settings.bgIsVideo && bibleDataPayload.settings.bgMediaLocal"
                         :src="bibleDataPayload.settings.bgMediaLocal" :autoplay="true" :loop="true" :muted="true"
                         no-audio :object-fit="bibleDataPayload.settings.bgFit" style="width: 100%; height: 100%;" />

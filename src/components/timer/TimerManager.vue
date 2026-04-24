@@ -4,6 +4,7 @@ import { useTimerStore } from '../../stores/timerStore';
 import { useMediaStore } from '../../stores/mediaStore';
 import FontSelector from '../utils/FontSelector.vue';
 import { invoke } from '@tauri-apps/api/core';
+import SmartVideo from '../SmartVideo.vue';
 
 const timerStore = useTimerStore();
 const mediaStore = useMediaStore();
@@ -216,9 +217,9 @@ onMounted(() => {
                   <div class="preview-bg" :style="previewBgStyle">
                     <v-img v-if="timerStore.bgType === 'media' && !timerStore.bgIsVideo && timerStore.bgMediaUrl"
                       :src="timerStore.bgMediaUrl" cover class="w-100 h-100"></v-img>
-                    <video v-if="timerStore.bgType === 'media' && timerStore.bgIsVideo && timerStore.bgMediaUrl"
-                      :src="`${timerStore.bgMediaUrl}#t=0.5`" class="w-100 h-100 object-cover" muted loop autoplay
-                      playsinline></video>
+                    <smart-video v-if="timerStore.bgType === 'media' && timerStore.bgIsVideo && timerStore.bgMediaUrl"
+                      :src="timerStore.bgMediaUrl" class="w-100 h-100 object-cover" muted loop autoplay
+                      playsinline></smart-video>
                     <div v-if="timerStore.bgType === 'media'" class="preview-overlay"></div>
                   </div>
                   <div class="preview-text-layer" :class="`pos-${timerStore.position}`">
@@ -336,8 +337,8 @@ onMounted(() => {
                   <v-card @click="selectMedia(file)" hover
                     class="h-100 d-flex flex-column border overflow-hidden cursor-pointer">
                     <div class="bg-black position-relative" style="aspect-ratio: 16/9;">
-                      <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100"
-                        style="object-fit: cover;" muted></video>
+                      <smart-video v-if="file.isVideo" :src="file.url" class="w-100 h-100"
+                        style="object-fit: cover;" muted preview-only></smart-video>
                       <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
 
                       <div v-if="file.category === 'YouTube'" class="position-absolute top-0 right-0 ma-1">
