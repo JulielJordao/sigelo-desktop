@@ -37,7 +37,7 @@
       },
       {
         "label": "stage",
-        "title": "Sigelo - Projeção",
+        "title": "Sigelo - Stage",
         "url": "/stage-monitor", 
         "resizable": true,
         "visible": false, 
