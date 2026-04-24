@@ -131,7 +131,8 @@ export class FFmpegVideo extends HTMLElement {
 
   private _gl!: WebGLRenderingContext | WebGL2RenderingContext;
   private _isGL2 = false;
-  private _prog!: WebGLProgram;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private _prog: WebGLProgram|null = null;
   private _texY!: WebGLTexture;  private _texU!: WebGLTexture;  private _texV!: WebGLTexture;
   private _pboY: WebGLBuffer|null = null;
   private _pboU: WebGLBuffer|null = null;
@@ -840,10 +841,14 @@ export class FFmpegVideo extends HTMLElement {
     if (this._audioRetry)         { clearTimeout(this._audioRetry); this._audioRetry = null; }
     if (this._audioFallbackTimer) { clearTimeout(this._audioFallbackTimer); this._audioFallbackTimer = null; }
     cancelAnimationFrame(this._rafId); this._rafId = 0;
+    if (this._gl && this._prog && this._hasRemoteAudio) {
+        this._gl.deleteProgram(this._prog)
+        this._prog = null
+    }
     if (this._ws)     { this._ws.onmessage=null; this._ws.onerror=null; this._ws.onclose=null; this._ws.close(); this._ws=null; }
     if (this._ctrlWs) { this._ctrlWs.onclose=null; this._ctrlWs.onerror=null; this._ctrlWs.close(); this._ctrlWs=null; }
     this._stopAudio();
-    this._queue = []; this._playing = false;
+    this._queue = []; this._playing = false;    
   }
 
   private _resolvePath(src: string): string {

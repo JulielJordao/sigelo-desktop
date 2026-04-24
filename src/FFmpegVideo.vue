@@ -138,6 +138,7 @@ const _tag = () => `[FFV ${_sid.slice(-6)}]`
 
 let _gl: WebGLRenderingContext | WebGL2RenderingContext | null = null
 let _isGL2 = false
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let _prog: WebGLProgram | null = null
 let _texY: WebGLTexture | null = null
 let _texU: WebGLTexture | null = null
@@ -250,6 +251,12 @@ function _teardown(): void {
     if (_audioFallbackTimer) { clearTimeout(_audioFallbackTimer); _audioFallbackTimer = null }
     _clearSeekState()
     cancelAnimationFrame(_rafId); _rafId = 0
+
+    if (_gl && _prog) {
+        _gl.deleteProgram(_prog)
+        _prog = null
+    }
+    
     if (_ws) { _ws.onmessage = null; _ws.onerror = null; _ws.onclose = null; _ws.close(); _ws = null }
     if (_ctrlWs) { _ctrlWs.onclose = null; _ctrlWs.onerror = null; _ctrlWs.close(); _ctrlWs = null }
     _stopAudio()
