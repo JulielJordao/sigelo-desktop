@@ -181,12 +181,12 @@ watch(() => configStore.settings.videoEngine, (engine) => {
 
         <div v-if="props.isFixedPreview"> 
             <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
-            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio loop muted class="video-bg"
+            :src="design.bgMedia" no-audio loop muted class="video-bg"
             :object-fit="design.bgFit"  preview-only/>
         </div>
         <div v-else>
             <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia && isReloadEngine" 
-            :src="getLocalPathFromAssetUrl(design.bgMedia)" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
+            :src="design.bgMedia" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
             :object-fit="design.bgFit" :preview-timestamp="1" />
         </div>
         
