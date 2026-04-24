@@ -23,6 +23,24 @@ use tokio::sync::broadcast;
 use tokio_util::io::ReaderStream;
 use warp::{http::Response, Filter};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+/// Cria um Command já configurado para não abrir janela no Windows.
+/// No macOS/Linux é equivalente a Command::new().
+fn silent_cmd(bin: &PathBuf) -> Command {
+    let mut cmd = Command::new(bin);
+    
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    
+    cmd
+}
+
+
 // =============================================================================
 // TIPOS
 // =============================================================================
@@ -130,7 +148,7 @@ fn ffprobe_bin(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 async fn probe(ffprobe: &PathBuf, path: &str) -> MediaInfo {
-    let out = Command::new(ffprobe)
+    let out = silent_cmd(ffprobe)
         .args([
             "-v",
             "quiet",
@@ -328,7 +346,7 @@ pub async fn get_video_preview(
         "-".to_string(),
     ]);
 
-    let out = Command::new(ffmpeg)
+    let out = silent_cmd(&ffmpeg)
         .args(&args)
         .output()
         .await
@@ -548,7 +566,7 @@ async fn frame_loop(
             "pipe:1".into(),
         ]);
 
-        let mut child = match Command::new(&ffmpeg)
+        let mut child = match silent_cmd(&ffmpeg)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -927,7 +945,7 @@ fn start_warp_servers() {
                     let (args, content_type) = audio_args(&vpath, offset, fmt);
                     println!("[audio] spawn ffmpeg fmt={} ct={}", fmt, content_type);
 
-                    let mut child = match Command::new(&ffmpeg)
+                    let mut child = match silent_cmd(&ffmpeg)
                         .args(&args)
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -1121,7 +1139,7 @@ pub async fn extract_audio_local(
     let ffmpeg = ffmpeg_bin(&app)?;
 
     // ── Tentativa 1: copy direto (rápido) ──
-    let copy_result = Command::new(&ffmpeg)
+    let copy_result = silent_cmd(&ffmpeg)
         .args(["-i", &video_path, "-vn", "-c:a", "copy", "-y", &audio_path])
         .output()
         .await
@@ -1139,7 +1157,7 @@ pub async fn extract_audio_local(
     );
 
     // ── Tentativa 2: re-encode para AAC (universal) ──
-    let encode_result = Command::new(&ffmpeg)
+    let encode_result = silent_cmd(&ffmpeg)
         .args([
             "-i",
             &video_path,
@@ -1169,7 +1187,7 @@ pub async fn extract_audio_local(
 
     // ── Diagnóstico: verifica se o arquivo tem mesmo uma trilha de áudio ──
     let ffprobe = ffprobe_bin(&app)?;
-    let probe_result = Command::new(&ffprobe)
+    let probe_result = silent_cmd(&ffprobe)
         .args([
             "-v",
             "error",
