@@ -676,7 +676,7 @@ const engineOptions = [
                   <v-divider></v-divider>
 
                   <div class="pa-4">
-                    <v-row density="comfortable"'>
+                    <v-row density="comfortable">
 
                       <v-col v-for="engine in engineOptions" :key="engine.value" cols="12" :sm="isSimplified ? 3 : 6">
                         <v-tooltip :disabled="!isSimplified" location="bottom" max-width="300">
