@@ -3,14 +3,19 @@ import { ref, onMounted, computed, watch, onUpdated, onUnmounted } from 'vue';
 import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMediaStore, type MediaFile } from '../../stores/mediaStore';
 import { useMenuStore } from "../../stores/menuStore";
+import SmartVideo from '../SmartVideo.vue';
+import { useConfigStore } from '../../stores/useConfigStore';
 
 const menuStore = useMenuStore()
 const store = usePresentationStore();
 const mediaStore = useMediaStore();
+const configStore = useConfigStore();
 const scrollContainer = ref<HTMLDivElement | null>(null)
 let resizeObserver: ResizeObserver | null = null;
 
 const fileInput = ref<HTMLInputElement | null>(null);
+
+const isReloadEngine = ref(true);
 
 
 // --- SELEÇÃO DE MÍDIA ---
@@ -165,6 +170,15 @@ watch(() => [displayTags.value, isSearchOpen.value, selectedTag.value], () => {
 
 watch(isSearchOpen, () => {
     menuStore.setShiftShortcutLocked(isSearchOpen.value)
+})
+
+watch(() => configStore.settings.videoEngine, (engine) => {
+    console.log("engine", engine)
+    isReloadEngine.value = false
+
+    setTimeout(() => {
+        isReloadEngine.value = true
+    })
 })
 </script>
 
@@ -336,9 +350,9 @@ watch(isSearchOpen, () => {
                 <v-card v-for="file in displayThemeFiles" :key="file.id" width="100" height="70"
                     class="cursor-pointer position-relative overflow-hidden transition-all"
                     :class="[store.design.bgType === 'saved' && store.design.bgMedia === file.url ? 'selected-item' : 'border']"
-                    @click="selectLocalMedia(file)">
-                    <video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="`${file.url}#t=0.5`"
-                        class="w-100 h-100 object-cover" muted preload="metadata"></video>
+                    @click="selectLocalMedia(file)" v-if="isReloadEngine">
+                   <smart-video v-if="file.isVideo" crossorigin="anonymous" playsinline :src="file.url"
+                        class="w-100 h-100 object-cover" preload="metadata" no-audio preview-only></smart-video>
                     <v-img v-else :src="file.url" cover height="100%"></v-img>
 
                     <div v-if="file.isVideo"

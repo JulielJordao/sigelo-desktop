@@ -4,6 +4,7 @@ import type { MediaFile } from '../../stores/mediaStore'; // Ajuste o caminho se
 import TagEditModal from "./TagEditModal.vue"
 import { useMediaStore } from "../../stores/mediaStore";
 import { useStatusPresentationStore } from "../../stores/statusPresentationStore";
+import SmartVideo from "../SmartVideo.vue";
 
 const mediaStore = useMediaStore()
 const statusStore = useStatusPresentationStore()
@@ -57,8 +58,8 @@ const openTagModal = () => {
 
         <div class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
             @click.stop="emit('open-preview', file)">
-            <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
-                preload="metadata" @loadedmetadata="emit('video-loaded', $event, file)"></video>
+            <SmartVideo v-if="file.isVideo" :src="file.url" class="w-100 h-100 object-cover" preview-only no-audio muted
+                            preload="metadata" @loadedmetadata="emit('video-loaded', $event, file)"></SmartVideo>
             <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
 
             <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">

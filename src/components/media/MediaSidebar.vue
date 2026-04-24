@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch} from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore';
 import { useConfigStore } from '../../stores/useConfigStore';
@@ -9,6 +9,9 @@ import { useMenuStore } from "../../stores/menuStore"
 import { message } from '@tauri-apps/plugin-dialog';
 import MediaListItem from './MediaListItem.vue';
 import LiveMediaController from './LiveMediaController.vue';
+import SmartVideo from '../SmartVideo.vue';
+import MediaPlayerControls  from './MediaPlayerControls.vue';
+
 
 const menuStore = useMenuStore()
 const configStore = useConfigStore();
@@ -43,6 +46,8 @@ const isPlaying = ref(true);
 // Estados para o Modal de Deletar
 const deleteDialog = ref(false);
 const fileToDelete = ref<MediaFile | null>(null);
+
+const isReloadEngine = ref(true);
 
 // Quando receber o evento @projectFile da MediaSidebar:
 const handleProjectFile = async (file: MediaFile) => {
@@ -197,7 +202,7 @@ const cancelEdit = () => {
 const saveEdit = async (file: MediaFile) => {
   const trimmedName = editName.value.trim();
   if (!trimmedName || trimmedName === file.name.split('.')[0]) {
-    
+
     cancelEdit();
     return;
   }
@@ -235,6 +240,15 @@ watch(deleteDialog, () => {
 watch(editName, (value) => {
   const isEditing = (value && value != "") ? true : false
   menuStore.setShiftShortcutLocked(isEditing)
+})
+
+watch(() => configStore.settings.videoEngine, (engine) => {
+    console.log("engine", engine)
+    isReloadEngine.value = false
+
+    setTimeout(() => {
+        isReloadEngine.value = true
+    })
 })
 
 const handleBlur = () => {
@@ -289,8 +303,7 @@ const handleFocus = () => {
 
         <div class="px-3 pb-3">
           <v-text-field v-model="searchQuery" density="compact" variant="solo-filled" flat hide-details
-            placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2"
-            @focus="handleFocus"
+            placeholder="Buscar mídia..." prepend-inner-icon="mdi-magnify" class="mb-2" @focus="handleFocus"
             @blur="handleBlur"></v-text-field>
           <div class="d-flex align-center gap-2">
             <v-btn-toggle v-model="activeFilter" color="primary" mandatory density="compact" variant="outlined"
@@ -314,7 +327,7 @@ const handleFocus = () => {
         </div>
       </div>
 
-      <div class="flex-grow-1 overflow-y-auto bg-transparent px-2 pb-4">
+      <div class="flex-grow-1 overflow-y-auto bg-transparent px-2 pb-4" v-if="isReloadEngine">
 
         <v-slide-y-transition>
           <LiveMediaController></LiveMediaController>
@@ -322,36 +335,16 @@ const handleFocus = () => {
 
         <div v-if="viewMode === 'list'" class="pt-2">
           <v-slide-y-transition group>
-            <v-card 
-              v-for="file in filteredAndSortedFiles" 
-              :key="file.id" 
-              v-click-outside="{
-                handler: () => { if (editingId === file.id) cancelEdit() },
-                closeConditional: () => editingId === file.id
-              }" 
-              class="mb-3 border-sm rounded-lg" 
-              elevation="0" 
-              hover
-            >
-              <MediaListItem 
-                :file="file"
-                :is-projecting="statusPresStore.isProjectingMediaFile"
-                :projected-file-id="statusPresStore.projectedFile?.id"
-                :fixed-media-id="mediaStore.fixedMedia?.id"
-                :editing-id="editingId"
-                v-model:edit-name="editName"
-                :is-grid-expanded="false"
-                
-                @open-preview="openPreview"
-                @toggle-favorite="toggleFavorite"
-                @project="handleProjectFile"
-                @set-fixed="handleSetFixed"
-                @delete="confirmDeletePrompt"
-                @start-edit="startEdit"
-                @save-edit="saveEdit"
-                @cancel-edit="cancelEdit"
-                @video-loaded="onVideoLoaded"
-              />
+            <v-card v-for="file in filteredAndSortedFiles" :key="file.id" v-click-outside="{
+              handler: () => { if (editingId === file.id) cancelEdit() },
+              closeConditional: () => editingId === file.id
+            }" class="mb-3 border-sm rounded-lg" elevation="0" hover>
+              <MediaListItem :file="file" :is-projecting="statusPresStore.isProjectingMediaFile"
+                :projected-file-id="statusPresStore.projectedFile?.id" :fixed-media-id="mediaStore.fixedMedia?.id"
+                :editing-id="editingId" v-model:edit-name="editName" :is-grid-expanded="false"
+                @open-preview="openPreview" @toggle-favorite="toggleFavorite" @project="handleProjectFile"
+                @set-fixed="handleSetFixed" @delete="confirmDeletePrompt" @start-edit="startEdit" @save-edit="saveEdit"
+                @cancel-edit="cancelEdit" @video-loaded="onVideoLoaded" />
             </v-card>
           </v-slide-y-transition>
         </div>
@@ -365,27 +358,13 @@ const handleFocus = () => {
               :class="['border-sm rounded-lg overflow-hidden transition-all bg-surface', expandedId === file.id ? 'grid-item-expanded' : 'cursor-pointer']"
               elevation="0" hover @click="expandedId !== file.id && toggleExpand(file.id)">
 
-              <MediaListItem 
-                v-if="expandedId === file.id"
-                :file="file"
+              <MediaListItem v-if="expandedId === file.id" :file="file"
                 :is-projecting="statusPresStore.isProjectingMediaFile"
-                :projected-file-id="statusPresStore.projectedFile?.id"
-                :fixed-media-id="mediaStore.fixedMedia?.id"
-                :editing-id="editingId"
-                v-model:edit-name="editName"
-                :is-grid-expanded="true"
-                
-                @open-preview="openPreview"
-                @toggle-favorite="toggleFavorite"
-                @project="handleProjectFile"
-                @set-fixed="handleSetFixed"
-                @delete="confirmDeletePrompt"
-                @collapse="toggleExpand"
-                @start-edit="startEdit"
-                @save-edit="saveEdit"
-                @cancel-edit="cancelEdit"
-                @video-loaded="onVideoLoaded"
-              />
+                :projected-file-id="statusPresStore.projectedFile?.id" :fixed-media-id="mediaStore.fixedMedia?.id"
+                :editing-id="editingId" v-model:edit-name="editName" :is-grid-expanded="true"
+                @open-preview="openPreview" @toggle-favorite="toggleFavorite" @project="handleProjectFile"
+                @set-fixed="handleSetFixed" @delete="confirmDeletePrompt" @collapse="toggleExpand"
+                @start-edit="startEdit" @save-edit="saveEdit" @cancel-edit="cancelEdit" @video-loaded="onVideoLoaded" />
 
               <div v-else class="d-flex flex-column h-100 position-relative">
                 <div v-if="statusPresStore.projectedFile?.id === file.id"
@@ -395,8 +374,9 @@ const handleFocus = () => {
                 </div>
 
                 <div class="square-preview position-relative bg-surface-variant" style="aspect-ratio: 1/1;">
-                  <video v-if="file.isVideo" :src="`${file.url}#t=0.5`" class="w-100 h-100 object-cover" muted
-                    preload="metadata"></video>
+                  <SmartVideo v-if="file.isVideo" :src="file.url" class="w-100 h-100 object-cover" no-audio
+                    preview-only :preview-timestamp="3"
+                    preload="metadata"></SmartVideo>
                   <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
 
                   <v-icon v-if="file.isVideo" color="white" size="small"
@@ -446,12 +426,17 @@ const handleFocus = () => {
         <v-spacer></v-spacer>
         <v-btn icon="mdi-close" @click="previewDialog = false"></v-btn>
       </v-toolbar>
+
       <div class="pa-2 d-flex justify-center align-center" style="min-height: 400px;">
-        <video v-if="previewFile?.isVideo" :src="previewFile.url" controls autoplay class="w-100 rounded"
-          style="max-height: 60vh;"></video>
-        <v-img v-else-if="previewFile" :src="previewFile.url" contain class="w-100 rounded"
-          style="max-height: 60vh;"></v-img>
+        <!-- VÍDEO com controles customizados -->
+        <div v-if="previewFile?.isVideo" class="w-100" style="max-height: 60vh; aspect-ratio: 16/9;">
+          <MediaPlayerControls :src="previewFile.url" autoplay object-fit="contain" />
+        </div>
+
+        <!-- IMAGEM -->
+        <v-img v-else-if="previewFile" :src="previewFile.url" contain class="w-100 rounded" style="max-height: 60vh;" />
       </div>
+
       <v-card-actions class="pa-4 bg-grey-darken-4 justify-end">
         <v-btn color="grey" variant="text" @click="previewDialog = false">Fechar</v-btn>
         <v-btn color="secondary" prepend-icon="mdi-pin"

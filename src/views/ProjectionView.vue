@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow, getAllWindows } from '@tauri-apps/api/window';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useMediaStore } from '../stores/mediaStore';
 import { useNoticeStore } from '../stores/noticeStore';
 import type { MediaFile } from '../stores/mediaStore';
@@ -16,30 +16,42 @@ import SmartVideo from '../components/SmartVideo.vue';
 
 const isDev = import.meta.env.DEV;
 
-// ── Time sync ─────────────────────────────────────────────────────────────────
-// Emite o tempo atual do vídeo para a janela PRINCIPAL a cada 1s.
-// Usamos emitTo('main') para evitar o loop (emit broadcast voltaria para si).
+// ═════════════════════════════════════════════════════════════════════════
+// TIME SYNC — a janela de projeção é a FONTE DE VERDADE
+// ─────────────────────────────────────────────────────────────────────────
+// Emite para a janela principal em dois modos:
+//   - TICK: periódico a cada 250ms (suave, para atualizar slider)
+//   - EVENT: imediato em play/pause/seeked/ended/loadedmetadata
+//
+// Todo payload carrega: eventType, currentTime, duration, isPlaying.
+// O LiveMediaController consome isso como única fonte de verdade.
+// ═════════════════════════════════════════════════════════════════════════
+
+type SyncEventType = 'tick' | 'play' | 'pause' | 'seeked' | 'ended' | 'loadedmetadata';
+
 let _timeSyncInterval: ReturnType<typeof setInterval> | null = null;
 
-// Apenas leitura
-const noticeStore = useNoticeStore()
+// ─── Stores ───────────────────────────────────────────────────────────────
+const noticeStore = useNoticeStore();
 noticeStore.enableAutoSave = false;
 
 const configStore = useConfigStore();
-configStore.autoSave = false
+configStore.autoSave = false;
 
 const mediaStore = useMediaStore();
 
 const timerStore = useTimerStore();
 timerStore.enableAutoSave = false;
 
+// ─── Tipos de payload ─────────────────────────────────────────────────────
 interface MediaControlPayload {
     action: 'play' | 'pause' | 'mute' | 'unmute' | 'restart' | 'seek';
-    time: number
+    time: number;
 }
 
 interface ScrollPayload { x: number; y: number; }
 
+// ─── Estado da projeção ───────────────────────────────────────────────────
 const projectionType = ref<'html' | 'bible' | 'slide' | 'media' | 'timer' | 'fixed' | 'none'>('none');
 
 const htmlContent = ref<string>('<div style="color: white; display: flex; height: 100vh; align-items: center; justify-content: center;">Aguardando projeção...</div>');
@@ -48,9 +60,9 @@ const slideData = ref<any>(null);
 const currentMedia = ref<MediaFile | null>(null);
 
 const debugLog = ref<string>("Iniciando...");
-
 const lastBackendData = ref<string>('');
 
+// ─── Unlisteners ──────────────────────────────────────────────────────────
 let unlistenUpdate: UnlistenFn | null = null;
 let unlistenScroll: UnlistenFn | null = null;
 let unlistenMedia: UnlistenFn | null = null;
@@ -68,31 +80,145 @@ let localTimerInterval: ReturnType<typeof setInterval> | null = null;
 
 let unlistenUpdateConfig: UnlistenFn | null = null;
 
-// ── videoRef tipado como `any` para aceitar SmartVideo e FFmpegVideo ──────────
+// ─── Refs ─────────────────────────────────────────────────────────────────
 const videoRef = ref<any>(null);
 const bibleDataPayload = ref<any>(null);
 
-// ── Nome da janela principal (onde o LiveMediaController está) ────────────────
-// Em Tauri 2 a janela principal se chama 'main' por padrão.
-// Se o seu tauri.conf.json usa outro nome, ajuste aqui.
+// ─── Nome da janela principal (ajuste se seu tauri.conf.json usa outro) ──
 const MAIN_WINDOW_LABEL = 'main';
 
-// ── Helpers para ler tempo de SmartVideo ou <video> nativo ───────────────────
-function _getVideoTime(): { ct: number; dur: number } | null {
-    const el = videoRef.value;
-    if (!el) return null;
+// ═════════════════════════════════════════════════════════════════════════
+// HELPER: Lê currentTime/duration/paused do vídeo (SmartVideo ou nativo)
+// ═════════════════════════════════════════════════════════════════════════
+function _getVideoTime(): { ct: number; dur: number; playing: boolean } | null {
+    const wrapper = videoRef.value;
+    if (!wrapper) return null;
 
-    const rawCt = el.currentTime;
-    const rawDur = el.duration;
+    // Tenta pegar o elemento <video> nativo diretamente
+    const nativeEl = wrapper._nativeRef as HTMLVideoElement | null | undefined;
 
-    const ct = (rawCt && typeof rawCt === 'object' && 'value' in rawCt) ? rawCt.value : (rawCt ?? 0);
-    const dur = (rawDur && typeof rawDur === 'object' && 'value' in rawDur) ? rawDur.value : (rawDur ?? 0);
+    if (nativeEl) {
+        const ct = nativeEl.currentTime;
+        const dur = nativeEl.duration;
+        const paused = nativeEl.paused;
 
-    // Não emite zeros — <video> nativo emite currentTime=0 durante load/seek
-    if (!isFinite(ct) || ct <= 0) return null;
+        if (!isFinite(ct) || ct < 0) return null;
 
-    return { ct, dur };
+        return {
+            ct,
+            dur: isFinite(dur) ? dur : 0,
+            playing: !paused,
+        };
+    }
+
+    // Motor FFmpeg — usa os getters imperativos (funcionam dentro de setInterval)
+    const ffmpegEl = wrapper._ffmpegRef;
+    if (ffmpegEl) {
+        // Preferência 1: getters imperativos (garantia de valor atual)
+        if (typeof ffmpegEl.getCurrentTime === 'function') {
+            const ct = ffmpegEl.getCurrentTime();
+            const dur = typeof ffmpegEl.getDuration === 'function' ? ffmpegEl.getDuration() : 0;
+            const paused = typeof ffmpegEl.getPaused === 'function' ? ffmpegEl.getPaused() : true;
+
+            if (!isFinite(ct) || ct < 0) return null;
+
+            return {
+                ct,
+                dur: isFinite(dur) ? dur : 0,
+                playing: !paused,
+            };
+        }
+
+        // Preferência 2: fallback para os computeds/refs (versões antigas)
+        const rawCt = ffmpegEl.currentTime;
+        const rawDur = ffmpegEl.duration;
+        const rawPaused = ffmpegEl.paused;
+
+        const ct = (rawCt && typeof rawCt === 'object' && 'value' in rawCt) ? rawCt.value : (rawCt ?? 0);
+        const dur = (rawDur && typeof rawDur === 'object' && 'value' in rawDur) ? rawDur.value : (rawDur ?? 0);
+        const paused = (rawPaused && typeof rawPaused === 'object' && 'value' in rawPaused) ? rawPaused.value : (rawPaused ?? true);
+
+        if (!isFinite(ct) || ct < 0) return null;
+
+        return {
+            ct,
+            dur: isFinite(dur) ? dur : 0,
+            playing: !paused,
+        };
+    }
+
+    return null;
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// EMIT SYNC — envia estado atual para a janela principal
+// ═════════════════════════════════════════════════════════════════════════
+async function _emitSync(eventType: SyncEventType) {
+    const data = _getVideoTime();
+    if (!data) return;
+    try {
+        await emitTo(MAIN_WINDOW_LABEL, 'projection-time-sync', {
+            eventType,
+            currentTime: data.ct,
+            duration: data.dur > 0 ? data.dur : undefined,
+            isPlaying: data.playing,
+        });
+    } catch {
+        // janela principal pode ainda não estar pronta
+    }
+}
+
+function _startTimeSync() {
+    if (_timeSyncInterval) return;
+    // Tick de 250ms para slider suave. Com eventos imediatos (play/pause/seeked)
+    // a janela de incerteza fica muito menor que o antigo 1s.
+    _timeSyncInterval = setInterval(() => _emitSync('tick'), 250);
+}
+
+function _stopTimeSync() {
+    if (_timeSyncInterval) {
+        clearInterval(_timeSyncInterval);
+        _timeSyncInterval = null;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// HANDLERS DE EVENTOS DO <SmartVideo>
+// ─────────────────────────────────────────────────────────────────────────
+// Cada evento dispara um _emitSync IMEDIATO com o eventType correto.
+// Isso permite que o LiveMediaController saiba o estado real do telão
+// sem esperar o próximo tick de 250ms.
+// ═════════════════════════════════════════════════════════════════════════
+
+function onVideoLoadedMetadata(e: Event) {
+    if (isDev) {
+        const el = e.target as any;
+        console.log('[ProjectionWindow] loadedmetadata — duration:',
+            el.duration?.value ?? el.duration);
+    }
+    _emitSync('loadedmetadata');
+}
+
+function onVideoPlay(_e: Event) {
+    _emitSync('play');
+}
+
+function onVideoPause(_e: Event) {
+    _emitSync('pause');
+}
+
+function onVideoSeeked(_e: Event) {
+    // Pequeno delay para garantir que currentTime reflita o frame real pós-seek
+    setTimeout(() => _emitSync('seeked'), 50);
+}
+
+function onVideoEnded(_e: Event) {
+    _emitSync('ended');
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// PROJEÇÃO DE CONTEÚDO HTML / SLIDE / BIBLE
+// ═════════════════════════════════════════════════════════════════════════
 
 const processIncomingData = (data: string, force: boolean = false) => {
     if (!data || data.trim() === '') return;
@@ -137,24 +263,9 @@ const getTransparentBackground = (hexColor: string, style: string) => {
     return `rgba(${r}, ${g}, ${b}, 0.3)`;
 };
 
-// ── Time sync: emite para a janela principal a cada 1s ────────────────────────
-function _startTimeSync() {
-    if (_timeSyncInterval) return;
-    _timeSyncInterval = setInterval(_emitTimeSync, 1000);
-}
-
-async function _emitTimeSync() {
-    const data = _getVideoTime();
-    if (!data) return;
-    try {
-        await emitTo(MAIN_WINDOW_LABEL, 'projection-time-sync', {
-            currentTime: data.ct,
-            duration: data.dur > 0 ? data.dur : undefined
-        });
-    } catch {
-        // janela principal pode não estar pronta ainda
-    }
-}
+// ═════════════════════════════════════════════════════════════════════════
+// CICLO DE VIDA
+// ═════════════════════════════════════════════════════════════════════════
 
 onMounted(async () => {
     configStore.autoSave = false;
@@ -162,7 +273,7 @@ onMounted(async () => {
     syncInterval = setInterval(loadCurrentHtml, 1000);
 
     unlistenUpdate = await listen<string>('update-projection', async (event) => {
-        await configStore.loadSettings()
+        await configStore.loadSettings();
         debugLog.value = `Opacidade: ${configStore.settings.bgOpacity}`;
         processIncomingData(event.payload, true);
     });
@@ -188,7 +299,7 @@ onMounted(async () => {
     });
 
     unlistenFixed = await listen<MediaFile>('set-fixed-media', async (event) => {
-        const oldFixedMedia = { ...mediaStore.fixedMedia }
+        const oldFixedMedia = { ...mediaStore.fixedMedia };
         debugLog.value = `Mídia fixa definida: ${event.payload?.isVideo}`;
         await mediaStore.setFixedMedia(event.payload);
         if ((projectionType.value === 'none' || projectionType.value === 'fixed') && oldFixedMedia.id != event.payload.id) {
@@ -224,17 +335,17 @@ onMounted(async () => {
                     el.pause?.();
                     break;
                 case 'mute':
-                    el.setMuted ? el.setMuted(true) : (el.muted = true)
+                    el.setMuted ? el.setMuted(true) : (el.muted = true);
                     break;
                 case 'unmute':
-                    el.setMuted ? el.setMuted(false) : (el.muted = false)
+                    el.setMuted ? el.setMuted(false) : (el.muted = false);
                     break;
                 case 'restart':
                     el.currentTime = 0;
                     break;
                 case 'seek':
-                    if (time !== undefined) {
-                        // currentTime pode ser WritableComputedRef (SmartVideo) ou number (<video>)
+                    // PROTEÇÃO: Só chama seek se time for finito
+                    if (time !== undefined && Number.isFinite(time)) {
                         el.seek ? el.seek(time) : (el.currentTime = time);
                     }
                     break;
@@ -321,7 +432,7 @@ onMounted(async () => {
     });
 
     unlistenUpdateConfig = await listen<string>('update-settings', async () => {
-        await configStore.loadSettings()
+        await configStore.loadSettings();
     });
 
     window.addEventListener('keydown', handleKeyDown);
@@ -331,11 +442,11 @@ onMounted(async () => {
 });
 
 const handleKeyDown = async (event: KeyboardEvent) => {
-    debugLog.value = "key:" + event.key
+    debugLog.value = "key:" + event.key;
     if (event.key === 'Escape') {
         await invoke('stop_projection');
     }
-    if (projectionType.value === "slide") await emit('handle-layout-keydown', event.key)
+    if (projectionType.value === "slide") await emit('handle-layout-keydown', event.key);
 };
 
 const timerBackgroundStyle = computed(() => {
@@ -361,25 +472,9 @@ onUnmounted(() => {
     if (unlistenTimerPlayback) unlistenTimerPlayback();
     if (unlistenUpdateConfig) unlistenUpdateConfig();
     if (localTimerInterval) clearInterval(localTimerInterval);
-    if (_timeSyncInterval) { clearInterval(_timeSyncInterval); _timeSyncInterval = null; }
+    _stopTimeSync();
     window.removeEventListener('keydown', handleKeyDown);
 });
-
-function onVideoMeta(e: Event) {
-    const el = e.target as any;
-    console.log('=== Video Meta ===');
-    console.log('duration:', el.duration?.value ?? el.duration);
-    console.log('muted:', el.muted);
-    console.log('volume:', el.volume);
-}
-
-// Emite o tempo real IMEDIATAMENTE após o seek terminar na projeção.
-// Isso permite que o LiveMediaController corrija o preview sem esperar o
-// próximo tick do setInterval de 1s.
-function onVideoSeeked() {
-    // Pequeno delay para garantir que currentTime já reflete o frame real
-    setTimeout(_emitTimeSync, 100);
-}
 </script>
 
 <template>
@@ -433,10 +528,22 @@ function onVideoSeeked() {
                 </div>
             </div>
 
+            <!-- ═══════════════ VÍDEO PRINCIPAL DA MÍDIA ═══════════════ -->
+            <!-- Emite TODOS os eventos relevantes para sync imediato -->
             <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-                <SmartVideo v-if="currentMedia.isVideo" ref="videoRef" :src="currentMedia.url" autoplay
-                    class="w-100 h-100" @loadedmetadata="onVideoMeta" @seeked="onVideoSeeked"
-                    :style="{ width: '100%', height: '100%' }" />
+                <SmartVideo
+                    v-if="currentMedia.isVideo"
+                    ref="videoRef"
+                    :src="currentMedia.url"
+                    autoplay
+                    class="w-100 h-100"
+                    :style="{ width: '100%', height: '100%' }"
+                    @loadedmetadata="onVideoLoadedMetadata"
+                    @play="onVideoPlay"
+                    @playing="onVideoPlay"
+                    @pause="onVideoPause"
+                    @seeked="onVideoSeeked"
+                    @ended="onVideoEnded" />
                 <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
             </div>
 

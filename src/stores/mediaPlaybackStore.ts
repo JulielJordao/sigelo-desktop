@@ -1,65 +1,55 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref } from 'vue';
 
+/**
+ * STORE DE PLAYBACK DE MÍDIA
+ * ══════════════════════════════════════════════════════════════════════
+ * MODELO: A ProjectionWindow (telão) é a ÚNICA fonte de verdade para
+ * `currentTime`, `isPlaying`, `duration`. Estes campos NÃO devem ser
+ * escritos por nenhum outro lugar além do listener de `projection-time-sync`
+ * no LiveMediaController.
+ *
+ * Campos de controle local (gerenciados pelo LiveMediaController):
+ *   - isMuted, isPreviewMode: preferências de UI
+ *   - isDragging: flag transitória durante scrubbing
+ *   - isPendingStateChange: aguardando confirmação do telão
+ * ══════════════════════════════════════════════════════════════════════
+ */
 export const useMediaPlaybackStore = defineStore('mediaPlayback', () => {
-    // ==========================================
-    // ESTADO GLOBAL DA MÍDIA
-    // ==========================================
+    // ─── Fonte de verdade: espelha o estado da projeção ──────────────
     const currentTime = ref(0);
     const duration = ref(0);
-    const isPlaying = ref(true);
+    const isPlaying = ref(false);  // começa false — só vira true quando o telão confirmar
+
+    // ─── Preferências locais de UI ───────────────────────────────────
     const isMuted = ref(false);
     const isPreviewMode = ref(true);
+
+    // ─── Flags transitórias ──────────────────────────────────────────
     const isDragging = ref(false);
 
-    // ==========================================
-    // REGISTRO DE VÍDEOS RENDERIZADOS
-    // ==========================================
-    // Conta quantos componentes <video> estão abertos no momento
-    const activeVideos = ref(0);
-    const hasActiveVideo = computed(() => activeVideos.value > 0);
+    // Comando enviado ao telão, aguardando confirmação via sync.
+    // Enquanto true, botões de play/pause/seek mostram loading.
+    const isPendingStateChange = ref(false);
 
-    const registerVideo = () => activeVideos.value++;
-    const unregisterVideo = () => {
-        if (activeVideos.value > 0) activeVideos.value--;
-    };
-
-    // ==========================================
-    // RELÓGIO FANTASMA GLOBAL
-    // ==========================================
-    let ghostTimer: ReturnType<typeof setInterval> | null = null;
-
-    const startGhostTimer = () => {
-        if (ghostTimer) return; // Garante que só existe UM timer no app inteiro
-        
-        ghostTimer = setInterval(() => {
-            // A mágica: Só anda se estiver tocando, não estivermos arrastando a barra, 
-            // e NENHUMA tag <video> estiver ativa na tela.
-            if (isPlaying.value && !isDragging.value && !hasActiveVideo.value) {
-                
-                if (duration.value > 0 && currentTime.value >= duration.value) return;
-
-                let nextTime = currentTime.value + 1;
-                
-                if (duration.value > 0 && nextTime >= duration.value) {
-                    nextTime = duration.value;
-                }
-                
-                currentTime.value = nextTime;
-            }
-        }, 1000);
-    };
-
+    // ─── Reset ───────────────────────────────────────────────────────
     const resetMedia = () => {
         currentTime.value = 0;
         duration.value = 0;
-        isPlaying.value = true;
+        isPlaying.value = false;
         isMuted.value = false;
         isDragging.value = false;
+        isPendingStateChange.value = false;
     };
 
     return {
-        currentTime, duration, isPlaying, isMuted, isPreviewMode, isDragging,
-        hasActiveVideo, registerVideo, unregisterVideo, startGhostTimer, resetMedia
+        currentTime,
+        duration,
+        isPlaying,
+        isMuted,
+        isPreviewMode,
+        isDragging,
+        isPendingStateChange,
+        resetMedia,
     };
 });

@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch, computed } from 'vue';
+import { onMounted, onUnmounted, ref, watch, computed, nextTick } from 'vue';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
 import { useMediaPlaybackStore } from '../../stores/mediaPlaybackStore';
-import SmartVideo from '../SmartVideo.vue'; // ajuste o path
+import SmartVideo from '../SmartVideo.vue';
 
 const props = defineProps({
-    isToolbar: {
-        type: Boolean,
-        default: false
-    }
+    isToolbar: { type: Boolean, default: false }
 });
 
 const menuStore = useMenuStore();
@@ -19,87 +16,260 @@ const playbackStore = useMediaPlaybackStore();
 const menuOpen = ref(false);
 
 // ═════════════════════════════════════════════════════════════════════════
-// REF DO PREVIEW
+// ARQUITETURA
 // ─────────────────────────────────────────────────────────────────────────
-// Usamos tipo genérico `any` para aceitar tanto SmartVideo quanto FFmpegVideo
-// (mesma API pública). Se preferir tipar estrito, troque para:
-//   ref<InstanceType<typeof SmartVideo> | null>(null)
+// A ProjectionWindow é a ÚNICA fonte de verdade. Todo estado de playback
+// (currentTime, isPlaying, duration, ended) vem do evento
+// `projection-time-sync`, que traz:
+//
+//   { eventType, currentTime, duration, isPlaying }
+//
+// onde eventType ∈ {tick, play, pause, seeked, ended, loadedmetadata}.
+//
+// O preview local <SmartVideo> é puramente decorativo: ele SEGUE o store
+// via watch, mas NUNCA escreve nele.
+//
+// Comandos (play/pause/seek) são enviados via `media-control` e o UI
+// aguarda confirmação do telão antes de atualizar isPlaying/currentTime.
+// Durante a espera, `isPendingStateChange=true` e o botão mostra loading.
 // ═════════════════════════════════════════════════════════════════════════
-const previewVideo = ref<any>(null);
 
+const previewVideo = ref<any>(null);
 const sliderValue = ref(0);
 
-const previewSrc = computed(() => {
-    const file = statusPresStore.projectedFile;
-    if (!file?.url) return '';
-    return file.url;
-});
+const previewSrc = computed(() => statusPresStore.projectedFile?.url || '');
+
+// ─── Último valor aceito (para rejeitar regressões em ticks) ─────────
+let _lastAcceptedTime = 0;
+let _lastSyncAt = 0;
+
+// ─── Timeout de segurança para comandos não confirmados ──────────────
+let _pendingStateTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function _armPendingTimeout(ms = 2500) {
+    if (_pendingStateTimeout) clearTimeout(_pendingStateTimeout);
+    playbackStore.isPendingStateChange = true;
+    _pendingStateTimeout = setTimeout(() => {
+        playbackStore.isPendingStateChange = false;
+        _pendingStateTimeout = null;
+    }, ms);
+}
+
+function _clearPendingTimeout() {
+    if (_pendingStateTimeout) {
+        clearTimeout(_pendingStateTimeout);
+        _pendingStateTimeout = null;
+    }
+    playbackStore.isPendingStateChange = false;
+}
 
 // ═════════════════════════════════════════════════════════════════════════
-// SINCRONIZAÇÃO DE TEMPO — preview local + tempo fantasma
+// LISTENER DO SYNC — único ponto de escrita no store
+// ═════════════════════════════════════════════════════════════════════════
+
+type SyncEventType = 'tick' | 'play' | 'pause' | 'seeked' | 'ended' | 'loadedmetadata';
+
+interface SyncPayload {
+    eventType: SyncEventType;
+    currentTime: number;
+    duration?: number;
+    isPlaying: boolean;
+}
+
+let _unlistenSync: UnlistenFn | null = null;
+
+async function _startSyncListener() {
+    try {
+        _unlistenSync = await listen<SyncPayload>('projection-time-sync', (event) => {
+            const { eventType, currentTime, duration, isPlaying } = event.payload;
+            console.log('[SYNC RX]', {
+                eventType,
+                currentTime,
+                isPlaying,
+                storeBefore: playbackStore.currentTime,
+                sliderBefore: sliderValue.value
+            });
+
+            // Validação básica
+            if (typeof currentTime !== 'number' || !isFinite(currentTime) || currentTime < 0) return;
+
+            // Atualiza duration sempre que vier um valor válido
+            if (duration && isFinite(duration) && duration > 0) {
+                playbackStore.duration = duration;
+            }
+
+            // ─────────────────────────────────────────────────────────
+            // REGRA DE ACEITAÇÃO
+            // ─────────────────────────────────────────────────────────
+            // Eventos (play/pause/seeked/ended/loadedmetadata) são sempre
+            // aceitos — são fatos confirmados pelo telão.
+            //
+            // Ticks são rejeitados se vierem com regressão > 0.1s
+            // (protege contra pacotes atrasados fora de ordem).
+            //
+            // Exceção: 00:00 inicial é legítimo quando _lastAcceptedTime
+            // também é ~0 (vídeo acabou de carregar).
+            // ─────────────────────────────────────────────────────────
+            const isTick = eventType === 'tick';
+            if (isTick && currentTime < _lastAcceptedTime - 0.1) {
+                return; // tick atrasado, descarta
+            }
+
+            // Se é um evento que indica estado de playback, atualiza isPlaying
+            if (eventType === 'play' || eventType === 'pause' || eventType === 'ended') {
+                playbackStore.isPlaying = isPlaying;
+                _clearPendingTimeout();
+            }
+
+            // seeked confirma o comando de seek — libera pending
+            if (eventType === 'seeked') {
+                _clearPendingTimeout();
+            }
+
+            // Ao receber loadedmetadata, sincroniza flag de reprodução real
+            if (eventType === 'loadedmetadata') {
+                playbackStore.isPlaying = isPlaying;
+            }
+
+            // Atualiza tempo
+            if (!playbackStore.isDragging) {
+                playbackStore.currentTime = currentTime;
+            }
+
+            _lastAcceptedTime = currentTime;
+            _lastSyncAt = performance.now();
+            console.log('[SYNC END]', {
+                storeAfter: playbackStore.currentTime,
+                sliderAfter: sliderValue.value
+            });
+        });
+    } catch (e) {
+        console.warn('[LiveMediaController] sync listener falhou:', e);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// GHOST TIMER VISUAL — suaviza slider entre ticks
 // ─────────────────────────────────────────────────────────────────────────
-// Cenários:
-//
-// 1. MENU ABERTO + modo Ao Vivo/Preview: <SmartVideo> monta, emite
-//    timeupdate → sobrescreve playbackStore.currentTime.
-//
-// 2. MENU FECHADO: só existe o pill da toolbar mostrando o tempo.
-//    O preview NÃO está montado → timeupdate não é emitido.
-//    O "ghost timer" (no store) avança o tempo local baseado no wall clock.
-//    Quando o menu reabre, o preview seek para esse tempo.
-//
-// O ghost timer é controlado por `playbackStore.startGhostTimer()` e
-// é PAUSADO automaticamente quando o preview está vivo emitindo timeupdate
-// (ver watchdog abaixo).
+// Nunca toca no store. Apenas avança sliderValue visualmente se faz mais
+// de 200ms que não chega sync (ex: menu fechado, aba inativa momentânea).
+// O próximo tick/evento do telão corrige instantaneamente se necessário.
 // ═════════════════════════════════════════════════════════════════════════
 
-let _lastTimeUpdateAt = 0;
-let _lastAcceptedTime = -1; // último tempo aceito (para detectar regressões falsas)
-let _ghostWatchdog: ReturnType<typeof setInterval> | null = null;
+let _visualGhostTimer: ReturnType<typeof setInterval> | null = null;
 
-const onLoadedMetadata = (e: any) => {
-    const target = e.target;
-    const dur = target?.duration?.value ?? target?.duration;
-    if (dur && isFinite(dur) && dur > 0) {
-        playbackStore.duration = dur;
+function _startVisualGhost() {
+    if (_visualGhostTimer) return;
+    _visualGhostTimer = setInterval(() => {
+        if (!playbackStore.isPlaying) return;
+        if (playbackStore.isDragging) return;
+        if (performance.now() - _lastSyncAt < 200) return; // sync recente
+
+        const max = playbackStore.duration || Infinity;
+        const next = Math.min(sliderValue.value + 0.1, max);
+        if (next !== sliderValue.value) sliderValue.value = next;
+    }, 100);
+}
+
+function _stopVisualGhost() {
+    if (_visualGhostTimer) {
+        clearInterval(_visualGhostTimer);
+        _visualGhostTimer = null;
     }
-};
+}
 
-const onTimeUpdate = (e: any) => {
-    const target = e.target;
-    // Lê currentTime de SmartVideo (computed ref) ou <video> nativo (number)
-    const rawCt = target?.currentTime;
-    const ct: number = (rawCt && typeof rawCt === 'object' && 'value' in rawCt)
-        ? rawCt.value
-        : (rawCt ?? -1);
+// ═════════════════════════════════════════════════════════════════════════
+// SYNC slider ← store
+// ─────────────────────────────────────────────────────────────────────────
+// Sempre que o store atualiza currentTime (via sync do telão), reflete
+// no slider — exceto durante drag.
+// ═════════════════════════════════════════════════════════════════════════
 
-    // Descarta zeros — emitidos durante load/seek/buffering do <video> nativo
-    if (!isFinite(ct) || ct <= 0) return;
+watch(() => playbackStore.currentTime, (t) => {
+    if (playbackStore.isDragging) return;
+    sliderValue.value = t;
+});
 
-    // Descarta regressões grandes (> 2s para trás) que não foram seek explícito
-    // — evita o efeito de vai-e-volta quando o nativo emite frames antigos
-    if (_lastAcceptedTime > 0 && ct < _lastAcceptedTime - 2) return;
+// ═════════════════════════════════════════════════════════════════════════
+// SYNC preview local ← store
+// ─────────────────────────────────────────────────────────────────────────
+// Preview local é decorativo. Segue o store com tolerância de 0.5s
+// (evita puxar a cada frame — o <video> local já avança por conta própria).
+// ═════════════════════════════════════════════════════════════════════════
 
-    _lastTimeUpdateAt = performance.now();
-    _lastAcceptedTime = ct;
+watch(() => playbackStore.currentTime, (t) => {
+    if (!previewVideo.value) return;
+    if (!playbackStore.isPreviewMode) return;
+    if (playbackStore.isDragging) return;
 
-    if (!playbackStore.isDragging) {
-        playbackStore.currentTime = ct;
-    }
-};
-
-const onSeeked = () => {
-    if (_pendingResumeAfterSeek) {
-        _pendingResumeAfterSeek = false;
-        _resumeAfterSeek();
-    }
-};
-
-watch(() => playbackStore.currentTime, (newVal) => {
-    if (!playbackStore.isDragging) {
-        sliderValue.value = newVal;
+    const previewCt = _getPreviewCurrentTime();
+    if (Math.abs(previewCt - t) > 0.5) {
+        try { previewVideo.value.currentTime = t; } catch { }
     }
 });
+
+watch(previewVideo, async (newRef) => {
+    if (!newRef) return;
+
+    // Espera o SmartVideo montar internamente (pode ter resolvedEngine null por 1 tick)
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // 1. Sincroniza tempo
+    if (playbackStore.currentTime > 0) {
+        try {
+            newRef.currentTime = playbackStore.currentTime;
+        } catch { }
+    }
+
+    // 2. Sincroniza estado de play/pause IMPERATIVAMENTE
+    //    (não confia em autoplay, que é frágil para motor nativo)
+    try {
+        if (playbackStore.isPlaying && playbackStore.isPreviewMode) {
+            await newRef.play();
+        } else {
+            newRef.pause();
+        }
+    } catch { }
+});
+
+watch(() => playbackStore.isPlaying, async (playing) => {
+    if (!previewVideo.value) return;
+    if (!playbackStore.isPreviewMode) {
+        previewVideo.value.pause();
+        return;
+    }
+    try {
+        if (playing) {
+            await previewVideo.value.play();
+        } else {
+            previewVideo.value.pause();
+        }
+    } catch { }
+});
+
+watch(() => playbackStore.isPreviewMode, async (isPreview) => {
+    if (!previewVideo.value) return;
+
+    try {
+        if (!isPreview) {
+            previewVideo.value.pause();
+        } else if (playbackStore.isPlaying) {
+            await previewVideo.value.play();
+        }
+    } catch { }
+});
+
+// ═════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ═════════════════════════════════════════════════════════════════════════
+
+function _getPreviewCurrentTime(): number {
+    if (!previewVideo.value) return 0;
+    const raw = previewVideo.value.currentTime;
+    if (raw && typeof raw === 'object' && 'value' in raw) return raw.value ?? 0;
+    return raw ?? 0;
+}
 
 const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '00:00';
@@ -109,74 +279,25 @@ const formatTime = (seconds: number) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════
-// TEMPO FANTASMA (GHOST TIMER)
-// ─────────────────────────────────────────────────────────────────────────
-// Quando o preview NÃO está montado mas o vídeo do telão está rodando,
-// precisamos atualizar o tempo localmente via wall clock.
-//
-// Lógica:
-//   - Se `playbackStore.isPlaying === true` e `_lastTimeUpdateAt` foi há
-//     mais de 500ms (preview não está emitindo timeupdate) → avança o
-//     tempo localmente a cada 250ms.
-//   - Se o preview estiver emitindo timeupdate, o watchdog não faz nada
-//     (o onTimeUpdate já atualiza o tempo com valor real).
-//   - Loop back ao fim da duração.
+// SCRUBBING
 // ═════════════════════════════════════════════════════════════════════════
 
-function _startGhostWatchdog() {
-    if (_ghostWatchdog) return;
-    _ghostWatchdog = setInterval(() => {
-        if (!playbackStore.isPlaying) return;
-        if (playbackStore.isDragging) return;
-
-        const sincePreview = performance.now() - _lastTimeUpdateAt;
-        // Só atua se preview não emitiu timeupdate válido nos últimos 600ms
-        if (sincePreview < 600) return;
-
-        // Não avança a partir de zero — espera pelo menos um tempo real chegar
-        const current = playbackStore.currentTime;
-        if (current <= 0) return;
-
-        const delta = 0.25;
-        let next = current + delta;
-
-        if (playbackStore.duration > 0 && next >= playbackStore.duration) {
-            next = next % playbackStore.duration;
-        }
-        playbackStore.currentTime = next;
-    }, 250);
-}
-
-function _stopGhostWatchdog() {
-    if (_ghostWatchdog) {
-        clearInterval(_ghostWatchdog);
-        _ghostWatchdog = null;
-    }
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// SCRUBBING (arrastar slider)
-// ═════════════════════════════════════════════════════════════════════════
-
-let _pendingResumeAfterSeek = false;
 let _wasPlayingBeforeDrag = false;
+let _lastLiveSeekTime = 0;
+let _liveSeekThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+let _pendingLiveSeekVal: number | null = null;
 
 const onDragStart = async () => {
     playbackStore.isDragging = true;
     _wasPlayingBeforeDrag = playbackStore.isPlaying;
 
+    // Pausa ambos enquanto o usuário arrasta (telão e preview)
     if (previewVideo.value) previewVideo.value.pause();
-    if (!playbackStore.isPreviewMode) {
-        await emit('media-control', { action: 'pause' });
-    }
+    await emit('media-control', { action: 'pause' });
 };
 
-// ─── Throttle para emit de seek ao telão ───
-let _lastLiveSeekTime = 0;
-let _liveSeekThrottleTimer: ReturnType<typeof setTimeout> | null = null;
-let _pendingLiveSeekVal: number | null = null;
-
 async function _emitLiveSeek(val: number) {
+    if (!Number.isFinite(val)) return;
     const now = performance.now();
     _pendingLiveSeekVal = val;
 
@@ -202,32 +323,24 @@ async function _emitLiveSeek(val: number) {
 
 const onDrag = async (val: number) => {
     if (!playbackStore.isDragging) return;
-    sliderValue.value = val;
-    playbackStore.currentTime = val;
+    if (!Number.isFinite(val)) return;
 
-    // Preview local — funciona igual em FFmpegVideo e SmartVideo (computed writable)
-    if (previewVideo.value) {
+    sliderValue.value = val;
+
+    // Atualiza preview local otimisticamente (resposta imediata ao arrasto)
+    if (previewVideo.value && playbackStore.isPreviewMode) {
         try { previewVideo.value.currentTime = val; } catch { }
     }
 
+    // Em modo Ao Vivo, transmite seek para o telão com throttle
     if (!playbackStore.isPreviewMode) {
         _emitLiveSeek(val);
     }
 };
 
-const _resumeAfterSeek = async () => {
-    if (_wasPlayingBeforeDrag) {
-        if (previewVideo.value) {
-            try { await previewVideo.value.play(); } catch { }
-        }
-        playbackStore.isPlaying = true;
-        await emit('media-control', { action: 'play' });
-    }
-};
-
 const onDragEnd = async () => {
-    playbackStore.isDragging = false;
     const finalTime = sliderValue.value;
+    playbackStore.isDragging = false;
 
     if (_liveSeekThrottleTimer) {
         clearTimeout(_liveSeekThrottleTimer);
@@ -236,182 +349,65 @@ const onDragEnd = async () => {
     _pendingLiveSeekVal = null;
     _lastLiveSeekTime = 0;
 
-    // Aceita o novo tempo após seek (sem restrição de regressão)
-    _lastAcceptedTime = finalTime;
-
-    // Ativa sincronização pós-seek: quando o primeiro projection-time-sync
-    // chegar com o tempo real da projeção, ajustamos o preview.
-    // Timeout de segurança: se não chegar sync em 3s, cancela.
-    _pendingPostSeekSync = true;
-    if (_postSeekSyncTimeout) clearTimeout(_postSeekSyncTimeout);
-    _postSeekSyncTimeout = setTimeout(() => {
-        _pendingPostSeekSync = false;
-        _postSeekSyncTimeout = null;
-    }, 3000);
-
+    _armPendingTimeout(3000);
     await emit('media-control', { action: 'seek', time: finalTime });
 
+    // Se estava tocando, pede para retomar. O telão vai confirmar via evento 'play'.
     if (_wasPlayingBeforeDrag) {
-        _pendingResumeAfterSeek = true;
+        // Pequeno delay para garantir que o seek processou primeiro
         setTimeout(() => {
-            if (_pendingResumeAfterSeek) {
-                _pendingResumeAfterSeek = false;
-                _resumeAfterSeek();
-            }
-        }, 2000);
+            emit('media-control', { action: 'play', time: finalTime }).catch(() => { });
+        }, 100);
     }
 };
 
 // ═════════════════════════════════════════════════════════════════════════
-// BOTÕES
+// BOTÕES — todos esperam confirmação do telão
 // ═════════════════════════════════════════════════════════════════════════
 
 const togglePlay = async () => {
-    playbackStore.isPlaying = !playbackStore.isPlaying;
-    if (playbackStore.isPlaying) {
-        if (previewVideo.value) {
-            try { await previewVideo.value.play(); } catch { }
-        }
-        await emit('media-control', { action: 'play' });
-    } else {
-        if (previewVideo.value) previewVideo.value.pause();
-        await emit('media-control', { action: 'pause' });
-    }
+    if (playbackStore.isPendingStateChange) return; // evita double-click
+    const targetPlaying = !playbackStore.isPlaying;
+    const ct = playbackStore.currentTime || 0;
+
+    _armPendingTimeout();
+    await emit('media-control', {
+        action: targetPlaying ? 'play' : 'pause',
+        time: ct
+    });
+    // O listener de sync atualiza isPlaying quando o telão confirmar
 };
 
 const restartMedia = async () => {
-    playbackStore.currentTime = 0;
+    if (playbackStore.isPendingStateChange) return;
+    _armPendingTimeout(3000);
+    // Zera slider otimisticamente para feedback imediato
     sliderValue.value = 0;
-
-    if (previewVideo.value) {
-        try {
-            previewVideo.value.currentTime = 0;
-            await previewVideo.value.play();
-        } catch { }
-    }
-    playbackStore.isPlaying = true;
-    await emit('media-control', { action: 'restart' });
+    _lastAcceptedTime = 0;
+    await emit('media-control', { action: 'restart', time: 0 });
+    // Telão vai emitir seeked(0) e depois play — o listener cuida do resto
 };
 
 const toggleVolume = async () => {
     playbackStore.isMuted = !playbackStore.isMuted;
-    await emit('media-control', { action: playbackStore.isMuted ? 'mute' : 'unmute' });
+    const ct = playbackStore.currentTime || 0;
+    await emit('media-control', {
+        action: playbackStore.isMuted ? 'mute' : 'unmute',
+        time: ct
+    });
 };
 
 // ═════════════════════════════════════════════════════════════════════════
-// SINCRONIZAÇÃO DE TEMPO — recebe da ProjectionWindow via emitTo('main')
-// ─────────────────────────────────────────────────────────────────────────
-// A ProjectionWindow faz emitTo('main', 'projection-time-sync', ...) a cada
-// 1s. Como usa emitTo específico, NÃO volta para a ProjectionWindow (sem loop).
-//
-// SINCRONIZAÇÃO PÓS-SEEK:
-// Dois <video> independentes fazem seek para keyframes diferentes, podendo
-// ficar até 4s dessincronizados. A projeção é a fonte da verdade.
-// Após um seek, quando o primeiro projection-time-sync chegar com o tempo
-// real da projeção, ajustamos o preview para esse tempo.
+// TROCA DE ARQUIVO
 // ═════════════════════════════════════════════════════════════════════════
 
-let _unlistenSync: UnlistenFn | null = null;
-let _pendingPostSeekSync = false   // aguardando o tempo real da projeção pós-seek
-let _postSeekSyncTimeout: ReturnType<typeof setTimeout> | null = null
-
-async function _startSyncListener() {
-    try {
-        _unlistenSync = await listen<{ currentTime: number; duration?: number }>(
-            'projection-time-sync',
-            (event) => {
-                if (playbackStore.isDragging) return;
-
-                const { currentTime, duration } = event.payload;
-
-                if (typeof currentTime !== 'number' || !isFinite(currentTime) || currentTime <= 0) return;
-                if (_lastAcceptedTime > 0 && currentTime < _lastAcceptedTime - 2) return;
-
-                // ── Sincronização pós-seek ────────────────────────────────
-                // Se acabou de fazer seek e o preview está em modo nativo,
-                // ajusta o preview para o tempo REAL da projeção (não o pedido).
-                if (_pendingPostSeekSync && previewVideo.value) {
-                    const previewCt = _getPreviewCurrentTime()
-                    const diff = Math.abs(previewCt - currentTime)
-
-                    if (diff > 0.3) {
-                        // Preview está dessincronizado — corrige silenciosamente
-                        try { previewVideo.value.seek
-                            ? previewVideo.value.seek(currentTime)
-                            : (previewVideo.value.currentTime = currentTime)
-                        } catch {}
-                    }
-                    _pendingPostSeekSync = false
-                    if (_postSeekSyncTimeout) { clearTimeout(_postSeekSyncTimeout); _postSeekSyncTimeout = null }
-                }
-
-                // Se preview está vivo e já está sincronizado, não sobrescreve
-                // (deixa o timeupdate local ser mais preciso)
-                if (performance.now() - _lastTimeUpdateAt < 800) {
-                    // Mesmo assim atualiza duration se necessário
-                    if (duration && duration > 0) playbackStore.duration = duration;
-                    return;
-                }
-
-                playbackStore.currentTime = currentTime;
-                _lastAcceptedTime = currentTime;
-                _lastTimeUpdateAt = performance.now();
-
-                if (duration && duration > 0) {
-                    playbackStore.duration = duration;
-                }
-            }
-        );
-    } catch (e) {
-        console.warn('[LiveMediaController] sync listener falhou:', e);
-    }
-}
-
-// Lê o currentTime atual do preview de forma segura (ComputedRef ou number)
-function _getPreviewCurrentTime(): number {
-    if (!previewVideo.value) return 0
-    const raw = previewVideo.value.currentTime
-    if (raw && typeof raw === 'object' && 'value' in raw) return raw.value ?? 0
-    return raw ?? 0
-}
-
-function _stopRustPoll() {} // mantido por compatibilidade
-
-// ═════════════════════════════════════════════════════════════════════════
-// REATIVIDADE CRUZADA E REGISTROS
-// ═════════════════════════════════════════════════════════════════════════
-
-watch(() => statusPresStore.projectedFile?.id, () => {
+watch(() => statusPresStore.projectedFile?.id, (newId, oldId) => {
+    console.log('[PROJECTED FILE CHANGED]', { newId, oldId });
     playbackStore.resetMedia();
     sliderValue.value = 0;
-    _lastTimeUpdateAt = 0;
-    _lastAcceptedTime = -1;
-});
-
-watch(() => playbackStore.isPlaying, async (playing) => {
-    if (!previewVideo.value) return;
-    try {
-        if (playing) await previewVideo.value.play();
-        else previewVideo.value.pause();
-    } catch { }
-});
-
-watch(previewVideo, (newRef, oldRef) => {
-    if (newRef && !oldRef) {
-        playbackStore.registerVideo();
-        if (playbackStore.currentTime > 0) {
-            try { newRef.currentTime = playbackStore.currentTime; } catch { }
-            sliderValue.value = playbackStore.currentTime;
-        }
-        if (!playbackStore.isPlaying) {
-            try { newRef.pause(); } catch { }
-        }
-    }
-    if (!newRef && oldRef) {
-        playbackStore.unregisterVideo();
-        // Preview desmontou — reseta timer para ghost assumir
-        _lastTimeUpdateAt = 0;
-    }
+    _lastAcceptedTime = 0;
+    _lastSyncAt = 0;
+    _clearPendingTimeout();
 });
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -419,22 +415,17 @@ watch(previewVideo, (newRef, oldRef) => {
 // ═════════════════════════════════════════════════════════════════════════
 
 onMounted(() => {
-    playbackStore.startGhostTimer();
     sliderValue.value = playbackStore.currentTime;
-    _startGhostWatchdog();
     _startSyncListener();
+    _startVisualGhost();
 });
 
 onUnmounted(() => {
-    _stopGhostWatchdog();
-    _stopRustPoll();
+    _stopVisualGhost();
+    _clearPendingTimeout();
     if (_liveSeekThrottleTimer) {
         clearTimeout(_liveSeekThrottleTimer);
         _liveSeekThrottleTimer = null;
-    }
-    if (_postSeekSyncTimeout) {
-        clearTimeout(_postSeekSyncTimeout);
-        _postSeekSyncTimeout = null;
     }
     if (_unlistenSync) {
         _unlistenSync();
@@ -473,9 +464,12 @@ onUnmounted(() => {
 
                 <div class="d-flex align-center px-1">
                     <template v-if="statusPresStore.projectedFile?.isVideo">
-                        <v-btn :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'" size="x-small" variant="text"
+                        <v-btn :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'"
+                            :loading="playbackStore.isPendingStateChange"
+                            size="x-small" variant="text"
                             color="medium-emphasis" @click.stop="togglePlay"></v-btn>
                         <v-btn icon="mdi-replay" size="x-small" variant="text" color="medium-emphasis"
+                            :disabled="playbackStore.isPendingStateChange"
                             @click.stop="restartMedia" title="Reiniciar vídeo"></v-btn>
                     </template>
                     <v-btn icon="mdi-stop" size="x-small" variant="text" color="error"
@@ -520,22 +514,27 @@ onUnmounted(() => {
                         <div class="d-flex align-center mb-3">
                             <div class="preview-container mr-3 rounded border border-surface overflow-hidden flex-shrink-0 bg-black position-relative"
                                 style="width: 120px; aspect-ratio: 16/9;">
-                                <!-- ── Preview com SmartVideo (mesma engine do telão) ── -->
-                                <SmartVideo
-                                    v-if="statusPresStore.projectedFile?.isVideo && playbackStore.isPreviewMode && previewSrc"
-                                    ref="previewVideo" :src="previewSrc" autoplay muted no-audio object-fit="cover"
-                                    class="w-100 h-100" @loadedmetadata="onLoadedMetadata" @timeupdate="onTimeUpdate"
-                                    @seeked="onSeeked" />
-                                <v-img v-else :src="statusPresStore.projectedFile?.url" cover class="w-100 h-100"
-                                    :class="{ 'opacity-40': statusPresStore.projectedFile?.isVideo }">
-                                    <div v-if="statusPresStore.projectedFile?.isVideo"
-                                        class="d-flex align-center justify-center w-100 h-100 text-caption font-weight-bold text-white text-center"
-                                        style="background: rgba(0,0,0,0.3)">
-                                        MODO<br>AO VIVO
-                                    </div>
-                                </v-img>
-                            </div>
 
+                                <SmartVideo v-if="statusPresStore.projectedFile?.isVideo && previewSrc"
+                                    ref="previewVideo" :src="previewSrc" :autoplay="playbackStore.isPreviewMode" muted
+                                    no-audio object-fit="cover" class="w-100 h-100 transition-opacity"
+                                    :style="{ opacity: !playbackStore.isPreviewMode ? '0.4' : '1' }" />
+
+                                <v-img v-else-if="!statusPresStore.projectedFile?.isVideo"
+                                    :src="statusPresStore.projectedFile?.url" cover class="w-100 h-100" />
+
+                                <div v-if="statusPresStore.projectedFile?.isVideo && !playbackStore.isPreviewMode"
+                                    class="position-absolute d-flex align-center justify-center text-white text-center"
+                                    style="inset: 0; background: rgba(0,0,0,0.4); z-index: 10; pointer-events: none;">
+                                    <div class="d-flex flex-column align-center">
+                                        <v-icon size="small" color="white" class="mb-1">mdi-broadcast</v-icon>
+                                        <span class="text-caption font-weight-bold"
+                                            style="line-height: 1.1; letter-spacing: 0.5px;">
+                                            MODO<br>AO VIVO
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
                             <div class="flex-grow-1 overflow-hidden">
                                 <div class="text-subtitle-2 font-weight-bold text-truncate mb-2"
                                     :title="statusPresStore.projectedFile?.name">
@@ -543,11 +542,14 @@ onUnmounted(() => {
                                 </div>
                                 <div class="d-flex gap-2">
                                     <v-btn v-if="statusPresStore.projectedFile?.isVideo"
-                                        :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'" size="small"
-                                        variant="tonal" @click="togglePlay"
+                                        :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'"
+                                        :loading="playbackStore.isPendingStateChange"
+                                        size="small" variant="tonal" @click="togglePlay"
                                         :color="playbackStore.isPlaying ? 'primary' : 'default'"></v-btn>
                                     <v-btn v-if="statusPresStore.projectedFile?.isVideo" icon="mdi-replay" size="small"
-                                        variant="tonal" @click="restartMedia" title="Reiniciar vídeo"></v-btn>
+                                        variant="tonal" @click="restartMedia"
+                                        :disabled="playbackStore.isPendingStateChange"
+                                        title="Reiniciar vídeo"></v-btn>
                                     <v-btn v-if="statusPresStore.projectedFile?.isVideo"
                                         :icon="playbackStore.isMuted ? 'mdi-volume-off' : 'mdi-volume-high'"
                                         size="small" variant="tonal" @click="toggleVolume"
@@ -613,19 +615,25 @@ onUnmounted(() => {
             <div class="d-flex align-center mb-3">
                 <div class="preview-container mr-3 rounded border border-surface overflow-hidden flex-shrink-0 bg-black position-relative"
                     style="width: 120px; aspect-ratio: 16/9;">
-                    <SmartVideo
-                        v-if="statusPresStore.projectedFile.isVideo && playbackStore.isPreviewMode && previewSrc"
-                        ref="previewVideo" :src="previewSrc" autoplay muted no-audio object-fit="cover"
-                        class="w-100 h-100" @loadedmetadata="onLoadedMetadata" @timeupdate="onTimeUpdate"
-                        @seeked="onSeeked" />
-                    <v-img v-else :src="statusPresStore.projectedFile.url" cover class="w-100 h-100"
-                        :class="{ 'opacity-40': statusPresStore.projectedFile.isVideo }">
-                        <div v-if="statusPresStore.projectedFile.isVideo"
-                            class="d-flex align-center justify-center w-100 h-100 text-caption font-weight-bold text-white text-center"
-                            style="background: rgba(0,0,0,0.3)">
-                            MODO<br>AO VIVO
+                    <SmartVideo v-if="statusPresStore.projectedFile?.isVideo && previewSrc" ref="previewVideo"
+                        :src="previewSrc" :autoplay="playbackStore.isPreviewMode" muted no-audio object-fit="cover"
+                        class="w-100 h-100 transition-opacity"
+                        :style="{ opacity: !playbackStore.isPreviewMode ? '0.4' : '1' }" />
+
+                    <v-img v-else-if="!statusPresStore.projectedFile?.isVideo" :src="statusPresStore.projectedFile?.url"
+                        cover class="w-100 h-100" />
+
+                    <div v-if="statusPresStore.projectedFile?.isVideo && !playbackStore.isPreviewMode"
+                        class="position-absolute d-flex align-center justify-center text-white text-center"
+                        style="inset: 0; background: rgba(0,0,0,0.4); z-index: 10; pointer-events: none;">
+                        <div class="d-flex flex-column align-center">
+                            <v-icon size="small" color="white" class="mb-1">mdi-broadcast</v-icon>
+                            <span class="text-caption font-weight-bold"
+                                style="line-height: 1.1; letter-spacing: 0.5px;">
+                                MODO<br>AO VIVO
+                            </span>
                         </div>
-                    </v-img>
+                    </div>
                 </div>
 
                 <div class="flex-grow-1 overflow-hidden">
@@ -635,10 +643,14 @@ onUnmounted(() => {
                     </div>
                     <div class="d-flex gap-2">
                         <v-btn v-if="statusPresStore.projectedFile.isVideo"
-                            :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'" size="small" variant="tonal"
-                            @click="togglePlay" :color="playbackStore.isPlaying ? 'primary' : 'default'"></v-btn>
+                            :icon="playbackStore.isPlaying ? 'mdi-pause' : 'mdi-play'"
+                            :loading="playbackStore.isPendingStateChange"
+                            size="small" variant="tonal" @click="togglePlay"
+                            :color="playbackStore.isPlaying ? 'primary' : 'default'"></v-btn>
                         <v-btn v-if="statusPresStore.projectedFile.isVideo" icon="mdi-replay" size="small"
-                            variant="tonal" @click="restartMedia" title="Reiniciar vídeo"></v-btn>
+                            variant="tonal" @click="restartMedia"
+                            :disabled="playbackStore.isPendingStateChange"
+                            title="Reiniciar vídeo"></v-btn>
                         <v-btn v-if="statusPresStore.projectedFile.isVideo"
                             :icon="playbackStore.isMuted ? 'mdi-volume-off' : 'mdi-volume-high'" size="small"
                             variant="tonal" @click="toggleVolume"
@@ -671,21 +683,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.gap-2 {
-    gap: 8px;
-}
-
-.object-cover {
-    object-fit: cover;
-}
-
-.media-slider {
-    margin-top: 0px !important;
-}
-
-.blink-anim {
-    animation: blink-red 1.5s infinite;
-}
+.gap-2 { gap: 8px; }
+.object-cover { object-fit: cover; }
+.media-slider { margin-top: 0px !important; }
+.blink-anim { animation: blink-red 1.5s infinite; }
 
 @keyframes blink-red {
     0% { opacity: 1; }
@@ -698,12 +699,10 @@ onUnmounted(() => {
     border-color: rgba(255, 255, 255, 0.4) !important;
     background-color: transparent !important;
 }
-
 .header-toggle :deep(.v-btn) {
     color: rgba(255, 255, 255, 0.7) !important;
     border-color: rgba(255, 255, 255, 0.4) !important;
 }
-
 .header-toggle :deep(.v-btn--active) {
     background-color: rgba(255, 255, 255, 0.2) !important;
     color: white !important;

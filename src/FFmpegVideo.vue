@@ -58,13 +58,15 @@ const props = withDefaults(defineProps<{
     playbackRate?: number
     previewOnly?: boolean
     noAudio?: boolean
-    objectFit?: 'contain' | 'cover' | 'fill' | 'none'
+    objectFit?: 'contain' | 'cover' | 'fill' | 'none',
+    previewTimestamp?: number
 }>(), {
     width: 1280,
     height: 720,
     volume: 1.0,
     playbackRate: 1.0,
     objectFit: 'contain',
+    previewTimestamp: 0.5
 })
 
 const emit = defineEmits<{
@@ -86,13 +88,13 @@ const readyState = ref(0)
 const videoWidth = ref(0)
 const videoHeight = ref(0)
 
-let _currentTime = 0
+const _currentTime = ref(0)
 const currentTime = computed({
-    get: () => _currentTime,
+    get: () => _currentTime.value,
     set: (v: number) => {
         if (!isFinite(v) || v < 0) return
         if (_playing) seek(v).catch(() => { })
-        else _currentTime = v
+        else _currentTime.value = v
     }
 })
 
@@ -205,7 +207,7 @@ function getMockEvent() {
             videoWidth: videoWidth.value,
             videoHeight: videoHeight.value,
             duration: duration.value,
-            currentTime: _currentTime,
+            currentTime: _currentTime.value,
             paused: paused.value,
             ended: ended.value,
             readyState: readyState.value,
@@ -527,7 +529,7 @@ async function _connectAudio(startTime = 0): Promise<void> {
         }
     }
 
-    audio.currentTime = startTime > 0 ? startTime : _currentTime
+    audio.currentTime = startTime > 0 ? startTime : _currentTime.value
 
     if (!paused.value && !_seeking && !_firstFrame) {
         audio.play().catch(err => {
@@ -611,7 +613,7 @@ function _enqueue(data: Uint8Array): void {
         _wallStart = performance.now()
         _ptsStart = meta.pts
         _clockSeeded = true
-        _currentTime = meta.pts
+        _currentTime.value = meta.pts
 
         if (_seeking) {
             // Saiu do estado de seek
@@ -688,7 +690,7 @@ function _startRenderLoop(): void {
 
         if (bestIdx > 0) _queue.splice(0, bestIdx)
         _queue.shift()
-        _currentTime = bestFrame.pts
+        _currentTime.value = bestFrame.pts
         _lastFrame = bestFrame  // ← guarda para redesenho on-demand
 
         if (now - _lastTimeupdate > 250) {
@@ -698,7 +700,7 @@ function _startRenderLoop(): void {
 
         _drawYUV(bestFrame.y, bestFrame.u, bestFrame.v, bestFrame.w, bestFrame.h)
 
-        if (!currentLoop.value && duration.value > 0 && _currentTime >= duration.value - 1 / _fps && !_queue.length) {
+        if (!currentLoop.value && duration.value > 0 && _currentTime.value >= duration.value - 1 / _fps && !_queue.length) {
             ended.value = true; paused.value = true; _playing = false
             if (audioEl.value) audioEl.value.pause()
             emit('ended', getMockEvent())
@@ -714,8 +716,17 @@ async function _loadPreview(): Promise<void> {
     _teardown()
     try {
         const path = _resolvePath(source)
+
+        // Usa previewTimestamp se _currentTime ainda é 0 (não houve seek manual)
+        const timestamp = _currentTime.value > 0
+            ? _currentTime.value
+            : (props.previewTimestamp ?? 0.5)
+
         const bytes: number[] = await invoke('get_video_preview', {
-            path, timestamp: _currentTime || 0, width: _renderW || undefined, height: _renderH || undefined
+            path,
+            timestamp,
+            width: _renderW || undefined,
+            height: _renderH || undefined
         })
         const u8 = new Uint8Array(bytes)
         const blob = new Blob([u8], { type: 'image/jpeg' })
@@ -729,6 +740,7 @@ async function _loadPreview(): Promise<void> {
         if (canvasEl.value) canvasEl.value.style.display = 'none'
     } catch (e) { console.warn(`${_tag()} preview:`, e) }
 }
+
 
 async function play(): Promise<void> {
     if (_playing && !paused.value) return
@@ -776,7 +788,7 @@ async function play(): Promise<void> {
     const decodeW = Math.max(targetW, 1920)
     const decodeH = Math.max(targetH, 1080)
 
-    const startSeek = _currentTime > 0 ? _currentTime : 0
+    const startSeek = _currentTime.value > 0 ? _currentTime.value : 0
     const path = _resolvePath(source)
     const skipAudio = noAudio.value || currentMuted.value
 
@@ -846,7 +858,7 @@ async function seek(time: number): Promise<void> {
     const now = performance.now()
 
     // Feedback visual instantâneo
-    _currentTime = clampedTime
+    _currentTime.value = clampedTime
     _pendingSeekTime = clampedTime
     emit('seeking', getMockEvent())
 
@@ -933,14 +945,14 @@ async function _commitSeek(time: number): Promise<void> {
 }
 
 // ── Watchers ────────────────────────────────────────────────────────────────
-watch(src, (newSrc) => {
+watch(src, async (newSrc) => {
     if (_srcChangeTimer) clearTimeout(_srcChangeTimer)
     _srcChangeTimer = setTimeout(async () => {
         _srcChangeTimer = null
         if (!newSrc) return
         _teardown()
         try { await invoke('stop_video', { sessionId: _sid }) } catch { }
-        _currentTime = 0
+        _currentTime.value = 0
         _firstFrame = true
         _queue.length = 0
         ended.value = false
@@ -948,7 +960,12 @@ watch(src, (newSrc) => {
         duration.value = 0
         await nextTick()
         if (previewOnly.value) _loadPreview()
-        else play().catch(console.error)
+        else {
+            await play().catch(console.error)
+
+            setTimeout(pause, 1000)
+        }
+            
     }, 50)
 })
 
@@ -1006,7 +1023,12 @@ defineExpose({
     readyState: computed(() => readyState.value),
     videoWidth: computed(() => videoWidth.value),
     videoHeight: computed(() => videoHeight.value),
-    volume, muted, loop, src, previewOnly, noAudio, objectFit
+    volume, muted, loop, src, previewOnly, noAudio, objectFit,
+    // ─── Getters imperativos (funcionam fora de contexto reativo) ───
+    // Usar quando for ler valores dentro de setInterval/setTimeout.
+    getCurrentTime: () => _currentTime.value,
+    getDuration: () => duration.value,
+    getPaused: () => paused.value,
 })
 </script>
 

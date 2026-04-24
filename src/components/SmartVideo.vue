@@ -69,13 +69,15 @@ const props = withDefaults(defineProps<{
     playbackRate?: number
     previewOnly?: boolean
     noAudio?: boolean
-    objectFit?: 'contain' | 'cover' | 'fill' | 'none'
+    objectFit?: 'contain' | 'cover' | 'fill' | 'none',
+    previewTimestamp?: number
 }>(), {
     width: 1280,
     height: 720,
     volume: 1.0,
     playbackRate: 1.0,
     objectFit: 'contain',
+    previewTimestamp: 0.5
 })
 
 const emit = defineEmits<{
@@ -128,12 +130,26 @@ watch(() => props.src, (newSrc) => {
 // ── Reaplica volume/rate/muted quando nativo monta ───────────────────────────
 watch([resolvedEngine, nativeRef], async () => {
     if (resolvedEngine.value !== 'native') return
+    if (!props.previewOnly) return
     await nextTick()
     const v = nativeRef.value
     if (!v) return
-    v.volume = props.volume ?? 1.0
-    v.muted = !!(props.muted || props.noAudio)
-    v.playbackRate = props.playbackRate ?? 1.0
+
+    const applyPreview = async () => {
+        const ts = props.previewTimestamp ?? 0.5
+        try {
+            v.currentTime = ts
+            v.pause()
+        } catch { }
+    }
+
+    // Se já tem metadados (src já carregado), aplica direto
+    if (v.readyState >= 1) {
+        await applyPreview()
+    } else {
+        // Espera o loadedmetadata para seekar
+        v.addEventListener('loadedmetadata', applyPreview, { once: true })
+    }
 }, { immediate: true })
 
 // ── Props para FFmpegVideo ────────────────────────────────────────────────────
@@ -149,6 +165,7 @@ const ffmpegProps = computed(() => ({
     previewOnly: props.previewOnly,
     noAudio: props.noAudio,
     objectFit: props.objectFit,
+    previewTimestamp: props.previewTimestamp
 }))
 
 // ── Estilo para <video> nativo (objectFit via CSS) ───────────────────────────
@@ -197,6 +214,26 @@ watch(() => props.playbackRate, (r) => {
     if (nativeRef.value) nativeRef.value.playbackRate = r ?? 1.0
 })
 
+// ═════════════════════════════════════════════════════════════════════════
+// AUTOPLAY IMPERATIVO PARA MOTOR NATIVO
+// ─────────────────────────────────────────────────────────────────────────
+// O atributo HTML `autoplay` só atua na montagem. Mudanças posteriores são
+// ignoradas. Precisamos chamar .play() imperativamente quando a prop mudar.
+// ═════════════════════════════════════════════════════════════════════════
+watch(() => props.autoplay, async (shouldAutoplay) => {
+    if (resolvedEngine.value !== 'native') return;
+    if (props.previewOnly) return;
+    await nextTick();
+    const v = nativeRef.value;
+    if (!v) return;
+
+    if (shouldAutoplay) {
+        try { await v.play(); } catch { /* política de autoplay */ }
+    } else {
+        try { v.pause(); } catch { }
+    }
+})
+
 // ── Handlers ─────────────────────────────────────────────────────────────────
 function onNativeError(e: Event) {
     const mode = (configStore.settings.videoEngine ?? 'smart') as EngineMode
@@ -218,6 +255,12 @@ function onNativeMeta(e: Event) {
         el.volume = props.volume ?? 1.0
         el.muted = !!(props.muted || props.noAudio)
         el.playbackRate = props.playbackRate ?? 1.0
+
+        // ADICIONAR: se previewOnly, salta para o timestamp e pausa
+        if (props.previewOnly) {
+            el.currentTime = props.previewTimestamp ?? 0.5
+            el.pause()
+        }
     }
     emit('loadedmetadata', e)
 }
@@ -268,6 +311,9 @@ function resume(): void {
 }
 
 async function seek(time: number): Promise<void> {
+
+    if (!Number.isFinite(time)) return;
+
     if (resolvedEngine.value === 'native') {
         if (nativeRef.value) {
             try { nativeRef.value.currentTime = time } catch {}
@@ -387,6 +433,8 @@ defineExpose({
     videoHeight,
     // Meta
     resolvedEngine,
+    _nativeRef: nativeRef,
+    _ffmpegRef: ffmpegRef
 })
 </script>
 
