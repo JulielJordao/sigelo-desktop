@@ -37,7 +37,7 @@
       },
       {
         "label": "stage",
-        "title": "Sigelo - Stage",
+        "title": "Sigelo - Stage Monitor",
         "url": "/stage-monitor", 
         "resizable": true,
         "visible": false, 

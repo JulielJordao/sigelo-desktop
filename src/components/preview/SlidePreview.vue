@@ -135,19 +135,6 @@ onMounted(() => {
     }
 })
 
-function getLocalPathFromAssetUrl(url: string): string {
-    if (!url) return '';
-
-    // 1. Remove os prefixos do Tauri (v2 usa http://asset.localhost, v1 usa asset://localhost)
-    let cleanPath = url
-        .replace(/^https?:\/\/asset\.localhost\//, '')
-        .replace(/^asset:\/\/localhost\//, '');
-
-    console.log(decodeURIComponent(cleanPath))
-    // 2. Decodifica os caracteres da URL (%3A para :, %5C para \)
-    return decodeURIComponent(cleanPath);
-}
-
 watch(() => props.design.bgMedia, async () => {
     await nextTick();
     console.log(props.design.bgMedia)

@@ -2,7 +2,7 @@
 
 Sistema de monitor de retorno pro palco, projetado pra funcionar como janela secundária no seu app Tauri, espelhando os mesmos eventos da `ProjectionWindow` mas com layouts otimizados pra quem está no palco.
 
----  
+---
 
 ## Estrutura de arquivos
 
@@ -15,7 +15,8 @@ stage-monitor/
 ├── stores/
 │   └── stageMonitorStore.ts      ← Pinia store complementar
 ├── utils/
-│   └── chordpro.ts               ← parser ChordPro mínimo (substituir depois)
+│   ├── chordProOriginal.ts       ← PONTE pro seu chordPro.ts (ajustar caminho!)
+│   └── chordProStage.ts          ← renderizador dark adaptado pra palco
 └── layouts/
     ├── LayoutFull.vue
     ├── LayoutCurrentOnly.vue
@@ -32,9 +33,46 @@ stage-monitor/
 
 ---
 
-## Eventos Tauri consumidos
+## ⚠️ Passo crítico: conectar seu parser ChordPro
 
-O `StageMonitor` escuta **todos os eventos que a `ProjectionWindow` escuta** (pra ficar em sincronia com o conteúdo), mais alguns extras específicos do palco.
+O `LayoutChordPro.vue` e o `LayoutMusician.vue` usam **seu parser real** (`chordPro.ts` que você compartilhou). A ponte fica em `utils/chordProOriginal.ts`:
+
+```ts
+// utils/chordProOriginal.ts
+export * from '@/utils/chordPro';  // ← AJUSTAR CAMINHO
+```
+
+**Três opções** pra conectar:
+
+1. **Ajustar o re-export** (recomendado se você já tem alias `@/`): mude a linha pra apontar pro local real do seu `chordPro.ts`.
+2. **Copiar o conteúdo direto**: cole o conteúdo do seu `chordPro.ts` dentro de `chordProOriginal.ts` e remova a linha `export * from`.
+3. **Import relativo**: troque por `'../../path/to/chordPro'` conforme a estrutura.
+
+O `chordProStage.ts` (renderizador dark pro palco) importa apenas o que precisa: `parseChordProToStructure`, `transposeChord` e o tipo `ParsedLine`. **Não mexe** no seu código original.
+
+### Por que não reusar o `chordProRender.ts` original?
+
+Seu `buildVisualLines` gera HTML com classes Tailwind claras (`bg-indigo-50`, `text-indigo-700`) otimizadas pro seu PDF/tela principal. O `chordProStage.ts` reimplementa a mesma lógica com:
+
+- ✓ Cores dark (fundo escuro de palco)
+- ✓ Suporte a modo **inline** (acorde sobre sílaba) além do **separate**
+- ✓ Ignora quebras de página (tela única do palco)
+- ✓ Classes CSS próprias (`.stage-badge`, `.stage-chord-line`) sem dependência de Tailwind
+
+---
+
+## Dependências necessárias
+
+```bash
+npm install dompurify
+npm install -D @types/dompurify
+```
+
+O `LayoutChordPro.vue` usa DOMPurify pra sanitizar o HTML gerado antes do `v-html`. Se você já usa DOMPurify em outro lugar do projeto, ótimo — é a mesma lib.
+
+---
+
+## Eventos Tauri consumidos
 
 ### Eventos compartilhados (já existentes no seu projeto)
 
@@ -43,7 +81,7 @@ O `StageMonitor` escuta **todos os eventos que a `ProjectionWindow` escuta** (pr
 | `update-projection` | `string` (JSON) | Conteúdo principal (slide/bíblia/HTML) |
 | `project-media` | `MediaFile` | Mídia sendo projetada |
 | `clear-projection` | `boolean` | Limpeza da projeção |
-| `projection-time-sync` | `{ eventType, currentTime, duration, isPlaying }` | Tempo da mídia (já existe!) |
+| `projection-time-sync` | `{ eventType, currentTime, duration, isPlaying }` | Tempo da mídia |
 | `update-notice-settings` | `string` (JSON) | Configurações do aviso |
 | `sync-notice-playback` | `{ isActive, isPaused }` | Status do aviso |
 | `update-timer-settings` | `string` (JSON) | Configurações do timer |
@@ -57,10 +95,11 @@ O `StageMonitor` escuta **todos os eventos que a `ProjectionWindow` escuta** (pr
 | `stage-speech-timer` | `{ action: 'start' \| 'stop' \| 'reset' }` | Controla cronômetro de fala |
 | `stage-chordpro-data` | `string` (raw `.cho`) | Envia letra+cifra pro layout chordpro |
 | `stage-preacher-notes` | `string` | Envia notas do pregador |
+| `stage-chord-mode` | `'separate' \| 'inline'` | Troca modo de renderização de cifra |
 
 ### Comando Tauri opcional
 
-O `StageMonitor` tenta chamar `invoke('get_stage_layout')` no mount pra restaurar o layout salvo. Se você não implementar esse comando no backend, ele simplesmente usa `'full'` como default — sem erro.
+O `StageMonitor` tenta chamar `invoke('get_stage_layout')` no mount. Se não existir, usa `'full'` como default — sem erro.
 
 ---
 
@@ -69,18 +108,23 @@ O `StageMonitor` tenta chamar `invoke('get_stage_layout')` no mount pra restaura
 ### 1. Mover os arquivos pro seu projeto
 
 ```
-src/views/StageMonitor.vue          ← componente raiz
-src/components/layouts/*.vue         ← ou onde preferir
+src/views/StageMonitor.vue
+src/components/layouts/*.vue
 src/stores/stageMonitorStore.ts
 src/types/stage.ts
-src/utils/chordpro.ts
+src/utils/chordProStage.ts
+src/utils/chordProOriginal.ts    ← ajustar o caminho dentro dele!
 ```
 
-Ajuste os imports no topo do `StageMonitor.vue` conforme a estrutura final.
+### 2. Instalar DOMPurify
 
-### 2. Registrar rota / window Tauri
+```bash
+npm install dompurify @types/dompurify
+```
 
-No seu `tauri.conf.json`, defina a janela de palco (se ainda não existe):
+### 3. Registrar janela Tauri
+
+No `tauri.conf.json`:
 
 ```json
 {
@@ -93,79 +137,48 @@ No seu `tauri.conf.json`, defina a janela de palco (se ainda não existe):
 }
 ```
 
-E crie a rota no Vue Router:
+### 4. Adicionar rota no Vue Router
 
 ```ts
 { path: '/stage-monitor', component: () => import('@/views/StageMonitor.vue') }
 ```
 
-### 3. Atualizar o select de layouts
-
-No seu componente de configurações (onde está o `<v-select>` do layout):
+### 5. Atualizar o select de layouts
 
 ```ts
 import { stageLayoutsSimple } from '@/stage-monitor/stageLayouts';
-
 const stageLayouts = stageLayoutsSimple;
 ```
 
-E quando o usuário mudar o layout, emita pro monitor:
+### 6. Emitir eventos ao mudar configuração
 
 ```ts
 import { emitTo } from '@tauri-apps/api/event';
 
+// Troca de layout
 watch(() => localSettings.stageLayout, async (newLayout) => {
     await emitTo('stage', 'update-stage-layout', newLayout);
 });
+
+// Troca de modo de cifra (separado/inline)
+watch(() => localSettings.chordRenderMode, async (newMode) => {
+    await emitTo('stage', 'stage-chord-mode', newMode);
+});
 ```
 
-### 4. Emitir eventos novos quando necessário
+### 7. Enviar dados ao palco
 
-**Cronômetro de fala** (botão "Iniciar fala" na janela principal):
 ```ts
-await emitTo('stage', 'stage-speech-timer', { action: 'start' });
-```
-
-**Notas do pregador** (quando o operador carrega um roteiro):
-```ts
-await emitTo('stage', 'stage-preacher-notes', notesText);
-```
-
-**ChordPro** (quando carrega uma música com cifra):
-```ts
+// Cifra ChordPro (quando carrega música com cifra)
 const choContent = await readTextFile('musica.cho');
 await emitTo('stage', 'stage-chordpro-data', choContent);
+
+// Cronômetro de fala
+await emitTo('stage', 'stage-speech-timer', { action: 'start' });
+
+// Notas do pregador
+await emitTo('stage', 'stage-preacher-notes', 'Lembrar de citar João 3:16');
 ```
-
-### 5. Enriquecer o payload dos slides (opcional mas recomendado)
-
-Pra os layouts `full`, `preacher` e `split_verse` ficarem mais úteis, inclua no JSON de slide os campos:
-
-```ts
-{
-    type: 'slide',
-    // ... campos existentes
-    notes: 'Lembrar de citar João 3:16',       // pra preacher/notes_only
-    nextSlide: { text: { content: '...' } },   // pra full/musician
-    chordpro: '{title:...}\n[G]letra...',      // pra chordpro
-}
-```
-
-Pra bíblia, adicione versículos de contexto:
-
-```ts
-{
-    type: 'bible',
-    slide: {
-        reference: 'João 3:16',
-        htmlContent: '...',
-        previousVerse: { text: 'Jo 3:15 — Para que todo aquele...' },
-        nextVerse: { text: 'Jo 3:17 — Porque Deus enviou...' },
-    }
-}
-```
-
-Se você não enviar esses campos, os layouts ainda funcionam — só ficam sem a info extra.
 
 ---
 
@@ -190,71 +203,79 @@ Se você não enviar esses campos, os layouts ainda funcionam — só ficam sem 
 
 | Tecla | Ação |
 |---|---|
-| `+` / `-` | Transpor ±1 semitom |
+| `+` / `−` | Transpor ±1 semitom |
 | `0` | Resetar tom |
 | `[` / `]` | Diminuir/aumentar fonte |
-| `C` | Ocultar/mostrar acordes |
+| `C` | Ocultar/mostrar cifra |
+| `V` | Alternar modo (separado / inline) |
 | `Espaço` | Toggle auto-scroll |
+| `↑` / `↓` | Velocidade do scroll |
 
 ---
 
-## Sugestão automática de layout
+## Modos de renderização ChordPro
 
-O `StageMonitor` detecta o tipo de conteúdo e sugere o layout ideal no canto inferior esquerdo. O usuário pode clicar pra aplicar ou ignorar.
+### Modo `separate` (padrão)
 
-Regras:
-- Tem ChordPro → sugere `chordpro`
-- É conteúdo bíblico → sugere `split_verse`
-- É mídia → sugere `media_info`
-- Timer regressivo ativo → sugere `countdown`
-- Tem notas → sugere `preacher`
+Acorde em cima, letra embaixo — idêntico ao seu PDF atual. Usa fonte monoespaçada (`JetBrains Mono`) pra alinhar acordes nas colunas corretas. Preserva o posicionamento exato gerado pelo seu `buildVisualLines`.
+
+```
+       G         D         Em        C
+Quão grande és Tu, Senhor, Deus da criação
+```
+
+### Modo `inline`
+
+Acorde posicionado diretamente acima da sílaba, estilo Ultimate Guitar / CifraClub. Mais compacto verticalmente, melhor pra músicas longas onde o espaço da tela importa.
+
+```
+G       D       Em    C
+Quão grande   és Tu,  Senhor...
+```
+
+Alternar entre os dois:
+- **Tecla V** no monitor
+- Botão "Modo" no header do layout
+- Evento `stage-chord-mode` da janela principal
 
 ---
 
-## Substituindo o parser ChordPro
+## Reuso da lógica do seu parser
 
-O arquivo `utils/chordpro.ts` é um stub funcional básico. Quando você integrar seu parser do CifraPro, basta manter a mesma interface:
+O `chordProStage.ts` espelha fielmente o comportamento do seu `buildVisualLines`:
 
-```ts
-export function parseChordPro(raw: string): ParsedSong { ... }
-export function transposeSong(song: ParsedSong, semitones: number): ParsedSong { ... }
-```
+| Recurso do seu parser | Comportamento no palco |
+|---|---|
+| `{c: Refrão}` → italic | ✓ Italic + borda lateral roxa |
+| `{c: Intro}` / `{c: Solo}` | ✓ Badge inline ao lado da cifra |
+| `{c: Verso 1}` | ✓ Badge de bloco acima |
+| `{soc}` / `{eoc}` | ✓ Ativa/desativa modo refrão |
+| `{np}` / page break | ⊘ Ignorado (tela única), adiciona espaço visual |
+| `[* Anotação]` | ✓ Renderizada amarela, distinta de acordes |
+| Transposição via `transposeChord` | ✓ Usa sua função original (respeita `/B`, `(add9)`, etc.) |
+| Numeração `"1."` em negrito | ✓ Preservada |
+| Detecção de coluna / posicionamento | ✓ Replicada |
 
-A interface `ParsedSong`:
-
-```ts
-interface ParsedSong {
-    title?: string;
-    artist?: string;
-    key?: string;
-    tempo?: number;
-    capo?: number;
-    lines: Array<{
-        parts: Array<{ chord: string; lyric: string }>;
-        section: 'verse' | 'chorus' | 'bridge' | 'intro' | 'outro' | 'default';
-    }>;
-}
-```
-
-Formato ChordPro suportado no stub atual:
-- `{title: ...}`, `{artist: ...}`, `{key: ...}`, `{tempo: N}`, `{capo: N}`
-- `{start_of_verse}` / `{end_of_verse}` (e `chorus`, `bridge`)
-- Acordes inline: `[G]letra [D]com [Em]acordes`
-- Comentários: linhas começando com `#`
+Se você adicionar features no seu parser (novas diretivas, novos tipos de anotação), só precisa atualizar `chordProStage.ts` pra renderizá-los — a base de parsing já vem do seu código.
 
 ---
 
 ## Troubleshooting
 
-**Layout aparece em branco**
-- Verifique se a janela `'stage'` está registrada no `tauri.conf.json` com o label correto
-- Confirme que os eventos Tauri estão sendo emitidos com `emitTo('stage', ...)` e não com `emit(...)` global
+**Import de `chordProOriginal.ts` falha**
+→ Ajuste o caminho dentro de `utils/chordProOriginal.ts` pra apontar pro seu `chordPro.ts` real. Ou cole o conteúdo direto lá.
 
-**Tempo de mídia não atualiza**
-- O evento `projection-time-sync` já é emitido pela sua `ProjectionWindow` atual (você tem `_startTimeSync()` no código). O palco escuta esse mesmo evento — sem trabalho extra.
+**DOMPurify not found**
+→ `npm install dompurify @types/dompurify`
 
-**Aviso não aparece indicativo**
-- O palco lê `sync-notice-playback` e `update-notice-settings`. Se esses eventos já vão pra projeção, vão pro palco também. Basta garantir que emitTo inclua o label do palco também, ou usar `emit()` global.
+**Acordes desalinhados no modo separate**
+→ Garanta que a fonte `JetBrains Mono` está carregada. Se não quiser adicionar ao projeto, mude a CSS em `LayoutChordPro.vue` pra `'Courier New', monospace`.
 
-**Layout não troca**
-- Verifique se está emitindo `update-stage-layout` com um dos valores válidos da union `StageLayout` (string, não objeto).
+**Modo inline com acordes "pulando"**
+→ É comportamento esperado quando há acorde sem sílaba embaixo (palavras curtas). O CSS usa `flex-wrap` pra acomodar — se ficar ruim, force `flex-wrap: nowrap` e `overflow-x: auto` no `.stage-inline-line`.
+
+**Transposição não muda o tom exibido no header**
+→ O `displayKey` usa `transposeChord` do seu parser, que pode não transpor tons simples (`"G"`) corretamente se o regex exigir sufixo. Se acontecer, ajuste o regex em `transposeChord` ou faça um wrapper no `chordProStage.ts`.
+
+**Janela `stage` não aparece**
+→ Verifique `tauri.conf.json`: `"visible": false` é OK (o monitor dá `show()` ao montar), mas o `label` tem que ser exatamente `'stage'` pra bater com o `emitTo('stage', ...)`.

@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync, appendFileSync } from 'fs'; // Adicionado appendFileSync
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSync, appendFileSync, rmSync } from 'fs';
 import { join, relative, dirname } from 'path';
-import { $ } from "bun"; // Adicionado import do Bun para comandos Shell
+import { $ } from "bun";
 
 const KEY = process.env.PRIVATE_KEY;
 const SOURCE_DIR = './src/premium-modules';
@@ -43,6 +43,10 @@ async function internalGitCommit(message: string) {
 
 if (!existsSync(SOURCE_DIR)) mkdirSync(SOURCE_DIR, { recursive: true });
 
+// ─── NOVA LÓGICA: Sincronização bidirecional (VFS ↔ Disco) ────────────────
+let vfsFromDat: Record<string, string> = {};
+let shouldRestoreFromDat = false;
+
 if (existsSync(OUTPUT_ENC) && KEY?.length === 32) {
     try {
         const encryptedBuffer = readFileSync(OUTPUT_ENC);
@@ -55,22 +59,28 @@ if (existsSync(OUTPUT_ENC) && KEY?.length === 32) {
             decipher.setAuthTag(authTag);
 
             const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
-            const vfs: Record<string, string> = JSON.parse(decrypted.toString());
+            vfsFromDat = JSON.parse(decrypted.toString());
 
-            let restoredCount = 0;
-            for (const [path, content] of Object.entries(vfs)) {
-                const fullPath = join(SOURCE_DIR, path);
-                if (!existsSync(fullPath)) {
-                    mkdirSync(dirname(fullPath), { recursive: true });
-                    writeFileSync(fullPath, content);
-                    console.log(`   ✅ Restaurado: ${path}`);
-                    restoredCount++;
+            // Determina se precisa restaurar (pasta vazia ou incompleta)
+            const filesOnDisk = getAllFiles(SOURCE_DIR);
+            shouldRestoreFromDat = filesOnDisk.length === 0 || filesOnDisk.length < Object.keys(vfsFromDat).length / 2;
+
+            if (shouldRestoreFromDat) {
+                let restoredCount = 0;
+                for (const [path, content] of Object.entries(vfsFromDat)) {
+                    const fullPath = join(SOURCE_DIR, path);
+                    if (!existsSync(fullPath)) {
+                        mkdirSync(dirname(fullPath), { recursive: true });
+                        writeFileSync(fullPath, content);
+                        console.log(`   ✅ Restaurado: ${path}`);
+                        restoredCount++;
+                    }
                 }
-            }
 
-            if (restoredCount > 0) {
-                console.log(`✨ ${restoredCount} arquivos premium foram restaurados.`);
-                recordLog("Restauração (Restore)", restoredCount);
+                if (restoredCount > 0) {
+                    console.log(`✨ ${restoredCount} arquivos premium foram restaurados.`);
+                    recordLog("Restauração (Restore)", restoredCount);
+                }
             }
         }
     } catch (e) {
@@ -78,7 +88,34 @@ if (existsSync(OUTPUT_ENC) && KEY?.length === 32) {
     }
 }
 
-// Lista arquivos APÓS a tentativa de restauração
+// ─── NOVA LÓGICA: Detectar e remover arquivos deletados do disco ──────────
+if (Object.keys(vfsFromDat).length > 0 && !shouldRestoreFromDat) {
+    const filesOnDisk = new Set(
+        getAllFiles(SOURCE_DIR).map(f => relative(SOURCE_DIR, f).replace(/\\/g, '/'))
+    );
+    
+    const filesInVfs = new Set(Object.keys(vfsFromDat));
+    let deletedCount = 0;
+
+    // Remove do disco arquivos que existem no VFS mas foram deletados localmente
+    for (const vfsPath of filesInVfs) {
+        if (!filesOnDisk.has(vfsPath)) {
+            const fullPath = join(SOURCE_DIR, vfsPath);
+            if (existsSync(fullPath)) {
+                rmSync(fullPath, { force: true });
+                console.log(`   🗑️  Removido do disco: ${vfsPath} (estava no .dat mas foi deletado localmente)`);
+                deletedCount++;
+            }
+        }
+    }
+
+    if (deletedCount > 0) {
+        console.log(`🧹 ${deletedCount} arquivos obsoletos foram removidos do disco.`);
+        recordLog("Limpeza (Cleanup)", deletedCount);
+    }
+}
+
+// Lista arquivos APÓS a tentativa de restauração e limpeza
 const allFiles = getAllFiles(SOURCE_DIR);
 
 // ==========================================
@@ -91,9 +128,20 @@ if (allFiles.length > 0 && existsSync(OUTPUT_ENC)) {
         latestSourceTime = Math.max(latestSourceTime, statSync(file).mtimeMs);
     }
 
-    if (statSync(OUTPUT_ENC).mtimeMs >= latestSourceTime) {
+    // ─── VERIFICAÇÃO ADICIONAL: Checar se houve deleção ───────────────────
+    const currentVfsPaths = allFiles.map(f => relative(SOURCE_DIR, f).replace(/\\/g, '/'));
+    const datVfsPaths = Object.keys(vfsFromDat);
+    
+    // Se o número de arquivos mudou OU se há arquivos no .dat que não existem mais no disco
+    const filesWereDeleted = datVfsPaths.some(path => !currentVfsPaths.includes(path));
+    
+    if (!filesWereDeleted && statSync(OUTPUT_ENC).mtimeMs >= latestSourceTime) {
         console.log("⚡ Cache hit: Tudo atualizado.");
         process.exit(0);
+    }
+
+    if (filesWereDeleted) {
+        console.log("🔄 Arquivos foram deletados. Reconstruindo .dat...");
     }
 }
 
@@ -108,6 +156,7 @@ if (allFiles.length <= 1 && existsSync(OUTPUT_ENC) && statSync(OUTPUT_ENC).size 
 
 if (allFiles.length === 0) {
     if (!existsSync(OUTPUT_ENC)) writeFileSync(OUTPUT_ENC, Buffer.alloc(0));
+    console.log("📦 Nenhum arquivo premium encontrado. .dat vazio criado.");
     process.exit(0);
 }
 
@@ -127,6 +176,19 @@ for (const file of allFiles) {
     vfs[relativePath] = readFileSync(file, 'utf-8');
 }
 
+// ─── LOG DE ALTERAÇÕES (opcional, mas útil) ────────────────────────────────
+const oldPaths = new Set(Object.keys(vfsFromDat));
+const newPaths = new Set(Object.keys(vfs));
+
+const added = [...newPaths].filter(p => !oldPaths.has(p));
+const removed = [...oldPaths].filter(p => !newPaths.has(p));
+const modified = [...newPaths].filter(p => oldPaths.has(p) && vfs[p] !== vfsFromDat[p]);
+
+if (added.length > 0) console.log(`   ➕ Adicionados: ${added.length} arquivo(s)`);
+if (removed.length > 0) console.log(`   ➖ Removidos: ${removed.length} arquivo(s)`);
+if (modified.length > 0) console.log(`   📝 Modificados: ${modified.length} arquivo(s)`);
+
+// ─── ENCRIPTAÇÃO ────────────────────────────────────────────────────────────
 const jsonBuffer = Buffer.from(JSON.stringify(vfs));
 const iv = randomBytes(12);
 const cipher = createCipheriv('aes-256-gcm', Buffer.from(KEY), iv);
@@ -136,7 +198,7 @@ writeFileSync(OUTPUT_ENC, Buffer.concat([iv, encrypted, cipher.getAuthTag()]));
 
 // AÇÕES FINAIS
 await internalGitCommit(`Build auto-commit: ${new Date().toLocaleString('pt-BR')}`);
-recordLog("Sincronização (Build)", allFiles.length); // Movido para cá para ter acesso ao allFiles
+recordLog("Sincronização (Build)", allFiles.length);
 
 console.log(`🔒 Sucesso: ${allFiles.length} arquivos sincronizados no .dat.`);
 

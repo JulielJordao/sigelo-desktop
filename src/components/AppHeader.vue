@@ -10,6 +10,7 @@ import { useConnectionStore } from '../stores/statusConnectionStore';
 //import { convertFileSrc } from '@tauri-apps/api/core';
 import { invoke } from '@tauri-apps/api/core';
 import ModalAbout from "./ModalAbout.vue"
+import StageMonitorMenu from '../premium-modules/stage-monitor/components/StageMonitorMenu.vue';
 
 import { exit } from '@tauri-apps/plugin-process'
 
@@ -192,7 +193,7 @@ onUnmounted(() => {
         </span>
       </v-tooltip>
       <v-divider vertical class="mx-3 h-50 align-self-center opacity-50"></v-divider>
-
+      <StageMonitorMenu v-if="optionsIsVisible"></StageMonitorMenu>
       <LiveMediaController :is-toolbar="true" v-if="optionsIsVisible"></LiveMediaController>
       <notice-manager v-if="optionsIsVisible"></notice-manager>
       <timer-manager v-if="optionsIsVisible"></timer-manager>

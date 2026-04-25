@@ -23,7 +23,10 @@ const showToolbar = computed(() => {
   const isProjectionWindow = windowLabel.value === 'projection';
   const isProjectionRoute = route.path.includes('projection');
 
-  return !isProjectionWindow && !isProjectionRoute;
+  const isStageWindow = windowLabel.value === 'stage';
+  const isStageRoute = route.path.includes('stage-monitor');
+
+  return (!isProjectionWindow && !isProjectionRoute) && (!isStageWindow && !isStageRoute);
 });
 
 const isYoutubeModalOpen = ref(false)

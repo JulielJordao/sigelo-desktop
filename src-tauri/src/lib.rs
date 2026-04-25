@@ -97,6 +97,7 @@ pub fn run() {
             crate::commands::projection::stop_projection,
             crate::commands::projection::get_current_projection,
             crate::commands::projection::prepare_projection_window,
+            crate::commands::projection::close_stage_window,
             crate::directory::directory::get_dir_size,
             crate::directory::directory::open_folder_native,
             crate::directory::directory::clear_directory,
@@ -129,6 +130,11 @@ pub fn run() {
                 
                 // 1. A PROJEÇÃO: Sempre se esconde em qualquer sistema (para reabrir rápido)
                 if label == "projection" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+
+                if label == "stage" {
                     api.prevent_close();
                     let _ = window.hide();
                 }

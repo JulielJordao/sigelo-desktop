@@ -8,7 +8,8 @@ import { mkdir, exists } from '@tauri-apps/plugin-fs';
 import { useTheme } from 'vuetify';
 import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
-import { stageLayouts } from '../../premium-modules/stage-monitor/stageLayouts';
+import { emitTo } from '@tauri-apps/api/event';
+import type { StageChordRenderMode } from '../../premium-modules/stage-monitor/utils/chordProStage';
 
 const presentationStore = usePresentationStore()
 const theme = useTheme();
@@ -237,6 +238,132 @@ const listShortcuts = [
   //{ label: "Exibir Logo", keys: "F4"},
 ]
 
+// ─── Toggle de visualização (simplificado/completo) ────────────────────────
+const isStageLayoutSimplified = ref(true);
+
+// ─── Dados dos layouts ──────────────────────────────────────────────────────
+const stageLayoutOptions = [
+  {
+    value: 'full',
+    title: 'Completo',
+    description: 'Slide atual grande + preview do próximo + relógio. Layout balanceado para uso geral.',
+    bestFor: 'Uso geral',
+    icon: 'mdi-view-sequential',
+    color: 'blue',
+    features: ['Slide atual', 'Próximo', 'Relógio'],
+  },
+  {
+    value: 'current_only',
+    title: 'Slide Atual',
+    description: 'Só o slide atual em texto enorme, sem distrações.',
+    bestFor: 'Palco distante',
+    icon: 'mdi-magnify',
+    color: 'indigo',
+    features: ['Texto grande', 'Sem preview'],
+  },
+  {
+    value: 'scrolling',
+    title: 'Teleprompter',
+    description: 'Texto contínuo rolando conforme avança.',
+    bestFor: 'Leitura longa',
+    icon: 'mdi-text-long',
+    color: 'green',
+    features: ['Auto-scroll', 'Histórico'],
+  },
+  {
+    value: 'preacher',
+    title: 'Pregador',
+    description: 'Slide + relógio + cronômetro de fala + notas.',
+    bestFor: 'Pregador',
+    icon: 'mdi-podium',
+    color: 'amber',
+    features: ['Notas', 'Cronômetro', 'Próximo'],
+  },
+  {
+    value: 'musician',
+    title: 'Músico',
+    description: 'Letra atual + próximas 2 linhas + info musical.',
+    bestFor: 'Banda',
+    icon: 'mdi-music',
+    color: 'purple',
+    features: ['Tom', 'BPM', 'Capo'],
+  },
+  {
+    value: 'countdown',
+    title: 'Cronômetro',
+    description: 'Timer gigante no centro da tela.',
+    bestFor: 'Contagem',
+    icon: 'mdi-timer-sand',
+    color: 'red',
+    features: ['Timer grande', 'Slide pequeno'],
+  },
+  {
+    value: 'clock_focus',
+    title: 'Relógio',
+    description: 'Relógio analógico + digital gigante.',
+    bestFor: 'Transmissão',
+    icon: 'mdi-clock-outline',
+    color: 'blue-grey',
+    features: ['Analógico', 'Digital'],
+  },
+  {
+    value: 'split_verse',
+    title: 'Contexto',
+    description: 'Versículo atual + anterior e posterior em cinza.',
+    bestFor: 'Bíblia',
+    icon: 'mdi-book-open-variant',
+    color: 'teal',
+    features: ['Anterior', 'Atual', 'Próximo'],
+  },
+  {
+    value: 'notes_only',
+    title: 'Notas',
+    description: 'Só o roteiro/notas do pregador.',
+    bestFor: 'Roteiro',
+    icon: 'mdi-text-box',
+    color: 'orange',
+    features: ['Texto grande', 'Sem slide'],
+  },
+  {
+    value: 'media_info',
+    title: 'Mídia',
+    description: 'Nome, tempo e barra de progresso enorme.',
+    bestFor: 'Vídeos',
+    icon: 'mdi-filmstrip',
+    color: 'cyan',
+    features: ['Progresso', 'Tempo restante'],
+  },
+  {
+    value: 'chordpro',
+    title: 'Cifra',
+    description: 'Letra + acordes com transposição e auto-scroll.',
+    bestFor: 'Banda',
+    icon: 'mdi-music-clef-treble',
+    color: 'deep-purple',
+    features: ['Transposição', 'Auto-scroll', 'BPM'],
+  },
+];
+
+// ─── Handlers ───────────────────────────────────────────────────────────────
+function onStageLayoutSelect(layout: string) {
+    // Atualiza o localSettings ANTES de emitir
+    localSettings.value.stageLayout = layout;
+  
+    // Emite pro monitor de palco
+    emitTo('stage', 'update-stage-layout', layout);
+  
+    // Fecha o modal de seleção (se estiver usando)
+    isLayoutModalOpen.value = false;
+}
+
+function onChordModeSelect(mode: StageChordRenderMode) {
+  // Atualiza o localSettings ANTES de emitir
+  localSettings.value.chordRenderMode = mode;
+  
+  // Emite pro monitor de palco
+  emitTo('stage', 'stage-chord-mode', mode);
+}
+
 onMounted(async () => {
   await presentationStore.loadPresets()
   //presentationStore.presets.forEach(it => themeOptions.push(it.name))
@@ -282,6 +409,64 @@ const resetToDefaults = async () => {
 }
 
 const isSimplified = ref(true)
+const isLayoutModalOpen = ref(false)
+const isTutorialModalOpen = ref(false)
+const currentLayoutInfo = ref<{
+  title: string | null;
+  icon: string | null;
+  description: string | null;
+}>({
+  title: null,
+  icon: null,
+  description: null
+});
+
+watch(
+  () => localSettings.value.stageLayout,
+  (newLayout) => {
+    const layout = stageLayoutOptions.find(l => l.value === newLayout);
+    if (layout) {
+      currentLayoutInfo.value = {
+        title: layout.title,
+        icon: layout.icon,
+        description: layout.description
+      };
+    }
+  },
+  { immediate: true } // Executa imediatamente ao carregar os dados
+);
+
+watch(
+  () => localSettings.value.stageMonitorEnabled,
+  async (enabled) => {
+    if (enabled) {
+      // Abre a janela de palco via Tauri
+      try {
+        await invoke('prepare_projection_window', { 
+          targetMonitor: localSettings.value.stageMonitor || 'stage',
+          windowLabel: 'stage'
+        });
+        
+        // Envia configurações iniciais
+        setTimeout(() => {
+          emitTo('stage', 'update-stage-layout', localSettings.value.stageLayout);
+          emitTo('stage', 'stage-chord-mode', localSettings.value.chordRenderMode);
+        }, 500); // Delay pra garantir que a janela está pronta
+      } catch (error) {
+        console.error('Erro ao abrir monitor de palco:', error);
+        // Reverte o toggle se falhar
+        localSettings.value.stageMonitorEnabled = false;
+      }
+    } else {
+      // Fecha a janela de palco via Tauri
+      try {
+        await invoke('close_stage_window');
+      } catch (error) {
+        console.error('Erro ao fechar monitor de palco:', error);
+      }
+    }
+  }
+);
 
 const engineOptions = [
   {
@@ -436,47 +621,298 @@ const engineOptions = [
             </v-card>
           </v-window-item>
 
-          <v-window-item value="transmissao" class="pa-6">
-            <h3 class="text-h6 font-weight-bold mb-4 text-primary"><v-icon start>mdi-account-voice</v-icon> Monitor de
-              Palco
-              (Retorno)</h3>
-            <v-row class="mb-4">
-              <v-col cols="12" md="6">
-                <v-select v-model="localSettings.stageMonitor" :items="availableMonitors" label="Tela do Retorno"
-                  variant="outlined" density="comfortable" hide-details></v-select>
-              </v-col>
-              <v-col cols="12" md="6">
-                <v-select v-model="localSettings.stageLayout" :items="stageLayouts" label="Layout do Retorno"
-                  variant="outlined" density="comfortable" hide-details></v-select>
-              </v-col>
-            </v-row>
-            <v-switch v-model="localSettings.stageHighContrast" color="primary"
-              label="Forçar Alto Contraste (Fundo Preto, Letras Amarelas)" density="compact" hide-details
-              class="mb-6"></v-switch>
+          <v-window-item value="transmissao" class="pa-4">
 
-            <v-divider class="mb-6"></v-divider>
+            <v-card variant="outlined" class="rounded-lg mb-4 w-100 px-4 py-2">
+              <v-row density="compact" align="center">
+                <v-col cols="12" md="4" class="d-flex align-center">
+                  <v-switch v-model="localSettings.stageMonitorEnabled" color="primary" label="Ativar Monitor de Palco"
+                    density="compact" hide-details>
+                  </v-switch>
+                </v-col>
 
-            <h3 class="text-h6 font-weight-bold mb-4 text-primary"><v-icon start>mdi-video-wireless</v-icon> Integração
-              OBS / vMix
-            </h3>
+                <v-col cols="12" md="4" class="d-flex align-center">
+                  <v-switch v-model="localSettings.stageHighContrast" color="primary"
+                    label="Alto Contraste (Fundo Preto/Amarelo)" density="compact" hide-details>
+                  </v-switch>
+                </v-col>
+
+                <v-col cols="12" md="4">
+                  <v-select v-model="localSettings.stageMonitor" :items="availableMonitors" label="Tela do Retorno"
+                    variant="outlined" density="compact" hide-details :disabled="!localSettings.stageMonitorEnabled">
+                  </v-select>
+                </v-col>
+              </v-row>
+            </v-card>
+
+            <v-card variant="outlined" class="rounded-lg mb-4 w-100 border-primary"
+              style="border-width: 2px !important;">
+              <div class="px-4 py-3 d-flex align-center bg-surface-light">
+                <v-icon color="primary" class="mr-2" size="20">mdi-monitor-speaker</v-icon>
+                <span class="text-subtitle-2 font-weight-bold">Layout do Retorno Ativo</span>
+
+                <v-spacer></v-spacer>
+
+                <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-swap-horizontal"
+                  @click="isLayoutModalOpen = true">
+                  Alterar Layout
+                </v-btn>
+              </div>
+
+              <div class="pa-4 d-flex align-center">
+                <v-avatar color="primary" variant="tonal" rounded size="48" class="mr-4">
+                  <v-icon size="24">{{ currentLayoutInfo?.icon || 'mdi-view-dashboard' }}</v-icon>
+                </v-avatar>
+                <div>
+                  <div class="text-subtitle-1 font-weight-bold">{{ currentLayoutInfo?.title || 'Layout Padrão' }}</div>
+                  <div class="text-caption text-medium-emphasis">
+                    {{ currentLayoutInfo?.description || 'Layout selecionado para exibição no monitor de palco.' }}
+                  </div>
+                </div>
+              </div>
+            </v-card>
+
             <v-row>
-              <v-col cols="12" md="6">
-                <v-switch v-model="localSettings.lowerThirds" color="primary" label="Modo Transmissão (Lower Thirds)"
-                  density="compact" hide-details></v-switch>
-                <p class="text-caption text-medium-emphasis ml-10">Empurra o texto para a parte inferior da tela, em no
-                  máximo 2
-                  linhas.</p>
+              <v-col cols="12" md="6" class="d-flex">
+                <v-card variant="outlined" class="rounded-lg w-100 d-flex flex-column">
+                  <div class="px-3 py-3 d-flex align-center border-b bg-surface-light">
+                    <v-icon color="primary" class="mr-2" size="20">mdi-music-clef-treble</v-icon>
+                    <span class="text-subtitle-2 font-weight-bold">Renderização de Cifra</span>
+                  </div>
+
+                  <div class="pa-4 flex-grow-1 d-flex flex-column justify-center align-center">
+                    <p class="text-caption text-medium-emphasis mb-3 text-center">
+                      Escolha como cifras (.cho) aparecem no monitor.
+                    </p>
+
+                    <v-btn-toggle v-model="localSettings.chordRenderMode" color="primary" variant="outlined" mandatory
+                      divided>
+
+                      <v-tooltip location="bottom">
+                        <template v-slot:activator="{ props }">
+                          <v-btn v-bind="props" value="separate" @click="onChordModeSelect('separate')">
+                            <v-icon start>mdi-format-line-spacing</v-icon>
+                            Separado
+                          </v-btn>
+                        </template>
+                        <div class="text-caption">
+                          <strong>Padrão:</strong> Acorde em cima, letra embaixo.<br>Alinhamento monoespaçado perfeito.
+                        </div>
+                      </v-tooltip>
+
+                      <v-tooltip location="bottom">
+                        <template v-slot:activator="{ props }">
+                          <v-btn v-bind="props" value="inline" @click="onChordModeSelect('inline')">
+                            <v-icon start>mdi-format-text</v-icon>
+                            Inline
+                          </v-btn>
+                        </template>
+                        <div class="text-caption">
+                          <strong>Compacto:</strong> Acorde na mesma linha da letra.<br>Ideal para telas menores.
+                        </div>
+                      </v-tooltip>
+
+                    </v-btn-toggle>
+                  </div>
+                </v-card>
               </v-col>
-              <v-col cols="12" md="6">
-                <p class="text-caption font-weight-bold mb-2">Fundo Chroma Key</p>
-                <v-btn-toggle v-model="localSettings.chromaKey" color="primary" variant="outlined" divided
-                  density="compact">
-                  <v-btn value="none">Desativado</v-btn>
-                  <v-btn value="#00FF00" color="green">Fundo Verde</v-btn>
-                  <v-btn value="#0000FF" color="blue">Fundo Azul</v-btn>
-                </v-btn-toggle>
+
+              <v-col cols="12" md="6" class="d-flex">
+                <v-card variant="outlined" class="rounded-lg w-100 d-flex flex-column">
+                  <div class="px-3 py-3 d-flex align-center border-b bg-surface-light">
+                    <v-icon color="primary" class="mr-2" size="20">mdi-video-wireless</v-icon>
+                    <span class="text-subtitle-2 font-weight-bold">Integração OBS / vMix</span>
+
+                    <v-spacer></v-spacer>
+
+                    <v-tooltip location="bottom" max-width="350">
+                      <template v-slot:activator="{ props }">
+                        <v-icon v-bind="props" size="20" color="medium-emphasis" class="cursor-help">
+                          mdi-help-circle-outline
+                        </v-icon>
+                      </template>
+                      <div class="text-caption pa-1">
+                        <strong>Modo Lower Thirds:</strong> Empurra o texto para a parte inferior da tela (máx 2 linhas)
+                        para
+                        sobrepor com câmera.<br><br>
+                        <strong>Chroma Key:</strong> Remove o fundo selecionado no OBS/vMix, deixando apenas o texto.
+                      </div>
+                    </v-tooltip>
+                  </div>
+
+                  <div class="pa-4 flex-grow-1 d-flex flex-column justify-space-between">
+                    <div>
+                      <v-switch v-model="localSettings.lowerThirds" color="primary" label="Modo Lower Thirds (Rodapé)"
+                        density="compact" hide-details class="mb-3">
+                      </v-switch>
+
+                      <div class="d-flex align-center mb-4">
+                        <span class="text-caption font-weight-bold mr-3">Chroma Key:</span>
+                        <v-btn-toggle v-model="localSettings.chromaKey" color="primary" variant="outlined" divided
+                          density="compact">
+                          <v-btn value="none" size="small">Off</v-btn>
+                          <v-btn value="#00FF00" color="green" size="small">Verde</v-btn>
+                          <v-btn value="#0000FF" color="blue" size="small">Azul</v-btn>
+                        </v-btn-toggle>
+                      </div>
+                    </div>
+
+                    <v-btn variant="tonal" color="primary" size="small" prepend-icon="mdi-lightbulb-on"
+                      @click="isTutorialModalOpen = true">
+                      Ver Guias de Configuração
+                    </v-btn>
+                  </div>
+                </v-card>
               </v-col>
             </v-row>
+
+            <v-dialog v-model="isLayoutModalOpen" max-width="900" scrollable>
+              <v-card rounded="lg">
+                <div class="px-4 py-3 d-flex align-center bg-surface-light border-b">
+                  <v-icon color="primary" class="mr-2" size="24">mdi-view-grid</v-icon>
+                  <span class="text-h6 font-weight-bold">Escolher Layout de Palco</span>
+                  <v-spacer></v-spacer>
+                  <v-btn-toggle v-model="isStageLayoutSimplified" mandatory density="compact" variant="outlined"
+                    selected-class="text-primary" class="mr-4" style="height: 32px;">
+                    <v-btn :value="true" size="small"><v-icon start>mdi-view-compact-outline</v-icon>
+                      Simplificado</v-btn>
+                    <v-btn :value="false" size="small"><v-icon start>mdi-view-dashboard-outline</v-icon>
+                      Completo</v-btn>
+                  </v-btn-toggle>
+                  <v-btn icon="mdi-close" variant="text" density="comfortable"
+                    @click="isLayoutModalOpen = false"></v-btn>
+                </div>
+
+                <v-card-text class="pa-4 bg-background">
+                  <v-row density="comfortable">
+                    <v-col v-for="layout in stageLayoutOptions" :key="layout.value" cols="12"
+                      :sm="isStageLayoutSimplified ? 3 : 6" :md="isStageLayoutSimplified ? 3 : 4">
+                      <v-tooltip :disabled="!isStageLayoutSimplified" location="bottom" max-width="320">
+                        <template v-slot:activator="{ props: tooltipProps }">
+                          <v-card v-bind="tooltipProps"
+                            :variant="localSettings.stageLayout === layout.value ? 'tonal' : 'outlined'"
+                            :color="localSettings.stageLayout === layout.value ? 'primary' : undefined"
+                            class="pa-3 rounded-lg cursor-pointer transition-swing h-100"
+                            :class="{ 'border-primary border-opacity-100': localSettings.stageLayout === layout.value }"
+                            @click="onStageLayoutSelect(layout.value)" style="border-width: 2px !important;">
+                            <div class="d-flex align-center" :class="{ 'mb-2': !isStageLayoutSimplified }">
+                              <v-icon size="20" class="mr-2"
+                                :color="localSettings.stageLayout === layout.value ? 'primary' : layout.color">
+                                {{ layout.icon }}
+                              </v-icon>
+                              <span class="text-subtitle-2 font-weight-bold">{{ layout.title }}</span>
+                              <v-spacer v-if="!isStageLayoutSimplified"></v-spacer>
+                              <v-chip v-if="!isStageLayoutSimplified" size="x-small" :color="layout.color"
+                                variant="tonal">
+                                {{ layout.bestFor }}
+                              </v-chip>
+                            </div>
+
+                            <v-expand-transition>
+                              <div v-if="!isStageLayoutSimplified">
+                                <p class="text-caption text-medium-emphasis mb-2">
+                                  {{ layout.description }}
+                                </p>
+                                <div v-if="layout.features" class="d-flex flex-wrap gap-1">
+                                  <v-chip v-for="feat in layout.features" :key="feat" size="x-small" color="grey"
+                                    variant="outlined">
+                                    {{ feat }}
+                                  </v-chip>
+                                </div>
+                              </div>
+                            </v-expand-transition>
+                          </v-card>
+                        </template>
+                        <div class="pa-1">
+                          <div class="font-weight-bold mb-1">{{ layout.title }}</div>
+                          <div class="text-caption">{{ layout.description }}</div>
+                        </div>
+                      </v-tooltip>
+                    </v-col>
+                  </v-row>
+                </v-card-text>
+                <v-card-actions class="px-4 py-3 border-t">
+                  <v-spacer></v-spacer>
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+
+            <v-dialog v-model="isTutorialModalOpen" max-width="800" scrollable>
+              <v-card rounded="lg">
+                <div class="px-4 py-3 d-flex align-center bg-surface-light border-b">
+                  <v-icon color="primary" class="mr-2" size="24">mdi-lightbulb-on</v-icon>
+                  <span class="text-h6 font-weight-bold">Guias e Tutoriais de Integração</span>
+                  <v-spacer></v-spacer>
+                  <v-btn icon="mdi-close" variant="text" density="comfortable"
+                    @click="isTutorialModalOpen = false"></v-btn>
+                </div>
+
+                <v-card-text class="pa-0">
+                  <v-expansion-panels variant="accordion" class="rounded-0">
+                    <v-expansion-panel>
+                      <v-expansion-panel-title class="text-subtitle-1 font-weight-bold">
+                        <v-icon start color="red">mdi-video</v-icon> Como configurar no OBS Studio
+                      </v-expansion-panel-title>
+                      <v-expansion-panel-text>
+                        <ol class="text-body-2 text-medium-emphasis pl-4">
+                          <li class="mb-2"><strong>Adicione a fonte:</strong> Clique com botão direito em "Fontes" →
+                            "Captura de
+                            Janela" → Selecione a janela do sistema de projeção.</li>
+                          <li class="mb-2"><strong>Ative o Chroma Key:</strong> Clique com botão direito na fonte →
+                            "Filtros" →
+                            "+" → "Chroma Key". Escolha a cor verde ou azul e ajuste a similaridade.</li>
+                          <li class="mb-2"><strong>Posicione a fonte:</strong> Arraste e redimensione para sobrepor com
+                            outros
+                            elementos (webcam, logo).</li>
+                          <li><strong>Lower Thirds:</strong> Se ativou o modo transmissão, o texto ficará na parte
+                            inferior. Deixe
+                            espaço na parte superior da cena para outros elementos.</li>
+                        </ol>
+                      </v-expansion-panel-text>
+                    </v-expansion-panel>
+
+                    <v-expansion-panel>
+                      <v-expansion-panel-title class="text-subtitle-1 font-weight-bold">
+                        <v-icon start color="blue">mdi-alpha-v-box</v-icon> Como configurar no vMix
+                      </v-expansion-panel-title>
+                      <v-expansion-panel-text>
+                        <ol class="text-body-2 text-medium-emphasis pl-4">
+                          <li class="mb-2"><strong>Adicione a fonte:</strong> Clique em "Add Input" → "Desktop Capture"
+                            →
+                            Selecione a janela de projeção.</li>
+                          <li class="mb-2"><strong>Chroma Key:</strong> Com a fonte selecionada, vá em "Colour" → Ative
+                            "ChromaKey" e selecione a cor desejada.</li>
+                          <li class="mb-2"><strong>Posicionamento:</strong> Arraste para a posição desejada ou use
+                            "Layers" para
+                            sobrepor com outros elementos.</li>
+                          <li><strong>Mix:</strong> Combine com webcam, títulos e outros elementos na mesma camada.</li>
+                        </ol>
+                      </v-expansion-panel-text>
+                    </v-expansion-panel>
+
+                    <v-expansion-panel>
+                      <v-expansion-panel-title class="text-subtitle-1 font-weight-bold">
+                        <v-icon start color="amber">mdi-star</v-icon> Dicas para melhor resultado
+                      </v-expansion-panel-title>
+                      <v-expansion-panel-text>
+                        <ul class="text-body-2 text-medium-emphasis pl-4">
+                          <li class="mb-2"><strong>Iluminação uniforme:</strong> Se usar chroma key, certifique-se que
+                            não há
+                            sombras na cor de fundo.</li>
+                          <li class="mb-2"><strong>Teste antes:</strong> Sempre faça um ensaio completo da transmissão
+                            para
+                            ajustar cores, posicionamento e timing.</li>
+                          <li class="mb-2"><strong>Fonte:</strong> Use resolução 1080p ou superior na captura para
+                            textos nítidos.
+                          </li>
+                        </ul>
+                      </v-expansion-panel-text>
+                    </v-expansion-panel>
+                  </v-expansion-panels>
+                </v-card-text>
+              </v-card>
+            </v-dialog>
+
           </v-window-item>
 
           <v-window-item value="biblia" class="pa-6">
@@ -647,7 +1083,9 @@ const engineOptions = [
                           </v-icon>
                         </template>
                         <div class="text-caption pa-1">
-                          Define como os vídeos são reproduzidos no telão ou nas visualizações. Afeta a compatibilidade de formatos,
+                          Define como os vídeos são reproduzidos no telão ou nas visualizações. Afeta a compatibilidade
+                          de
+                          formatos,
                           o uso de hardware e a suavidade do <strong>Modo Busca ao Vivo</strong>.
                         </div>
                       </v-tooltip>
@@ -770,3 +1208,45 @@ const engineOptions = [
     </v-card>
   </v-dialog>
 </template>
+<style scoped>
+.transition-swing {
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.transition-swing:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.chord-preview-box {
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.chord-example {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.3;
+  color: rgba(0, 0, 0, 0.7);
+  margin: 0;
+  white-space: pre;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  font-weight: 600;
+  margin: 0 2px;
+}
+
+.cursor-help {
+  cursor: help;
+}
+</style>

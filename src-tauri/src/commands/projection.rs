@@ -15,7 +15,7 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
             let _ = window.show();
             let _ = window.unminimize();
             let _ = window.set_fullscreen(true);
-            
+
             // Devolve o foco ao principal ao abrir pela primeira vez
             if let Some(main_window) = app.get_webview_window("main") {
                 let _ = main_window.set_focus();
@@ -31,7 +31,7 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
                     needs_move = true;
                 }
             } else {
-                needs_move = true; 
+                needs_move = true;
             }
 
             // --- NOVA TRAVA DE SEGURANÇA ---
@@ -48,9 +48,12 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
             // Se o monitor mudou, faz a realocação
             if needs_move {
                 if let Ok(monitors) = app.available_monitors() {
-                    if let Some(monitor) = monitors.into_iter().find(|m| m.name() == Some(&target_name)) {
+                    if let Some(monitor) = monitors
+                        .into_iter()
+                        .find(|m| m.name() == Some(&target_name))
+                    {
                         let _ = window.set_fullscreen(false);
-                        
+
                         let position = monitor.position();
                         let _ = window.set_position(Position::Physical(*position));
                     }
@@ -66,7 +69,7 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
             } else {
                 // Se for uma tela separada, força o Fullscreen verdadeiro
                 let _ = window.set_fullscreen(true);
-                
+
                 // Só tentamos roubar o foco de volta se a projeção estiver em OUTRA tela.
                 // Tentar roubar o foco de uma janela fullscreen na MESMA tela do Windows não funciona.
                 if let Some(main_window) = app.get_webview_window("main") {
@@ -86,11 +89,17 @@ pub fn get_current_projection(
 }
 
 #[tauri::command]
-pub fn prepare_projection_window(app: tauri::AppHandle, target_monitor: Option<String>) {
-    if let Some(window) = app.get_webview_window("projection") {
+pub fn prepare_projection_window(
+    app: tauri::AppHandle,
+    target_monitor: Option<String>,
+    window_label: Option<String>, // ← ADICIONADO
+) {
+    let label = window_label.unwrap_or_else(|| "projection".to_string());
+
+    if let Some(window) = app.get_webview_window(&label) {
         let is_visible = window.is_visible().unwrap_or(false);
 
-        // Só mexe na posição se estiver invisível para não dar um "pulo" na tela do telão
+        // Só mexe na posição se estiver invisível para não dar um "pulo" na tela
         if !is_visible {
             let _ = window.show();
             let _ = window.unminimize();
@@ -114,6 +123,13 @@ pub fn prepare_projection_window(app: tauri::AppHandle, target_monitor: Option<S
                 let _ = main_window.set_focus();
             }
         }
+    }
+}
+
+#[tauri::command]
+pub fn close_stage_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("stage") {
+        let _ = window.hide();
     }
 }
 

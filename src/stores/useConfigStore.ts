@@ -17,6 +17,8 @@ export const useConfigStore = defineStore('config', () => {
     isDarkMode: false,
     // Telas e Mídia
     selectedMonitor: "",
+    stageMonitorEnabled: false,
+    chordRenderMode: 'separate' as 'separate' | 'inline',
     aspectRatio: '16:9',
     bgOpacity: 70,
     transitionType: 'none',
