@@ -8,6 +8,10 @@ const SOURCE_DIR = './src/premium-modules';
 const OUTPUT_ENC = './src-tauri/src/premium-bundle.dat';
 const LOG_FILE = './.premium-build-history';
 
+// Marca arquivo opcional pra registrar deleções intencionais
+// Ex: ".premium-deleted" contém uma lista de arquivos que foram propositalmente deletados
+const DELETION_MARKER = './.premium-deleted';
+
 // ==========================================
 // FUNÇÕES UTILITÁRIAS
 // ==========================================
@@ -37,15 +41,46 @@ async function internalGitCommit(message: string) {
     }
 }
 
+/**
+ * Lê a lista de arquivos que foram propositalmente deletados.
+ * Esses arquivos NÃO devem ser restaurados do .dat, mesmo que existam lá.
+ */
+function getIntentionalDeletions(): Set<string> {
+    if (!existsSync(DELETION_MARKER)) return new Set();
+    try {
+        const content = readFileSync(DELETION_MARKER, 'utf-8');
+        return new Set(
+            content.split('\n')
+                .map(l => l.trim())
+                .filter(l => l && !l.startsWith('#')) // ignora comentários
+        );
+    } catch {
+        return new Set();
+    }
+}
+
+/**
+ * Adiciona arquivos à lista de deleções intencionais.
+ */
+function markAsIntentionallyDeleted(paths: string[]) {
+    if (paths.length === 0) return;
+    const existing = getIntentionalDeletions();
+    paths.forEach(p => existing.add(p));
+    
+    const header = '# Arquivos deletados intencionalmente — não serão restaurados do .dat\n';
+    const content = header + Array.from(existing).sort().join('\n') + '\n';
+    writeFileSync(DELETION_MARKER, content);
+}
+
 // ==========================================
-// 0. INICIALIZAÇÃO E RESTAURAÇÃO INTELIGENTE
+// 0. INICIALIZAÇÃO
 // ==========================================
 
 if (!existsSync(SOURCE_DIR)) mkdirSync(SOURCE_DIR, { recursive: true });
 
-// ─── NOVA LÓGICA: Sincronização bidirecional (VFS ↔ Disco) ────────────────
+// ─── Carrega o VFS do .dat (se existir) ────────────────────────────────────
 let vfsFromDat: Record<string, string> = {};
-let shouldRestoreFromDat = false;
+let datIsValid = false;
 
 if (existsSync(OUTPUT_ENC) && KEY?.length === 32) {
     try {
@@ -60,67 +95,96 @@ if (existsSync(OUTPUT_ENC) && KEY?.length === 32) {
 
             const decrypted = Buffer.concat([decipher.update(encryptedData), decipher.final()]);
             vfsFromDat = JSON.parse(decrypted.toString());
-
-            // Determina se precisa restaurar (pasta vazia ou incompleta)
-            const filesOnDisk = getAllFiles(SOURCE_DIR);
-            shouldRestoreFromDat = filesOnDisk.length === 0 || filesOnDisk.length < Object.keys(vfsFromDat).length / 2;
-
-            if (shouldRestoreFromDat) {
-                let restoredCount = 0;
-                for (const [path, content] of Object.entries(vfsFromDat)) {
-                    const fullPath = join(SOURCE_DIR, path);
-                    if (!existsSync(fullPath)) {
-                        mkdirSync(dirname(fullPath), { recursive: true });
-                        writeFileSync(fullPath, content);
-                        console.log(`   ✅ Restaurado: ${path}`);
-                        restoredCount++;
-                    }
-                }
-
-                if (restoredCount > 0) {
-                    console.log(`✨ ${restoredCount} arquivos premium foram restaurados.`);
-                    recordLog("Restauração (Restore)", restoredCount);
-                }
-            }
+            datIsValid = true;
         }
     } catch (e) {
-        console.log("ℹ️ Nota: Payload premium detectado, mas a chave é inválida ou ausente. Ignorando restauração.");
+        console.log("ℹ️ Nota: Payload premium detectado, mas a chave é inválida ou ausente. Ignorando.");
     }
 }
 
-// ─── NOVA LÓGICA: Detectar e remover arquivos deletados do disco ──────────
-if (Object.keys(vfsFromDat).length > 0 && !shouldRestoreFromDat) {
-    const filesOnDisk = new Set(
-        getAllFiles(SOURCE_DIR).map(f => relative(SOURCE_DIR, f).replace(/\\/g, '/'))
-    );
-    
-    const filesInVfs = new Set(Object.keys(vfsFromDat));
-    let deletedCount = 0;
+// ──────────────────────────────────────────────────────────────────────────
+// 1. RESTAURAÇÃO INDIVIDUAL (POR ARQUIVO)
+// ──────────────────────────────────────────────────────────────────────────
+// Para CADA arquivo no .dat, verifica se existe no disco.
+// Se não existir E não estiver na lista de deleções intencionais → RESTAURA
+// ──────────────────────────────────────────────────────────────────────────
 
-    // Remove do disco arquivos que existem no VFS mas foram deletados localmente
-    for (const vfsPath of filesInVfs) {
-        if (!filesOnDisk.has(vfsPath)) {
-            const fullPath = join(SOURCE_DIR, vfsPath);
-            if (existsSync(fullPath)) {
-                rmSync(fullPath, { force: true });
-                console.log(`   🗑️  Removido do disco: ${vfsPath} (estava no .dat mas foi deletado localmente)`);
-                deletedCount++;
-            }
+if (datIsValid && Object.keys(vfsFromDat).length > 0) {
+    const intentionalDeletions = getIntentionalDeletions();
+    let restoredCount = 0;
+    const restoredFiles: string[] = [];
+
+    for (const [path, content] of Object.entries(vfsFromDat)) {
+        const fullPath = join(SOURCE_DIR, path);
+        
+        // Se o arquivo existe no disco, pula (vai ser comparado depois)
+        if (existsSync(fullPath)) continue;
+        
+        // Se foi deletado intencionalmente, NÃO restaura
+        if (intentionalDeletions.has(path)) {
+            console.log(`   ⏭️  Pulando: ${path} (marcado como deletado intencionalmente)`);
+            continue;
         }
+        
+        // Restaura o arquivo
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, content);
+        restoredFiles.push(path);
+        restoredCount++;
     }
 
-    if (deletedCount > 0) {
-        console.log(`🧹 ${deletedCount} arquivos obsoletos foram removidos do disco.`);
-        recordLog("Limpeza (Cleanup)", deletedCount);
+    if (restoredCount > 0) {
+        console.log(`✨ ${restoredCount} arquivo(s) faltante(s) restaurado(s) do .dat:`);
+        restoredFiles.forEach(f => console.log(`   ✅ ${f}`));
+        recordLog("Restauração (Restore)", restoredCount);
     }
 }
 
-// Lista arquivos APÓS a tentativa de restauração e limpeza
+// Lista arquivos APÓS restauração
 const allFiles = getAllFiles(SOURCE_DIR);
 
-// ==========================================
-// 1. LÓGICA DE CACHE (TIMESTAMP)
-// ==========================================
+// ──────────────────────────────────────────────────────────────────────────
+// 2. DETECÇÃO DE DELEÇÕES INTENCIONAIS
+// ──────────────────────────────────────────────────────────────────────────
+// Se um arquivo está no .dat mas NÃO está no disco APÓS a restauração,
+// significa que o usuário tentou deletá-lo. Mas como a restauração já
+// rodou, esse caso não deve acontecer aqui (só se o arquivo estiver na
+// lista de deleções intencionais).
+//
+// REGRA NOVA: Para deletar de verdade, o usuário precisa rodar:
+//   bun run build-premium --delete=<caminho/do/arquivo>
+// ──────────────────────────────────────────────────────────────────────────
+
+const deleteArg = process.argv.find(arg => arg.startsWith('--delete='));
+if (deleteArg) {
+    const fileToDelete = deleteArg.replace('--delete=', '').trim();
+    
+    if (fileToDelete) {
+        const fullPath = join(SOURCE_DIR, fileToDelete);
+        
+        // Remove do disco
+        if (existsSync(fullPath)) {
+            rmSync(fullPath, { force: true });
+            console.log(`   🗑️  Removido do disco: ${fileToDelete}`);
+        }
+        
+        // Marca como deletado intencionalmente
+        markAsIntentionallyDeleted([fileToDelete]);
+        console.log(`   📝 Marcado como deletado intencional: ${fileToDelete}`);
+        console.log(`   ℹ️  Esse arquivo NÃO será mais restaurado do .dat.`);
+        
+        // Recarrega lista de arquivos
+        const updatedFiles = getAllFiles(SOURCE_DIR);
+        if (updatedFiles.length === 0 && allFiles.length > 0) {
+            console.log("⚠️ Atenção: você deletou o último arquivo. .dat será preservado.");
+            process.exit(0);
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 3. CACHE CHECK (TIMESTAMP)
+// ──────────────────────────────────────────────────────────────────────────
 
 if (allFiles.length > 0 && existsSync(OUTPUT_ENC)) {
     let latestSourceTime = 0;
@@ -128,55 +192,63 @@ if (allFiles.length > 0 && existsSync(OUTPUT_ENC)) {
         latestSourceTime = Math.max(latestSourceTime, statSync(file).mtimeMs);
     }
 
-    // ─── VERIFICAÇÃO ADICIONAL: Checar se houve deleção ───────────────────
-    const currentVfsPaths = allFiles.map(f => relative(SOURCE_DIR, f).replace(/\\/g, '/'));
-    const datVfsPaths = Object.keys(vfsFromDat);
+    // Se o .dat é mais novo que todos os arquivos E não houve deleção intencional
+    const hasIntentionalDeletions = !!deleteArg;
     
-    // Se o número de arquivos mudou OU se há arquivos no .dat que não existem mais no disco
-    const filesWereDeleted = datVfsPaths.some(path => !currentVfsPaths.includes(path));
-    
-    if (!filesWereDeleted && statSync(OUTPUT_ENC).mtimeMs >= latestSourceTime) {
+    if (!hasIntentionalDeletions && statSync(OUTPUT_ENC).mtimeMs >= latestSourceTime) {
         console.log("⚡ Cache hit: Tudo atualizado.");
         process.exit(0);
     }
-
-    if (filesWereDeleted) {
-        console.log("🔄 Arquivos foram deletados. Reconstruindo .dat...");
-    }
 }
 
-// ==========================================
-// 2. SEGURANÇA CONTRA SOBRESCRITA ACIDENTAL
-// ==========================================
-
-if (allFiles.length <= 1 && existsSync(OUTPUT_ENC) && statSync(OUTPUT_ENC).size > 100) {
-     console.log("⚠️ Pasta premium incompleta, mas payload existente é válido. Protegendo .dat contra sobrescrita.");
-     process.exit(0);
-}
+// ──────────────────────────────────────────────────────────────────────────
+// 4. SEGURANÇA
+// ──────────────────────────────────────────────────────────────────────────
 
 if (allFiles.length === 0) {
     if (!existsSync(OUTPUT_ENC)) writeFileSync(OUTPUT_ENC, Buffer.alloc(0));
-    console.log("📦 Nenhum arquivo premium encontrado. .dat vazio criado.");
+    console.log("📦 Nenhum arquivo premium encontrado.");
     process.exit(0);
 }
 
 if (!KEY || KEY.length !== 32) {
-    console.error("❌ ERRO FATAL: PRIVATE_KEY necessária para processar arquivos na pasta.");
+    console.error("❌ ERRO FATAL: PRIVATE_KEY necessária para processar arquivos.");
     process.exit(1);
 }
 
-// ==========================================
-// 3. SINCRONIZAÇÃO (DISK -> .DAT)
-// ==========================================
+// ──────────────────────────────────────────────────────────────────────────
+// 5. SINCRONIZAÇÃO (DISK → .DAT)
+// ──────────────────────────────────────────────────────────────────────────
+// IMPORTANTE: O .dat agora reflete TUDO que está no disco + arquivos
+// preservados que estavam no .dat antigo (exceto os intencionalmente deletados).
+// ──────────────────────────────────────────────────────────────────────────
 
 console.log("⏳ Sincronizando alterações para o pacote .dat...");
+
+const intentionalDeletions = getIntentionalDeletions();
 const vfs: Record<string, string> = {};
+
+// 5.1 — Adiciona TODOS os arquivos do disco
 for (const file of allFiles) {
     const relativePath = relative(SOURCE_DIR, file).replace(/\\/g, '/');
     vfs[relativePath] = readFileSync(file, 'utf-8');
 }
 
-// ─── LOG DE ALTERAÇÕES (opcional, mas útil) ────────────────────────────────
+// 5.2 — PRESERVA arquivos do .dat que não estão no disco (a menos que tenham sido intencionalmente deletados)
+//        Isso é crucial pra evitar que pulls em outros computadores percam arquivos.
+let preservedCount = 0;
+for (const [path, content] of Object.entries(vfsFromDat)) {
+    if (!vfs[path] && !intentionalDeletions.has(path)) {
+        vfs[path] = content;
+        preservedCount++;
+    }
+}
+
+if (preservedCount > 0) {
+    console.log(`   🛡️  ${preservedCount} arquivo(s) preservado(s) do .dat antigo (não estavam no disco)`);
+}
+
+// ─── LOG DE ALTERAÇÕES ─────────────────────────────────────────────────────
 const oldPaths = new Set(Object.keys(vfsFromDat));
 const newPaths = new Set(Object.keys(vfs));
 
@@ -184,9 +256,17 @@ const added = [...newPaths].filter(p => !oldPaths.has(p));
 const removed = [...oldPaths].filter(p => !newPaths.has(p));
 const modified = [...newPaths].filter(p => oldPaths.has(p) && vfs[p] !== vfsFromDat[p]);
 
-if (added.length > 0) console.log(`   ➕ Adicionados: ${added.length} arquivo(s)`);
-if (removed.length > 0) console.log(`   ➖ Removidos: ${removed.length} arquivo(s)`);
-if (modified.length > 0) console.log(`   📝 Modificados: ${modified.length} arquivo(s)`);
+if (added.length > 0) {
+    console.log(`   ➕ Adicionados: ${added.length} arquivo(s)`);
+    added.forEach(p => console.log(`      + ${p}`));
+}
+if (removed.length > 0) {
+    console.log(`   ➖ Removidos (intencional): ${removed.length} arquivo(s)`);
+    removed.forEach(p => console.log(`      - ${p}`));
+}
+if (modified.length > 0) {
+    console.log(`   📝 Modificados: ${modified.length} arquivo(s)`);
+}
 
 // ─── ENCRIPTAÇÃO ────────────────────────────────────────────────────────────
 const jsonBuffer = Buffer.from(JSON.stringify(vfs));
@@ -198,9 +278,9 @@ writeFileSync(OUTPUT_ENC, Buffer.concat([iv, encrypted, cipher.getAuthTag()]));
 
 // AÇÕES FINAIS
 await internalGitCommit(`Build auto-commit: ${new Date().toLocaleString('pt-BR')}`);
-recordLog("Sincronização (Build)", allFiles.length);
+recordLog("Sincronização (Build)", Object.keys(vfs).length);
 
-console.log(`🔒 Sucesso: ${allFiles.length} arquivos sincronizados no .dat.`);
+console.log(`🔒 Sucesso: ${Object.keys(vfs).length} arquivos no .dat (${allFiles.length} no disco + ${preservedCount} preservados).`);
 
 // ==========================================
 // FUNÇÃO DE LISTAGEM
