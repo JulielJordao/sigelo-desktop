@@ -194,6 +194,8 @@ const songSlides = computed(() => {
 });
 
 const currentSlideText = computed(() => songSlides.value[currentSlideIndex.value]?.text || 'Selecione uma música');
+const previousSlideText = computed(() => currentSlideIndex.value > 0 ? songSlides.value[currentSlideIndex.value-1] : null)
+const nextSlideText = computed(() => currentSlideIndex.value < songSlides.value?.length - 1 ? songSlides.value[currentSlideIndex.value+1] : null)
 
 const currentSlideType = computed(() => {
     if (!songSlides.value[currentSlideIndex.value]) return 'geral';
@@ -262,27 +264,86 @@ function removeAccents(str: string | undefined): string | null {
 
 const projectCurrentSlide = async () => {
     if (!songInfo.activeSong) return;
-
+ 
     const style = currentActiveStyle.value;
     const conf = { ...configStore.settings };
     const text = currentSlideText.value;
     const currentDesign = design.value;
-
+ 
     // Resolve o tipo de fundo de forma limpa
     let resolvedBgType = 'color';
     if (currentDesign.bgType !== 'color' && currentDesign.bgMedia) {
         resolvedBgType = currentDesign.bgIsVideo ? 'video' : 'image';
     }
-
-    // Cria um objeto estruturado de dados (JSON) em vez de uma string HTML
+ 
+    // ─── Calcula informações úteis pro palco ───────────────────────────────
+    const totalSlides = songSlides.value.length;
+    const currentIndex = currentSlideIndex.value;
+    const slideNumber = currentIndex + 1;
+    const slideKind = currentSlideType.value; // 'verso' | 'refrao' | 'titulo' | 'geral'
+    const currentLabel = songSlides.value[currentIndex]?.label || '';
+    
+    // Próximo slide com mais detalhes
+    const nextSlide = nextSlideText.value;
+    const nextLabel = nextSlide?.label || null;
+    const nextText = nextSlide?.text || null;
+    
+    // Slide anterior (útil pra layouts split)
+    const prevSlide = previousSlideText.value;
+    const prevLabel = prevSlide?.label || null;
+    const prevText = prevSlide?.text || null;
+ 
+    // Progresso da apresentação (porcentagem)
+    const progressPct = totalSlides > 0 ? Math.round((slideNumber / totalSlides) * 100) : 0;
+ 
+    // ─── Verifica se a música tem ChordPro associado ───────────────────────
+    // Você pode ajustar isso pra buscar do songInfo.activeSong
+    const chordproRaw = (songInfo.activeSong as any)?.chordpro || 
+                        (songInfo.activeSong as any)?.chordProRaw || 
+                        null;
+ 
+    // ─── Extrai notas da música (se houver) ────────────────────────────────
+    // Pode vir de um campo "notes" ou "preacherNotes" da música
+    const songNotes = (songInfo.activeSong as any)?.notes || 
+                      (songInfo.activeSong as any)?.preacherNotes || 
+                      null;
+ 
+    // ─── Informações musicais (BPM, tom, capo) — pra layout Musician ───────
+    const musicInfo = {
+        key: (songInfo.activeSong as any)?.key || null,        // Tom ex: "G", "D", "Em"
+        bpm: (songInfo.activeSong as any)?.bpm || null,        // BPM ex: 80
+        capo: (songInfo.activeSong as any)?.capo || null,      // Casa do capo ex: 2
+        tempo: (songInfo.activeSong as any)?.tempo || null,    // Andamento ex: "Lento"
+    };
+ 
+    // ═════════════════════════════════════════════════════════════════════
+    // PAYLOAD COMPLETO — Suporta TODOS os layouts do Stage Monitor
+    // ═════════════════════════════════════════════════════════════════════
     const slidePayload = {
-        type: 'slide', // Identificador para o telão saber que não é um PDF
+        type: 'slide',
+        
+        // ─── METADADOS DA APRESENTAÇÃO ──────────────────────────────────
+        meta: {
+            songTitle: songInfo.activeSong?.fullName || '',
+            songId: songInfo.activeSong?.id || null,
+            author: (songInfo.activeSong as any)?.author || null,
+            slideNumber: slideNumber,
+            totalSlides: totalSlides,
+            progressPct: progressPct,
+            slideKind: slideKind,           // 'verso' | 'refrao' | 'titulo' | 'geral'
+            slideLabel: currentLabel,        // Ex: "Slide 3 - refrão"
+            timestamp: Date.now(),
+        },
+        
+        // ─── FUNDO (já existente) ────────────────────────────────────────
         background: {
             type: resolvedBgType,
             color: currentDesign.bgColor,
             media: currentDesign.bgMedia,
             fit: currentDesign.bgFit
         },
+        
+        // ─── LAYOUT VISUAL (já existente) ────────────────────────────────
         layout: {
             theme: conf.activeTheme.toLowerCase(),
             chromaKey: conf.chromaKey !== 'none' ? conf.chromaKey : 'transparent',
@@ -290,8 +351,10 @@ const projectCurrentSlide = async () => {
             transition: conf.transitionType === 'fade' ? 'ease-in-out' : 'none',
             padding: `${conf.marginTop}px ${conf.marginRight}px ${conf.marginBottom}px ${conf.marginLeft}px`
         },
+        
+        // ─── TEXTO ATUAL (existente + enriquecido) ───────────────────────
         text: {
-            content: text, // O texto muda aqui!
+            content: text,
             posX: currentDesign.posX,
             posY: currentDesign.posY,
             width: currentDesign.width,
@@ -302,23 +365,115 @@ const projectCurrentSlide = async () => {
             align: style.align,
             bold: style.bold,
             italic: style.italic
-        }
-    };
+        },
+        
+        // ─── PRÓXIMO SLIDE (enriquecido) ─────────────────────────────────
+        nextSlide: nextSlide ? {
+            content: {
+                text: nextText,
+                label: nextLabel,
+                kind: getSlideKindFromLabel(nextLabel),
+            }
+        } : null,
+        
+        // ─── SLIDE ANTERIOR (NOVO) ───────────────────────────────────────
+        // Útil pra layouts SplitVerse, Scrolling
+        previousSlide: prevSlide ? {
+            content: {
+                text: prevText,
+                label: prevLabel,
+                kind: getSlideKindFromLabel(prevLabel),
+            }
+        } : null,
+        
+        // ─── HISTÓRICO DE SLIDES (NOVO) ──────────────────────────────────
+        // Últimos 5 slides projetados — útil pro layout Scrolling
+        slideHistory: getSlideHistory(currentIndex, 5),
+        
+        // ─── SLIDES UPCOMING (NOVO) ──────────────────────────────────────
+        // Próximos 3 slides — útil pro layout Musician (banda planeja)
+        upcomingSlides: getUpcomingSlides(currentIndex, 3),
+        
+        // ─── CHORDPRO (NOVO) ─────────────────────────────────────────────
+        // Letra com cifra original — usado pelo layout ChordPro
+        chordpro: chordproRaw,
+        chordProRaw: chordproRaw, // alias pra compatibilidade
+        
+        // ─── INFORMAÇÕES MUSICAIS (NOVO) ─────────────────────────────────
+        // Tom, BPM, capo — usado pelo layout Musician
+        music: musicInfo,
+        
+        // ─── NOTAS DO PREGADOR (NOVO) ────────────────────────────────────
+        // Anotações da música/sermão — usado pelos layouts Preacher e NotesOnly
+        notes: songNotes,
+        speakerNotes: songNotes, // alias
+        
+        // ─── REFERÊNCIA BÍBLICA (NOVO, se aplicável) ─────────────────────
+        // Se o slide tiver uma referência bíblica embutida
+        reference: extractBibleReference(text),
+        
+        // ─── TÍTULO DO SLIDE (NOVO) ──────────────────────────────────────
+        title: songInfo.activeSong?.fullName || currentLabel,
 
+        fullText: songSlides.value
+                .map(s => s.text)
+                .join('\n\n'),
+    };
+ 
     try {
         await statusPresStore.setNewPresentation('Slides', conf.selectedMonitor)
-
-        // Converte o objeto para string e envia no campo 'html' (o Rust não liga para o conteúdo)
+ 
         await invoke('update_projection', {
             html: JSON.stringify(slidePayload),
             targetMonitor: conf.selectedMonitor || null
         });
-
+ 
         currentTab.value = "slides"
     } catch (error) {
         console.error("Erro ao projetar o slide:", error);
     }
 };
+
+function getSlideKindFromLabel(label: string | null): string {
+    if (!label) return 'geral';
+    const lower = label.toLowerCase();
+    if (lower.includes('título') || lower.includes('titulo')) return 'titulo';
+    if (lower.includes('refrão') || lower.includes('refrao')) return 'refrao';
+    if (lower.includes('verso') || lower.includes('estrofe')) return 'verso';
+    return 'geral';
+}
+
+function getSlideHistory(currentIdx: number, count: number = 5) {
+    const slides = songSlides.value;
+    const start = Math.max(0, currentIdx - count);
+    return slides.slice(start, currentIdx).map((slide, idx) => ({
+        index: start + idx,
+        label: slide.label,
+        text: slide.text,
+        kind: getSlideKindFromLabel(slide.label),
+    }));
+}
+
+function getUpcomingSlides(currentIdx: number, count: number = 3) {
+    const slides = songSlides.value;
+    const end = Math.min(slides.length, currentIdx + 1 + count);
+    return slides.slice(currentIdx + 1, end).map((slide, idx) => ({
+        index: currentIdx + 1 + idx,
+        label: slide.label,
+        text: slide.text,
+        kind: getSlideKindFromLabel(slide.label),
+    }));
+}
+
+function extractBibleReference(text: string): string | null {
+    if (!text) return null;
+    
+    // Regex pra detectar padrão "Livro Capítulo:Versículo"
+    const bibleRegex = /\b([1-3]?\s*[A-ZÀ-Ú][a-zà-ú]+)\s+(\d+):(\d+)(?:-(\d+))?/;
+    const match = text.match(bibleRegex);
+    
+    return match ? match[0] : null;
+}
 
 const stopProjection = async () => {
     await statusPresStore.clean()
