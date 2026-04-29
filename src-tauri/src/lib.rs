@@ -11,6 +11,7 @@ mod notice;
 mod timer;
 mod stream;
 mod dependency_manager;
+mod transmission;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -23,6 +24,8 @@ use std::time::Duration;
 use crate::stream::PipelineState;
 use tauri::command;
 use obfstr::obfstr;
+use tokio::sync::Mutex;
+use std::sync::Arc;
 
 use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
 
@@ -84,6 +87,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::new())
         .manage(crate::stream::PipelineState::new())
+        .manage(Arc::new(Mutex::new(None::<crate::transmission::transmission::ServerHandle>)))
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -122,6 +126,10 @@ pub fn run() {
             stream::get_video_preview,
             stream::get_video_info,    
             stream::extract_audio_local,        
+            crate::transmission::transmission::start_broadcast_server,
+            crate::transmission::transmission::stop_broadcast_server,
+            crate::transmission::transmission::update_broadcast_config,
+            crate::transmission::transmission::get_broadcast_info,
             is_online,
         ])
         .on_window_event(|window, event| {

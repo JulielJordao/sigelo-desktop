@@ -26,7 +26,11 @@ const showToolbar = computed(() => {
   const isStageWindow = windowLabel.value === 'stage';
   const isStageRoute = route.path.includes('stage-monitor');
 
-  return (!isProjectionWindow && !isProjectionRoute) && (!isStageWindow && !isStageRoute);
+  const isTransmissionWindow = windowLabel.value === 'transmission';
+  const isTransmissionRoute = route.path.includes('transmission');
+
+  return (!isProjectionRoute && !isProjectionRoute && !isTransmissionRoute) 
+            && (!isProjectionWindow && !isStageWindow && !isTransmissionWindow);
 });
 
 const isYoutubeModalOpen = ref(false)

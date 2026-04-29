@@ -175,6 +175,9 @@
         },
         {
           "event":"stage-chordpro-data"
+        }, 
+        {
+          "event":"transmission-started"
         }
       ]
     },

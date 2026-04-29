@@ -18,6 +18,7 @@ import { ask } from '@tauri-apps/plugin-dialog';
 import NoticeManager from './header/NoticeManager.vue';
 import TimerManager from './timer/TimerManager.vue';
 import LiveMediaController from './media/LiveMediaController.vue';
+import TransmissionMenu from '../premium-modules/transmission/TransmissionMenu.vue';
 
 const connectionStore = useConnectionStore()
 const menuStore = useMenuStore();
@@ -193,6 +194,7 @@ onUnmounted(() => {
         </span>
       </v-tooltip>
       <v-divider vertical class="mx-3 h-50 align-self-center opacity-50"></v-divider>
+      <TransmissionMenu v-if="optionsIsVisible"></TransmissionMenu>
       <StageMonitorMenu v-if="optionsIsVisible"></StageMonitorMenu>
       <LiveMediaController :is-toolbar="true" v-if="optionsIsVisible"></LiveMediaController>
       <notice-manager v-if="optionsIsVisible"></notice-manager>
