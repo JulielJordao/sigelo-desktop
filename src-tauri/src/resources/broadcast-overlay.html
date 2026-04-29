@@ -1,17 +1,24 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <title>Transmissão Overlay</title>
+    <link id="google-font-link" rel="stylesheet" href="">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-        html, body {
+        html,
+        body {
             width: 100vw;
             height: 100vh;
             overflow: hidden;
             background: transparent !important;
-            font-family: 'Inter', -apple-system, sans-serif;
+            font-family: var(--font-family, 'Inter'), -apple-system, sans-serif;
             user-select: none;
             -webkit-user-select: none;
         }
@@ -26,28 +33,59 @@
             transition: opacity 0.3s ease;
         }
 
-        body.chroma-green   { background: #00FF00 !important; }
-        body.chroma-blue    { background: #0000FF !important; }
-        body.chroma-magenta { background: #FF00FF !important; }
+        body.chroma-green {
+            background: #00FF00 !important;
+        }
+
+        body.chroma-blue {
+            background: #0000FF !important;
+        }
+
+        body.chroma-magenta {
+            background: #FF00FF !important;
+        }
 
         :root {
             --primary: #7c3aed;
-            --accent:  #fbbf24;
-            --text:    #ffffff;
+            --accent: #fbbf24;
+            --text: #ffffff;
             --tx-fast: 0ms;
-            --tx-mid:  0ms;
+            --tx-mid: 0ms;
         }
 
         body.fade-on {
             --tx-fast: 400ms;
-            --tx-mid:  600ms;
+            --tx-mid: 600ms;
         }
 
         /* ─── POSIÇÕES ──────────────────────────────────────────────── */
-        .pos-top-left     { top: 32px;    left: 32px;  right: auto; bottom: auto; }
-        .pos-top-right    { top: 32px;    right: 32px; left: auto;  bottom: auto; }
-        .pos-bottom-left  { bottom: 32px; left: 32px;  top: auto;   right: auto; }
-        .pos-bottom-right { bottom: 32px; right: 32px; top: auto;   left: auto; }
+        .pos-top-left {
+            top: 32px;
+            left: 32px;
+            right: auto;
+            bottom: auto;
+        }
+
+        .pos-top-right {
+            top: 32px;
+            right: 32px;
+            left: auto;
+            bottom: auto;
+        }
+
+        .pos-bottom-left {
+            bottom: 32px;
+            left: 32px;
+            top: auto;
+            right: auto;
+        }
+
+        .pos-bottom-right {
+            bottom: 32px;
+            right: 32px;
+            top: auto;
+            left: auto;
+        }
 
         /* ─── WATERMARK ─────────────────────────────────────────────── */
         .watermark {
@@ -81,7 +119,8 @@
         .speaker-card {
             position: absolute;
             z-index: 200;
-            display: none; /* HIDDEN POR PADRÃO */
+            display: none;
+            /* HIDDEN POR PADRÃO */
             align-items: stretch;
             max-width: 60%;
             overflow: hidden;
@@ -100,16 +139,34 @@
         }
 
         /* Posicionamento dinâmico */
-        .speaker-card.text-pos-lower-third  { bottom: 80px;  left: 0; }
-        .speaker-card.text-pos-lower-half   { bottom: 50%;   left: 0; transform: translateY(50%) translateX(-100%); }
-        .speaker-card.text-pos-lower-half.visible { transform: translateY(50%) translateX(0); }
-        .speaker-card.text-pos-top-banner   { top: 80px;     left: 0; }
-        .speaker-card.text-pos-fullscreen   {
-            top: 50%; left: 50%;
+        .speaker-card.text-pos-lower-third {
+            bottom: 80px;
+            left: 0;
+        }
+
+        .speaker-card.text-pos-lower-half {
+            bottom: 50%;
+            left: 0;
+            transform: translateY(50%) translateX(-100%);
+        }
+
+        .speaker-card.text-pos-lower-half.visible {
+            transform: translateY(50%) translateX(0);
+        }
+
+        .speaker-card.text-pos-top-banner {
+            top: 80px;
+            left: 0;
+        }
+
+        .speaker-card.text-pos-fullscreen {
+            top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%) scale(0.9);
             max-width: 80%;
             text-align: center;
         }
+
         .speaker-card.text-pos-fullscreen.visible {
             transform: translate(-50%, -50%) scale(1);
         }
@@ -141,10 +198,13 @@
 
         /* ─── ESTILOS DO LOWER THIRD ────────────────────────────────── */
         .speaker-card.style-minimal {
-            background: linear-gradient(90deg, rgba(0,0,0,0.85), rgba(0,0,0,0.5) 60%, transparent);
+            background: linear-gradient(90deg, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.5) 60%, transparent);
             border-bottom: 2px solid var(--accent);
         }
-        .speaker-card.style-minimal .speaker-accent { display: none; }
+
+        .speaker-card.style-minimal .speaker-accent {
+            display: none;
+        }
 
         .speaker-card.style-modern {
             background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 60%, black));
@@ -156,7 +216,11 @@
             background: var(--primary);
             box-shadow: 0 0 0 4px var(--accent);
         }
-        .speaker-card.style-bold .speaker-accent { display: none; }
+
+        .speaker-card.style-bold .speaker-accent {
+            display: none;
+        }
+
         .speaker-card.style-bold .speaker-name {
             font-size: 40px;
             text-transform: uppercase;
@@ -171,7 +235,11 @@
             margin-left: 32px;
             border-radius: 4px;
         }
-        .speaker-card.style-elegant .speaker-accent { display: none; }
+
+        .speaker-card.style-elegant .speaker-accent {
+            display: none;
+        }
+
         .speaker-card.style-elegant .speaker-name {
             font-style: italic;
             font-weight: 600;
@@ -180,23 +248,19 @@
         /* ─── VERSE TICKER ──────────────────────────────────────────── */
         .verse-ticker {
             position: absolute;
-            bottom: 32px;
-            left: 32px;
-            right: 32px;
             z-index: 150;
             display: flex;
             align-items: center;
             gap: 18px;
             padding: 16px 28px;
             background: linear-gradient(90deg,
-                rgba(0,0,0,0.92), rgba(0,0,0,0.75) 70%, rgba(0,0,0,0.4));
+                    rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.75) 70%, rgba(0, 0, 0, 0.4));
             border-left: 4px solid var(--primary);
             font-size: 22px;
             line-height: 1.3;
             backdrop-filter: blur(8px);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
             opacity: 0;
-            transform: translateY(40px);
             transition:
                 opacity var(--tx-fast),
                 transform var(--tx-mid) cubic-bezier(0.22, 1, 0.36, 1);
@@ -204,17 +268,86 @@
             pointer-events: none;
         }
 
+        /* Regra geral de visibilidade (independente da posição) */
         .verse-ticker.visible {
             opacity: 1;
+        }
+
+        /* ─── POSIÇÕES DO VERSE-TICKER ──────────────────────────────── */
+        .verse-ticker.text-pos-lower-third {
+            bottom: 32px;
+            left: 32px;
+            right: 32px;
+            transform: translateY(40px);
+        }
+
+        .verse-ticker.text-pos-lower-third.visible {
             transform: translateY(0);
         }
 
-        body.has-speaker-lower .verse-ticker {
+        .verse-ticker.text-pos-lower-half {
+            bottom: 50%;
+            left: 32px;
+            right: 32px;
+            transform: translateY(calc(50% + 40px));
+        }
+
+        .verse-ticker.text-pos-lower-half.visible {
+            transform: translateY(50%);
+        }
+
+        .verse-ticker.text-pos-top-banner {
+            top: 32px;
+            left: 32px;
+            right: 32px;
+            transform: translateY(-40px);
+        }
+
+        .verse-ticker.text-pos-top-banner.visible {
+            transform: translateY(0);
+        }
+
+        .verse-ticker.text-pos-fullscreen {
+            top: 50%;
+            left: 50%;
+            right: auto;
+            bottom: auto;
+            width: min(85%, 1200px);
+            max-height: 80vh;
+            padding: 48px 64px;
+            font-size: 38px;
+            line-height: 1.4;
+            text-align: center;
+            justify-content: center;
+            background: linear-gradient(135deg,
+                    rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.85));
+            border-left: none;
+            border-top: 4px solid var(--primary);
+            border-bottom: 4px solid var(--primary);
+            transform: translate(-50%, -50%) scale(0.9);
+        }
+
+        .verse-ticker.text-pos-fullscreen.visible {
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        .verse-ticker.text-pos-fullscreen .verse-icon {
+            font-size: 48px;
+        }
+
+        body.has-speaker-lower .verse-ticker.text-pos-lower-third {
             bottom: 200px;
         }
 
-        .verse-icon { font-size: 28px; flex-shrink: 0; }
-        .verse-text { font-style: italic; flex-grow: 1; }
+        .verse-icon {
+            font-size: 28px;
+            flex-shrink: 0;
+        }
+
+        .verse-text {
+            font-style: italic;
+            flex-grow: 1;
+        }
 
         /* ─── ROTATING MESSAGE ──────────────────────────────────────── */
         .rotating-message {
@@ -258,6 +391,79 @@
             color: var(--text);
         }
 
+        /* ─── PDF IMAGE LAYER ───────────────────────────────────────── */
+        .pdf-image-layer {
+            position: absolute;
+            z-index: 120;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity var(--tx-fast), transform var(--tx-mid) cubic-bezier(0.22, 1, 0.36, 1);
+            display: none;
+        }
+
+        .pdf-image-layer.visible {
+            display: block;
+            opacity: 1;
+        }
+
+        .pdf-image-layer img {
+            width: 100%;
+            height: auto;
+            display: block;
+            object-fit: contain;
+        }
+
+        /* Posições do PDF */
+        .pdf-image-layer.pdf-pos-top-left {
+            top: 24px;
+            left: 24px;
+        }
+
+        .pdf-image-layer.pdf-pos-top-right {
+            top: 24px;
+            right: 24px;
+        }
+
+        .pdf-image-layer.pdf-pos-bottom-left {
+            bottom: 24px;
+            left: 24px;
+        }
+
+        .pdf-image-layer.pdf-pos-bottom-right {
+            bottom: 24px;
+            right: 24px;
+        }
+
+        .pdf-image-layer.pdf-pos-center {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .pdf-image-layer.pdf-pos-fullscreen {
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100% !important;
+            max-height: 100vh;
+            border-radius: 0;
+            box-shadow: none;
+            background: black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pdf-image-layer.pdf-pos-fullscreen img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
         /* ─── DEBUG ─────────────────────────────────────────────────── */
         .debug-indicator {
             position: fixed;
@@ -273,10 +479,16 @@
             display: none;
         }
 
-        body.debug .debug-indicator { display: block; }
-        body.debug .debug-indicator.disconnected { color: #ef4444; }
+        body.debug .debug-indicator {
+            display: block;
+        }
+
+        body.debug .debug-indicator.disconnected {
+            color: #ef4444;
+        }
     </style>
 </head>
+
 <body class="fade-on">
 
     <div id="watermark" class="watermark" style="display: none;">
@@ -300,248 +512,313 @@
 
     <div id="rotating-message" class="rotating-message"></div>
 
+    <div id="pdf-image-layer" class="pdf-image-layer">
+        <img id="pdf-image" src="" alt="PDF">
+    </div>
+
     <div id="church-watermark" class="church-watermark"></div>
 
     <div class="debug-indicator" id="debug-indicator">⚫ Desconectado</div>
 
     <script>
-    let config = {};
-    let ws = null;
-    let messageRotationTimer = null;
-    let currentMessageIdx = 0;
-    let lastLogoUrl = ''; // cache pra não recarregar imagem desnecessariamente
+        let config = {};
+        let ws = null;
+        let messageRotationTimer = null;
+        let currentMessageIdx = 0;
+        let lastLogoUrl = ''; // cache pra não recarregar imagem desnecessariamente
 
-    document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'd') {
-            document.body.classList.toggle('debug');
+        let lastFontFamily = '';
+
+        /**
+         * ═════════════════════════════════════════════════════════════════
+         * applyFontFamily — Aplica fonte via CSS variable e tenta carregar
+         * via Google Fonts se não estiver instalada localmente.
+         * ─────────────────────────────────────────────────────────────────
+         * O navegador embarcado do OBS Browser Source não tem acesso às
+         * fontes instaladas no sistema do usuário. Pra funcionar no OBS,
+         * precisa carregar a fonte por web (Google Fonts cobre ~1500
+         * fontes populares: Inter, Roboto, Poppins, Montserrat, etc).
+         * ═════════════════════════════════════════════════════════════════
+         */
+        function applyFontFamily(fontName) {
+            if (!fontName || fontName === lastFontFamily) return;
+            lastFontFamily = fontName;
+
+            // Aplica a CSS variable (cascateia pra todos os elementos
+            // que usam var(--font-family), exceto relógio que é mono)
+            document.documentElement.style.setProperty(
+                '--font-family',
+                `'${fontName}'`
+            );
+
+            // Tenta carregar via Google Fonts. Se a fonte não existir lá,
+            // o navegador simplesmente cai no fallback sans-serif sem erro.
+            const link = document.getElementById('google-font-link');
+            const familyParam = fontName.replace(/\s+/g, '+');
+            link.href = `https://fonts.googleapis.com/css2?family=${familyParam}:wght@400;500;600;700&display=swap`;
         }
-    });
 
-    function connectWebSocket() {
-        const wsUrl = `ws://${window.location.host}/ws`;
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-            console.log('✅ Conectado');
-            updateDebug('🟢 Conectado');
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                config = JSON.parse(event.data);
-                render();
-            } catch (e) {
-                console.error('Erro ao parsear:', e);
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'd') {
+                document.body.classList.toggle('debug');
             }
-        };
-
-        ws.onclose = () => {
-            updateDebug('🔴 Reconectando...', true);
-            setTimeout(connectWebSocket, 2000);
-        };
-    }
-
-    function updateDebug(text, disconnected = false) {
-        const ind = document.getElementById('debug-indicator');
-        ind.textContent = text;
-        ind.classList.toggle('disconnected', disconnected);
-    }
-
-    function posClass(pos) {
-        return pos ? 'pos-' + pos : 'pos-top-right';
-    }
-
-    /**
-     * ═════════════════════════════════════════════════════════════════
-     * RENDER — Aplicação completa via setAttribute('class', '...')
-     * ─────────────────────────────────────────────────────────────────
-     * O bug do "estilo não troca" acontecia porque eu usava classList
-     * em ordem confusa. Agora monto a string COMPLETA e aplico de uma
-     * vez via setAttribute, garantindo que TODAS as classes antigas
-     * sejam descartadas.
-     * ═════════════════════════════════════════════════════════════════
-     */
-    function render() {
-        if (!config) return;
-
-        // ─── Body classes (reset total + reaplicação) ──────────────────
-        const isDebug = document.body.classList.contains('debug');
-        const bodyClasses = [];
-
-        if (isDebug) bodyClasses.push('debug');
-        if (config.isPaused) bodyClasses.push('paused');
-        if (config.fadeTransitions !== false) bodyClasses.push('fade-on');
-
-        if (config.chromaKey === '#00FF00') bodyClasses.push('chroma-green');
-        else if (config.chromaKey === '#0000FF') bodyClasses.push('chroma-blue');
-        else if (config.chromaKey === '#FF00FF') bodyClasses.push('chroma-magenta');
-
-        if (config.showSpeakerInfo && config.speakerName &&
-            (config.textPosition === 'lower-third' || config.textPosition === 'lower-half')) {
-            bodyClasses.push('has-speaker-lower');
-        }
-
-        document.body.setAttribute('class', bodyClasses.join(' '));
-
-        // ─── Tema (CSS variables) ──────────────────────────────────────
-        const root = document.documentElement;
-        if (config.theme) {
-            root.style.setProperty('--primary', config.theme.primaryColor || '#7c3aed');
-            root.style.setProperty('--accent',  config.theme.accentColor  || '#fbbf24');
-            root.style.setProperty('--text',    config.theme.textColor    || '#ffffff');
-
-            if (config.theme.fontFamily) {
-                document.body.style.fontFamily = `'${config.theme.fontFamily}', sans-serif`;
-            }
-        }
-
-        // ─── Watermark ─────────────────────────────────────────────────
-        const wmEl  = document.getElementById('watermark');
-        const wmImg = document.getElementById('watermark-img');
-
-        if (config.showWatermark && config.churchInfo?.logoUrl) {
-            // Resolve URL — se for asset:// ou caminho local, converte
-            const resolved = resolveImageUrl(config.churchInfo.logoUrl);
-
-            // Só atualiza se mudou (evita reload desnecessário)
-            if (resolved !== lastLogoUrl) {
-                wmImg.src = resolved;
-                lastLogoUrl = resolved;
-            }
-
-            wmEl.style.display = 'block';
-            wmEl.style.opacity = (config.watermarkOpacity || 70) / 100;
-            wmEl.setAttribute('class', 'watermark ' + posClass(config.watermarkPosition));
-        } else {
-            wmEl.style.display = 'none';
-        }
-
-        // ─── Relógio ───────────────────────────────────────────────────
-        const clockEl = document.getElementById('clock');
-        if (config.showClock) {
-            clockEl.style.display = 'block';
-            clockEl.setAttribute('class', 'clock ' + posClass(config.clockPosition));
-        } else {
-            clockEl.style.display = 'none';
-        }
-
-        // ─── Speaker card ──────────────────────────────────────────────
-        const spkEl = document.getElementById('speaker-card');
-        if (config.showSpeakerInfo && config.speakerName) {
-            document.getElementById('speaker-name').textContent = config.speakerName;
-            document.getElementById('speaker-role').textContent = config.speakerRole || '';
-
-            const style   = config.lowerThirdStyle || 'modern';
-            const textPos = config.textPosition    || 'lower-third';
-
-            // ⭐ CHAVE: setAttribute com string COMPLETA — isso força
-            // o navegador a reavaliar todas as classes do zero
-            spkEl.setAttribute('class',
-                `speaker-card visible style-${style} text-pos-${textPos}`);
-        } else {
-            spkEl.setAttribute('class', 'speaker-card');
-        }
-
-        // ─── Verse ticker ──────────────────────────────────────────────
-        const verseEl = document.getElementById('verse-ticker');
-        if (config.showVerseTicker && config.verseTickerText) {
-            document.getElementById('verse-text').textContent = config.verseTickerText;
-            verseEl.classList.add('visible');
-        } else {
-            verseEl.classList.remove('visible');
-        }
-
-        // ─── Church watermark ──────────────────────────────────────────
-        const churchEl = document.getElementById('church-watermark');
-        if (config.churchInfo?.name && !config.showSpeakerInfo) {
-            churchEl.style.display = 'block';
-            churchEl.textContent = config.churchInfo.name;
-        } else {
-            churchEl.style.display = 'none';
-        }
-
-        // ─── Rotating messages ─────────────────────────────────────────
-        setupMessageRotation();
-    }
-
-    /**
-     * ═════════════════════════════════════════════════════════════════
-     * resolveImageUrl — Converte caminhos locais em URLs servidas
-     * ─────────────────────────────────────────────────────────────────
-     * O navegador do OBS NÃO acessa asset://localhost ou file://.
-     * O servidor Rust serve os arquivos via /local-file?path=...
-     * ═════════════════════════════════════════════════════════════════
-     */
-    function resolveImageUrl(url) {
-        if (!url) return '';
-
-        // Se já é http/https/data, retorna direto
-        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-            return url;
-        }
-
-        // Remove prefixo asset://localhost/ ou asset:// se houver
-        let cleanPath = url
-            .replace(/^asset:\/\/localhost\//, '/')
-            .replace(/^asset:\/\//, '/')
-            .replace(/^file:\/\//, '');
-
-        // Decodifica path encoded
-        cleanPath = decodeURIComponent(cleanPath);
-
-        // Garante que começa com /
-        if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
-
-        // Encoda só pra query string
-        return `${window.location.origin}/local-file?path=${encodeURIComponent(cleanPath)}`;
-    }
-
-    function setupMessageRotation() {
-        const msgEl = document.getElementById('rotating-message');
-
-        if (messageRotationTimer) {
-            clearInterval(messageRotationTimer);
-            messageRotationTimer = null;
-        }
-
-        if (!config.showRotatingMessages || !config.rotatingMessages?.length) {
-            msgEl.classList.remove('visible');
-            return;
-        }
-
-        const messages = config.rotatingMessages;
-        currentMessageIdx = currentMessageIdx % messages.length;
-
-        const showMsg = (idx) => {
-            msgEl.classList.remove('visible');
-            setTimeout(() => {
-                msgEl.textContent = messages[idx];
-                msgEl.classList.add('visible');
-            }, 400);
-        };
-
-        showMsg(currentMessageIdx);
-
-        if (messages.length > 1) {
-            const interval = (config.rotationIntervalSecs || 8) * 1000;
-            messageRotationTimer = setInterval(() => {
-                currentMessageIdx = (currentMessageIdx + 1) % messages.length;
-                showMsg(currentMessageIdx);
-            }, interval);
-        }
-    }
-
-    function updateClock() {
-        const now = new Date();
-        document.getElementById('clock').textContent = now.toLocaleTimeString('pt-BR', {
-            hour: '2-digit', minute: '2-digit',
         });
-    }
-    updateClock();
-    setInterval(updateClock, 1000);
 
-    connectWebSocket();
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}/ws`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('✅ Conectado');
+                updateDebug('🟢 Conectado');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    config = JSON.parse(event.data);
+                    render();
+                } catch (e) {
+                    console.error('Erro ao parsear:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                updateDebug('🔴 Reconectando...', true);
+                setTimeout(connectWebSocket, 2000);
+            };
+        }
+
+        function updateDebug(text, disconnected = false) {
+            const ind = document.getElementById('debug-indicator');
+            ind.textContent = text;
+            ind.classList.toggle('disconnected', disconnected);
+        }
+
+        function posClass(pos) {
+            return pos ? 'pos-' + pos : 'pos-top-right';
+        }
+
+        /**
+         * ═════════════════════════════════════════════════════════════════
+         * RENDER — Aplicação completa via setAttribute('class', '...')
+         * ─────────────────────────────────────────────────────────────────
+         * O bug do "estilo não troca" acontecia porque eu usava classList
+         * em ordem confusa. Agora monto a string COMPLETA e aplico de uma
+         * vez via setAttribute, garantindo que TODAS as classes antigas
+         * sejam descartadas.
+         * ═════════════════════════════════════════════════════════════════
+         */
+        function render() {
+            if (!config) return;
+
+            // ─── Body classes (reset total + reaplicação) ──────────────────
+            const isDebug = document.body.classList.contains('debug');
+            const bodyClasses = [];
+
+            if (isDebug) bodyClasses.push('debug');
+            if (config.isPaused) bodyClasses.push('paused');
+            if (config.fadeTransitions !== false) bodyClasses.push('fade-on');
+
+            if (config.chromaKey === '#00FF00') bodyClasses.push('chroma-green');
+            else if (config.chromaKey === '#0000FF') bodyClasses.push('chroma-blue');
+            else if (config.chromaKey === '#FF00FF') bodyClasses.push('chroma-magenta');
+
+            if (config.showSpeakerInfo && config.speakerName &&
+                (config.textPosition === 'lower-third' || config.textPosition === 'lower-half')) {
+                bodyClasses.push('has-speaker-lower');
+            }
+
+            document.body.setAttribute('class', bodyClasses.join(' '));
+
+            // ─── Tema (CSS variables) ──────────────────────────────────────
+            const root = document.documentElement;
+            if (config.theme) {
+                root.style.setProperty('--primary', config.theme.primaryColor || '#7c3aed');
+                root.style.setProperty('--accent', config.theme.accentColor || '#fbbf24');
+                root.style.setProperty('--text', config.theme.textColor || '#ffffff');
+
+                if (config.theme.fontFamily) {
+                    applyFontFamily(config.theme.fontFamily);
+                }
+            }
+
+            // ─── Watermark ─────────────────────────────────────────────────
+            const wmEl = document.getElementById('watermark');
+            const wmImg = document.getElementById('watermark-img');
+
+            if (config.showWatermark && config.churchInfo?.logoUrl) {
+                // Resolve URL — se for asset:// ou caminho local, converte
+                const resolved = resolveImageUrl(config.churchInfo.logoUrl);
+
+                // Só atualiza se mudou (evita reload desnecessário)
+                if (resolved !== lastLogoUrl) {
+                    wmImg.src = resolved;
+                    lastLogoUrl = resolved;
+                }
+
+                wmEl.style.display = 'block';
+                wmEl.style.opacity = (config.watermarkOpacity || 70) / 100;
+                wmEl.setAttribute('class', 'watermark ' + posClass(config.watermarkPosition));
+            } else {
+                wmEl.style.display = 'none';
+            }
+
+            // ─── Relógio ───────────────────────────────────────────────────
+            const clockEl = document.getElementById('clock');
+            if (config.showClock) {
+                clockEl.style.display = 'block';
+                clockEl.setAttribute('class', 'clock ' + posClass(config.clockPosition));
+            } else {
+                clockEl.style.display = 'none';
+            }
+
+            // ─── Speaker card ──────────────────────────────────────────────
+            const spkEl = document.getElementById('speaker-card');
+            if (config.showSpeakerInfo && config.speakerName) {
+                document.getElementById('speaker-name').textContent = config.speakerName;
+                document.getElementById('speaker-role').textContent = config.speakerRole || '';
+
+                const style = config.lowerThirdStyle || 'modern';
+                const textPos = config.textPosition || 'lower-third';
+
+                // ⭐ CHAVE: setAttribute com string COMPLETA — isso força
+                // o navegador a reavaliar todas as classes do zero
+                spkEl.setAttribute('class',
+                    `speaker-card visible style-${style} text-pos-${textPos}`);
+            } else {
+                spkEl.setAttribute('class', 'speaker-card');
+            }
+
+            // ─── Verse ticker ──────────────────────────────────────────────
+            const verseEl = document.getElementById('verse-ticker');
+            const verseTextPos = config.textPosition || 'lower-third';
+            if (config.showVerseTicker && config.verseTickerText) {
+                document.getElementById('verse-text').textContent = config.verseTickerText;
+                verseEl.setAttribute('class',
+                    `verse-ticker visible text-pos-${verseTextPos}`);
+            } else {
+                verseEl.setAttribute('class',
+                    `verse-ticker text-pos-${verseTextPos}`);
+            }
+
+            // ─── Church watermark ──────────────────────────────────────────
+            const churchEl = document.getElementById('church-watermark');
+            if (config.churchInfo?.name && !config.showSpeakerInfo) {
+                churchEl.style.display = 'block';
+                churchEl.textContent = config.churchInfo.name;
+            } else {
+                churchEl.style.display = 'none';
+            }
+
+            // ─── PDF Image Layer ───────────────────────────────────────────
+            const pdfEl = document.getElementById('pdf-image-layer');
+            const pdfImg = document.getElementById('pdf-image');
+            if (config.showPdfImage && config.pdfImageUrl) {
+                const pos = config.pdfImagePosition || 'bottom-right';
+                const size = config.pdfImageSize || 35;
+
+                // Atualiza imagem só se mudou (evita flash)
+                if (pdfImg.src !== config.pdfImageUrl) {
+                    pdfImg.src = config.pdfImageUrl;
+                }
+
+                // Largura via inline style (só faz sentido fora do fullscreen)
+                if (pos === 'fullscreen') {
+                    pdfEl.style.width = '';
+                } else {
+                    pdfEl.style.width = `${size}vw`;
+                    pdfEl.style.maxHeight = '90vh';
+                }
+
+                pdfEl.setAttribute('class',
+                    `pdf-image-layer visible pdf-pos-${pos}`);
+            } else {
+                pdfEl.setAttribute('class', 'pdf-image-layer');
+            }
+
+            // ─── Rotating messages ─────────────────────────────────────────
+            setupMessageRotation();
+        }
+
+        /**
+         * ═════════════════════════════════════════════════════════════════
+         * resolveImageUrl — Converte caminhos locais em URLs servidas
+         * ─────────────────────────────────────────────────────────────────
+         * O navegador do OBS NÃO acessa asset://localhost ou file://.
+         * O servidor Rust serve os arquivos via /local-file?path=...
+         * ═════════════════════════════════════════════════════════════════
+         */
+        function resolveImageUrl(url) {
+            if (!url) return '';
+
+            // Se já é http/https/data, retorna direto
+            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+                return url;
+            }
+
+            // Remove prefixo asset://localhost/ ou asset:// se houver
+            let cleanPath = url
+                .replace(/^asset:\/\/localhost\//, '/')
+                .replace(/^asset:\/\//, '/')
+                .replace(/^file:\/\//, '');
+
+            // Decodifica path encoded
+            cleanPath = decodeURIComponent(cleanPath);
+
+            // Garante que começa com /
+            if (!cleanPath.startsWith('/')) cleanPath = '/' + cleanPath;
+
+            // Encoda só pra query string
+            return `${window.location.origin}/local-file?path=${encodeURIComponent(cleanPath)}`;
+        }
+
+        function setupMessageRotation() {
+            const msgEl = document.getElementById('rotating-message');
+
+            if (messageRotationTimer) {
+                clearInterval(messageRotationTimer);
+                messageRotationTimer = null;
+            }
+
+            if (!config.showRotatingMessages || !config.rotatingMessages?.length) {
+                msgEl.classList.remove('visible');
+                return;
+            }
+
+            const messages = config.rotatingMessages;
+            currentMessageIdx = currentMessageIdx % messages.length;
+
+            const showMsg = (idx) => {
+                msgEl.classList.remove('visible');
+                setTimeout(() => {
+                    msgEl.textContent = messages[idx];
+                    msgEl.classList.add('visible');
+                }, 400);
+            };
+
+            showMsg(currentMessageIdx);
+
+            if (messages.length > 1) {
+                const interval = (config.rotationIntervalSecs || 8) * 1000;
+                messageRotationTimer = setInterval(() => {
+                    currentMessageIdx = (currentMessageIdx + 1) % messages.length;
+                    showMsg(currentMessageIdx);
+                }, interval);
+            }
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString('pt-BR', {
+                hour: '2-digit', minute: '2-digit',
+            });
+        }
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        connectWebSocket();
     </script>
 
 </body>
+
 </html>

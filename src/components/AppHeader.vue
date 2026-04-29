@@ -142,8 +142,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <v-app-bar height="48" elevation="0" color="surface-light" class="app-header px-4 border-b"
-    v-if="menuStore.menuOpened !== 'PdfPresenter'">
+  <v-app-bar height="48" elevation="0" color="surface-light" class="app-header px-4 border-b">
     <div data-tauri-drag-region class="drag-layer"></div>
     <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
     

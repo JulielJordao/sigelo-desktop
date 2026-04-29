@@ -9,6 +9,7 @@ import { useConfigStore } from '../../stores/useConfigStore';
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { useMenuStore } from '../../stores/menuStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import { useTransmissionStore } from '../../premium-modules/transmission/stores/transmissionStore';
 
 import { type } from '@tauri-apps/plugin-os';
 
@@ -20,6 +21,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const configStore = useConfigStore();
 const statusPresStore = useStatusPresentationStore();
+const transStore = useTransmissionStore();
 
 interface PdfPage {
   pageNumber: number;
@@ -116,7 +118,6 @@ defineExpose({ openPdfFile });
 const projectCurrentPage = async () => {
   if (!activePage.value) return;
 
-
   const p = activePage.value;
   let wrapperBgColor = '#000000';
   let imgStyle = '';
@@ -134,7 +135,6 @@ const projectCurrentPage = async () => {
   }
   else if (displayMode.value === 'document') {
     wrapperBgColor = '#121212';
-    // FIX 1: Desliga o flexbox na projeção para o Zoom não travar a rolagem
     wrapperStyle = `width: 100vw; height: 100vh; overflow: auto; text-align: center; margin: 0; padding: 24px; box-sizing: border-box; scroll-behavior: auto;`;
     imgStyle = `width: ${zoomLevel.value}%; height: auto; object-fit: contain; margin: 0 auto; display: block; box-shadow: 0 10px 30px rgba(0,0,0,0.5); transition: width 0.3s ease;`;
   }
@@ -147,16 +147,23 @@ const projectCurrentPage = async () => {
 
   try {
     await statusPresStore.setNewPresentation('Pdf', configStore.settings.selectedMonitor)
-
     await invoke('update_projection', { html: htmlPayload, targetMonitor: configStore.settings.selectedMonitor });
 
+    // Sincroniza a imagem do PDF com a transmissão (se ativa).
+    // A posição/tamanho são controlados no menu de transmissão, não aqui.
+    if (transStore.isActive) {
+      await transStore.setPdfImage(p.dataUrl, p.pageNumber);
+    }
   } catch (error) {
     console.error("Erro ao projetar PDF:", error);
   }
 };
 
 const stopProjection = async () => {
-  await statusPresStore.clean()
+  await statusPresStore.clean();
+  if (transStore.isActive && transStore.showPdfImage) {
+    await transStore.clearPdfImage();
+  }
 };
 
 // NOVO: Captura a rolagem e envia para a janela de projeção
@@ -214,8 +221,8 @@ watch(isOpen, () => {
 </script>
 
 <template>
-  <v-dialog v-model="isOpen" fullscreen persistent no-click-animation class="dialog-bottom-transition">
-    <v-card class="bg-background d-flex flex-column rounded-0">
+  <v-dialog v-model="isOpen" fullscreen persistent no-click-animation :scrim="false" transition="slide-y-reverse-transition" class="pdf-custom-dialog">
+    <v-card class="bg-background d-flex flex-column rounded-0 h-100 w-100">
 
       <v-toolbar density="compact" color="surface" elevation="1" class="border-b px-2">
 
@@ -232,6 +239,7 @@ watch(isOpen, () => {
 
         <div class="d-flex align-center gap-3">
 
+          <!-- Controles de zoom (modo documento) -->
           <v-slide-x-transition>
             <div v-if="displayMode === 'document'"
               class="d-flex align-center bg-surface-light rounded-pill px-3 mr-3 border transition-all"
@@ -248,6 +256,7 @@ watch(isOpen, () => {
             </div>
           </v-slide-x-transition>
 
+          <!-- ═════ Controles de exibição ═════ -->
           <v-btn-toggle v-model="displayMode" mandatory divided density="comfortable" color="primary" variant="outlined"
             class="rounded-pill bg-surface-light" style="height: 36px;">
             <v-tooltip text="Normal (Mantém proporção)" location="bottom">
@@ -274,6 +283,15 @@ watch(isOpen, () => {
               </template>
             </v-tooltip>
           </v-btn-toggle>
+
+          <!-- Indicador discreto: PDF está sendo enviado pra transmissão -->
+          <v-fade-transition>
+            <v-chip v-if="isProjecting && transStore.isActive && transStore.showPdfImage"
+              size="small" color="error" variant="tonal" class="ml-2"
+              prepend-icon="mdi-broadcast">
+              No ar
+            </v-chip>
+          </v-fade-transition>
 
           <v-divider vertical class="mx-2 my-2"></v-divider>
 
@@ -351,8 +369,8 @@ watch(isOpen, () => {
 </template>
 
 <style scoped>
+/* SEUS ESTILOS SCOPED ATUAIS CONTINUAM AQUI... */
 .pdf-scroll-viewport {
-  /* Por padrão, centraliza o conteúdo (Modo Normal) */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -360,13 +378,10 @@ watch(isOpen, () => {
 }
 
 .pdf-scroll-viewport.allow-scroll {
-  /* No modo documento, permite o scroll e alinha ao topo */
   display: block;
-  /* Sai do flexbox para permitir que o conteúdo transborde */
   overflow-y: auto;
   overflow-x: auto;
   text-align: center;
-  /* Centraliza a imagem horizontalmente */
 }
 
 .preview-container {
@@ -374,7 +389,6 @@ watch(isOpen, () => {
   overflow: hidden;
   transition: all 0.3s ease-in-out;
   display: inline-block;
-  /* Importante para o modo documento */
   vertical-align: top;
 }
 
@@ -386,5 +400,15 @@ watch(isOpen, () => {
 
 .transition-all {
   transition: all 0.3s ease-in-out;
+}
+</style>
+
+<style>
+/* Força o modo fullscreen nativo do Vuetify a respeitar o AppHeader */
+.pdf-custom-dialog > .v-overlay__content {
+  top: 48px !important; /* Começa exatamente abaixo do header */
+  height: calc(100vh - 48px) !important; /* Corta os 48px da altura total */
+  max-height: calc(100vh - 48px) !important;
+  margin: 0 !important; /* Remove margens padrão do Vuetify */
 }
 </style>
