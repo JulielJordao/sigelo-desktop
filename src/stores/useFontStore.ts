@@ -10,12 +10,16 @@ export interface FontOption {
     value: string;
     cssValue: string;
     isCustom: boolean;
+    /** Nome do arquivo sem extensão (ex: "Inter_18pt-Regular"). Usado pelo servidor de fontes. */
+    fileName?: string;
+    /** Caminho absoluto no disco — só presente em fontes custom */
+    filePath?: string;
 }
 
 export const useFontStore = defineStore('fonts', () => {
     // 1. Começa VAZIO! Será preenchido automaticamente pela pasta
     const defaultFonts = ref<FontOption[]>([]);
-    
+
     const customFonts = ref<FontOption[]>([]);
     const isLoading = ref(false);
 
@@ -26,19 +30,19 @@ export const useFontStore = defineStore('fonts', () => {
     // ==========================================
     const loadDefaultFonts = async () => {
         // Evita carregar de novo se já preencheu a lista
-        if (defaultFonts.value.length > 0) return; 
+        if (defaultFonts.value.length > 0) return;
 
-        const fontFiles = import.meta.glob('../fonts/*.{ttf,otf}', { 
-            eager: true, 
-            query: '?url', 
-            import: 'default' 
+        const fontFiles = import.meta.glob('../fonts/*.{ttf,otf}', {
+            eager: true,
+            query: '?url',
+            import: 'default'
         });
 
         for (const [path, url] of Object.entries(fontFiles)) {
             const fileName = path.split('/').pop()?.replace(/\.[^/.]+$/, "") || "";
-            
+
             // Separa o nome da família da variação (Ex: "Roboto-Bold" vira "Roboto")
-            const family = fileName.split('-')[0]; 
+            const family = fileName.split('-')[0];
             let weight = 'normal';
             let style = 'normal';
 
@@ -54,10 +58,11 @@ export const useFontStore = defineStore('fonts', () => {
                 const alreadyExists = defaultFonts.value.some(f => f.title === family);
                 if (!alreadyExists) {
                     defaultFonts.value.push({
-                        title: family, // "Roboto"
-                        value: family, // O que vai para o Rust
-                        cssValue: `"${family}", sans-serif`, // O que o Vue usa no CSS
-                        isCustom: false
+                        title: family,
+                        value: family,
+                        cssValue: `"${family}", sans-serif`,
+                        isCustom: false,
+                        fileName, // ex: "Inter_18pt-Regular" — o servidor usa isso pra achar o arquivo
                     });
                 }
             } catch (e) {
@@ -97,7 +102,8 @@ export const useFontStore = defineStore('fonts', () => {
                         title: fontFamilyName,
                         value: fontFamilyName,
                         cssValue: `"${fontFamilyName}", sans-serif`,
-                        isCustom: true
+                        isCustom: true,
+                        filePath,   // caminho absoluto para o servidor de fontes
                     });
                 }
             }

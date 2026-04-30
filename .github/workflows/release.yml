@@ -1,23 +1,18 @@
 name: "Publish Release"
 
 on:
-  # 1. Permite rodar manualmente pela aba "Actions" do GitHub
   workflow_dispatch:
     inputs:
       reason:
         description: 'Motivo da build manual'
         required: false
         default: 'Build manual para teste'
-
-  # 2. Só roda automaticamente ao criar uma tag de versão (ex: git tag v1.0.0)
   push:
     tags:
       - 'v*'
-    # Impede que rode em pushes normais na main que não sejam tags
     branches-ignore:
       - '**'
 
-# 3. Cancela builds em andamento se você disparar uma nova (evita gasto duplo)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -31,11 +26,14 @@ jobs:
       matrix:
         include:
           - platform: "windows-latest"
-            target: "x86_64-pc-windows-msvc" # Padrão Windows
+            target: "x86_64-pc-windows-msvc"
             
           - platform: "macos-latest"
-            target: "universal-apple-darwin" # Alvo especial para binário Universal
+            target: "universal-apple-darwin"
             args: "--target universal-apple-darwin"
+
+          - platform: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -46,42 +44,116 @@ jobs:
         with:
           node-version: 20
           
-
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-        # 1. ESTE PASSO É OBRIGATÓRIO (Instala o Bun no servidor)
+      - name: install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: setup bun
-        uses: oven-sh/setup-bun@v2 # Use v2 para melhor suporte ao Windows
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: install frontend dependencies
-        run: bun install # Ou yarn install
+        run: bun install
 
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # A MÁGICA ACONTECE AQUI:
           SIGELO_DECRYPT_KEY: ${{ secrets.SIGELO_DECRYPT_KEY }}
           VITE_SIGELO_DECRYPT_KEY: ${{ secrets.VITE_SIGELO_DECRYPT_KEY }}
 
-
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          
-          # Variáveis para Notarização (Apple Notary Service)
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # Para o Tauri 2.0, usamos APPLE_TEAM_ID para o novo serviço de notarização
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: v__VERSION__ # Puxa a versão do tauri.conf.json
+          tagName: v__VERSION__
           releaseName: "Sigelo v__VERSION__"
           releaseBody: "Release automática gerada pelo GitHub Actions."
           releaseDraft: true
           prerelease: false
+          args: ${{ matrix.args }}
+
+  # --- NOVO JOB: GERA O UPDATER.JSON APÓS AS BUILDS ---
+  publish-updater:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate updater.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          VERSION=${TAG#v}
+          
+          echo "Aguardando a propagação dos assets na API do GitHub..."
+          sleep 10
+          
+          echo "Baixando as assinaturas (.sig) da release..."
+          mkdir -p sigs
+          # O gh cli baixa automaticamente da release atrelada à tag atual
+          gh release download $TAG --pattern "*.sig" --dir sigs || echo "Aviso: Nenhuma assinatura encontrada."
+          
+          # Lê o conteúdo dos arquivos .sig. O uso do asterisco lida com variações no nome do pacote
+          MAC_SIG=$(cat sigs/*universal.app.tar.gz.sig 2>/dev/null || echo "")
+          WIN_SIG=$(cat sigs/*msi.zip.sig 2>/dev/null || echo "")
+          LINUX_SIG=$(cat sigs/*AppImage.tar.gz.sig 2>/dev/null || echo "")
+          
+          # Gera o updater.json com as assinaturas dinâmicas
+          cat <<EOF > updater.json
+          {
+            "version": "v${VERSION}",
+            "notes": "Nova versão do Sigelo disponível para download.",
+            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "platforms": {
+              "darwin-universal": {
+                "signature": "${MAC_SIG}",
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Sigelo_${VERSION}_universal.app.tar.gz"
+              },
+              "windows-x86_64": {
+                "signature": "${WIN_SIG}",
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Sigelo_${VERSION}_x64_pt-BR.msi.zip"
+              },
+              "linux-x86_64": {
+                "signature": "${LINUX_SIG}",
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/sigelo_${VERSION}_amd64.AppImage.tar.gz"
+              }
+            }
+          }
+          EOF
+
+      - name: Upload updater.json to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Anexa o JSON de volta na release para histórico
+          gh release upload ${{ github.ref_name }} updater.json --clobber
+
+      - name: Prepare isolated directory for GitHub Pages
+        run: |
+          # Cria uma pasta limpa para garantir que SÓ o JSON vá para a rota pública
+          mkdir -p public_pages
+          cp updater.json public_pages/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public_pages
+          publish_branch: gh-pages
+          force_orphan: true

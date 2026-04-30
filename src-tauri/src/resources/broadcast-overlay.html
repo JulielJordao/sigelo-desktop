@@ -253,13 +253,8 @@
             align-items: center;
             gap: 18px;
             padding: 16px 28px;
-            background: linear-gradient(90deg,
-                    rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.75) 70%, rgba(0, 0, 0, 0.4));
-            border-left: 4px solid var(--primary);
             font-size: 22px;
             line-height: 1.3;
-            backdrop-filter: blur(8px);
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
             opacity: 0;
             transition:
                 opacity var(--tx-fast),
@@ -271,6 +266,188 @@
         /* Regra geral de visibilidade (independente da posição) */
         .verse-ticker.visible {
             opacity: 1;
+        }
+
+        /* ─── VERSE-TEXT BASE ────────────────────────────────────────
+         * .verse-text-wrap  = flex item que recebe a largura disponível
+         * .verse-text       = span inline dentro do wrap
+         *
+         * min-width:0 no wrap é ESSENCIAL: flex items por padrão não
+         * encolhem abaixo do min-content, o que impede a quebra de linha.
+         * ────────────────────────────────────────────────────────── */
+        .verse-ticker .verse-text-wrap {
+            flex: 1;
+            min-width: 0;
+            /* permite encolher e quebrar */
+        }
+
+        .verse-ticker .verse-text {
+            /* inline: necessário pro box-decoration-break funcionar
+               em múltiplas linhas (text-only usa isso) */
+            display: inline;
+            word-break: break-word;
+            white-space: normal;
+            /* wrap-off padrão: quebra, sem elipse */
+        }
+
+        .verse-ticker.wrap-on .verse-text {
+            white-space: pre-wrap;
+            /* respeita \n explícitos */
+        }
+
+        /* ─── gradient ────────────────────────────────────────────── */
+        .verse-ticker.bg-gradient {
+            background: linear-gradient(90deg,
+                    rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.75) 70%, rgba(0, 0, 0, 0.4));
+            border-left: 4px solid var(--primary);
+            backdrop-filter: blur(8px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        /* ─── semi-transparent ─────────────────────────────────────── */
+        .verse-ticker.bg-semi-transparent {
+            background: rgba(0, 0, 0, 0.6);
+            border-left: 4px solid var(--primary);
+            backdrop-filter: blur(6px);
+        }
+
+        /* ─── none ─────────────────────────────────────────────────── */
+        .verse-ticker.bg-none {
+            background: transparent;
+            border-left: none;
+            box-shadow: none;
+        }
+
+        .verse-ticker.bg-none .verse-text {
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.98), 0 1px 3px rgba(0, 0, 0, 0.95);
+        }
+
+        /* ─── box-behind ────────────────────────────────────────────
+         * O container não tem fundo. A caixa abraça apenas o conteúdo.
+         * Solução: tornar o container inline-flex e posicionar por left.
+         * ────────────────────────────────────────────────────────── */
+        .verse-ticker.bg-box-behind {
+            background: transparent;
+            border-left: none;
+            box-shadow: none;
+            padding: 0;
+            /* inline-flex: o container encolhe pro conteúdo */
+            display: inline-flex;
+            /* max-width pra não sair da tela; left já vem das classes
+               de posição (.text-pos-lower-third etc.) */
+            max-width: calc(100% - 64px);
+        }
+
+        .verse-ticker.bg-box-behind .verse-icon {
+            flex-shrink: 0;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 14px 14px;
+            border-radius: 6px 0 0 6px;
+            box-shadow: -4px 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .verse-ticker.bg-box-behind .verse-text-wrap {
+            /* max-content: o wrap só ocupa o necessário pro texto */
+            flex: 0 1 max-content;
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .verse-ticker.bg-box-behind .verse-text {
+            display: block;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 14px 22px;
+            border-radius: 0 6px 6px 0;
+            border-left: 4px solid var(--primary);
+            box-shadow: 4px 6px 20px rgba(0, 0, 0, 0.4);
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        /* wrap-on no box-behind: respeita \n explícitos */
+        .verse-ticker.bg-box-behind.wrap-on .verse-text {
+            white-space: pre-wrap;
+        }
+
+        /* ─── text-only ──────────────────────────────────────────────
+         * Sem ícone. Container transparente.
+         * O span .verse-text é inline com box-decoration-break:clone
+         * → cada linha de texto recebe seu próprio fundo individualmente.
+         * ────────────────────────────────────────────────────────── */
+        .verse-ticker.bg-text-only {
+            background: transparent;
+            border-left: none;
+            box-shadow: none;
+            padding: 16px 32px;
+        }
+
+        /* Esconde o ícone — não faz parte do visual text-only */
+        .verse-ticker.bg-text-only .verse-icon {
+            display: none !important;
+        }
+
+        .verse-ticker.bg-text-only .verse-text-wrap {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .verse-ticker.bg-text-only .verse-text {
+            /* inline é OBRIGATÓRIO pro box-decoration-break funcionar */
+            display: inline;
+            background: rgba(0, 0, 0, 0.78);
+            /* padding vertical cria o espaço entre as linhas "marcadas" */
+            padding: 0.25em 0.6em;
+            border-left: 3px solid var(--primary);
+            /* clone replica padding+background em cada linha */
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
+            line-height: 1.9;
+            /* espaço entre linhas pra não colidir */
+            border-radius: 2px;
+        }
+
+        .verse-ticker.style-minimal {
+            font-weight: 400;
+        }
+
+        .verse-ticker.style-minimal .verse-text {
+            font-style: normal;
+        }
+
+        .verse-ticker.style-modern {
+            /* Default — sem mudanças */
+        }
+
+        .verse-ticker.style-bold {
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 24px;
+        }
+
+        .verse-ticker.style-bold .verse-text {
+            font-style: normal;
+        }
+
+        .verse-ticker.style-bold.bg-gradient,
+        .verse-ticker.style-bold.bg-semi-transparent,
+        .verse-ticker.style-bold.bg-box-behind .verse-text {
+            border-left-color: var(--accent);
+            border-left-width: 6px;
+        }
+
+        .verse-ticker.style-elegant {
+            font-style: italic;
+        }
+
+        .verse-ticker.style-elegant.bg-gradient,
+        .verse-ticker.style-elegant.bg-semi-transparent,
+        .verse-ticker.style-elegant.bg-box-behind .verse-text {
+            border-left-color: var(--accent);
+        }
+
+        .verse-ticker.style-elegant .verse-text {
+            font-weight: 500;
         }
 
         /* ─── POSIÇÕES DO VERSE-TICKER ──────────────────────────────── */
@@ -319,16 +496,21 @@
             line-height: 1.4;
             text-align: center;
             justify-content: center;
-            background: linear-gradient(135deg,
-                    rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.85));
-            border-left: none;
-            border-top: 4px solid var(--primary);
-            border-bottom: 4px solid var(--primary);
             transform: translate(-50%, -50%) scale(0.9);
         }
 
         .verse-ticker.text-pos-fullscreen.visible {
             transform: translate(-50%, -50%) scale(1);
+        }
+
+        /* Fullscreen + gradient/semi-transparent → caixa centrada com bordas */
+        .verse-ticker.text-pos-fullscreen.bg-gradient,
+        .verse-ticker.text-pos-fullscreen.bg-semi-transparent {
+            background: linear-gradient(135deg,
+                    rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.85));
+            border-left: none;
+            border-top: 4px solid var(--primary);
+            border-bottom: 4px solid var(--primary);
         }
 
         .verse-ticker.text-pos-fullscreen .verse-icon {
@@ -344,9 +526,11 @@
             flex-shrink: 0;
         }
 
+        /* verse-text é inline por padrão — os modos que precisam de
+           block (box-behind) sobrescrevem explicitamente */
         .verse-text {
             font-style: italic;
-            flex-grow: 1;
+            /* Sem flex-grow aqui — cada bg-* define seu próprio flex */
         }
 
         /* ─── ROTATING MESSAGE ──────────────────────────────────────── */
@@ -506,8 +690,12 @@
     </div>
 
     <div id="verse-ticker" class="verse-ticker">
-        <div class="verse-icon">📖</div>
-        <div class="verse-text" id="verse-text"></div>
+        <div class="verse-icon" id="verse-icon">📖</div>
+        <!-- verse-text-wrap existe pra que o inline span quebre linha
+             dentro de um flex item com largura definida -->
+        <div class="verse-text-wrap">
+            <span class="verse-text" id="verse-text"></span>
+        </div>
     </div>
 
     <div id="rotating-message" class="rotating-message"></div>
@@ -528,33 +716,64 @@
         let lastLogoUrl = ''; // cache pra não recarregar imagem desnecessariamente
 
         let lastFontFamily = '';
+        const loadedFonts = new Set(); // pra não re-injetar @font-face
 
         /**
          * ═════════════════════════════════════════════════════════════════
-         * applyFontFamily — Aplica fonte via CSS variable e tenta carregar
-         * via Google Fonts se não estiver instalada localmente.
+         * applyFontFamily — Aplica fonte via CSS variable.
          * ─────────────────────────────────────────────────────────────────
-         * O navegador embarcado do OBS Browser Source não tem acesso às
-         * fontes instaladas no sistema do usuário. Pra funcionar no OBS,
-         * precisa carregar a fonte por web (Google Fonts cobre ~1500
-         * fontes populares: Inter, Roboto, Poppins, Montserrat, etc).
+         * Estratégia (em ordem):
+         *  1. Tenta carregar do próprio servidor de transmissão
+         *     (/fonts/<NomeDaFonte>) — fontes empacotadas em
+         *     src-tauri/src/fonts/.
+         *  2. Se vier um caminho absoluto (custom font instalada pelo
+         *     usuário), usa /fonts?path=<abs>.
+         *  3. Como fallback, tenta Google Fonts (cobre Inter, Roboto,
+         *     Poppins, Montserrat e ~1500 outras).
          * ═════════════════════════════════════════════════════════════════
          */
-        function applyFontFamily(fontName) {
+        function applyFontFamily(fontName, fontPath, fontFileName) {
             if (!fontName || fontName === lastFontFamily) return;
             lastFontFamily = fontName;
 
-            // Aplica a CSS variable (cascateia pra todos os elementos
-            // que usam var(--font-family), exceto relógio que é mono)
-            document.documentElement.style.setProperty(
-                '--font-family',
-                `'${fontName}'`
-            );
+            document.documentElement.style.setProperty('--font-family', `'${fontName}'`);
 
-            // Tenta carregar via Google Fonts. Se a fonte não existir lá,
-            // o navegador simplesmente cai no fallback sans-serif sem erro.
+            if (!loadedFonts.has(fontName)) {
+                loadedFonts.add(fontName);
+
+                let url;
+                if (fontPath) {
+                    // Custom font do usuário (caminho absoluto)
+                    url = `/fonts?path=${encodeURIComponent(fontPath)}`;
+                } else {
+                    // Fonte empacotada: usa fontFileName se disponível
+                    // (ex: "Inter_18pt-Regular") senão usa o nome da família
+                    const lookup = fontFileName || fontName;
+                    url = `/fonts/${encodeURIComponent(lookup)}`;
+                }
+
+                const style = document.createElement('style');
+                style.id = `font-face-${fontName.replace(/\s+/g, '-')}`;
+                style.textContent = `
+                    @font-face {
+                        font-family: '${fontName}';
+                        src: url('${url}') format('truetype'),
+                             url('${url}') format('opentype'),
+                             url('${url}') format('woff2'),
+                             url('${url}') format('woff');
+                        font-weight: 100 900;
+                        font-style: normal;
+                        font-display: swap;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            // Fallback Google Fonts (só funciona pra nomes sem underscore/sufixo)
+            // Normaliza o nome: "Inter_18pt" → "Inter"
+            const googleName = fontName.replace(/_\d+pt$/i, '').replace(/_/g, ' ');
             const link = document.getElementById('google-font-link');
-            const familyParam = fontName.replace(/\s+/g, '+');
+            const familyParam = googleName.replace(/\s+/g, '+');
             link.href = `https://fonts.googleapis.com/css2?family=${familyParam}:wght@400;500;600;700&display=swap`;
         }
 
@@ -638,7 +857,7 @@
                 root.style.setProperty('--text', config.theme.textColor || '#ffffff');
 
                 if (config.theme.fontFamily) {
-                    applyFontFamily(config.theme.fontFamily);
+                    applyFontFamily(config.theme.fontFamily, config.theme.fontPath, config.theme.fontFileName);
                 }
             }
 
@@ -692,13 +911,30 @@
             // ─── Verse ticker ──────────────────────────────────────────────
             const verseEl = document.getElementById('verse-ticker');
             const verseTextPos = config.textPosition || 'lower-third';
+            const bgStyle = config.textBackgroundStyle || 'gradient';
+            const ltStyle = config.lowerThirdStyle || 'modern';
+            const wrapClass = config.lineBreak ? 'wrap-on' : 'wrap-off';
+
+            // Ícone conforme o tipo de conteúdo
+            const iconMap = {
+                'bible': '📖',
+                'music': '🎵',
+                'slide': '✦',
+                'none': ''
+            };
+            const iconKind = config.verseTickerIcon || 'bible';
+            const iconChar = iconMap[iconKind] !== undefined ? iconMap[iconKind] : '📖';
+            const verseIconEl = document.getElementById('verse-icon');
+            verseIconEl.textContent = iconChar;
+            verseIconEl.style.display = iconChar ? '' : 'none';
+
             if (config.showVerseTicker && config.verseTickerText) {
                 document.getElementById('verse-text').textContent = config.verseTickerText;
                 verseEl.setAttribute('class',
-                    `verse-ticker visible text-pos-${verseTextPos}`);
+                    `verse-ticker visible text-pos-${verseTextPos} bg-${bgStyle} style-${ltStyle} ${wrapClass}`);
             } else {
                 verseEl.setAttribute('class',
-                    `verse-ticker text-pos-${verseTextPos}`);
+                    `verse-ticker text-pos-${verseTextPos} bg-${bgStyle} style-${ltStyle} ${wrapClass}`);
             }
 
             // ─── Church watermark ──────────────────────────────────────────
