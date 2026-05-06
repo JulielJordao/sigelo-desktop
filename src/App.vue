@@ -29,7 +29,7 @@ const showToolbar = computed(() => {
   const isTransmissionWindow = windowLabel.value === 'transmission';
   const isTransmissionRoute = route.path.includes('transmission');
 
-  return (!isProjectionRoute && !isProjectionRoute && !isTransmissionRoute) 
+  return (!isProjectionRoute && !isStageRoute && !isTransmissionRoute) 
             && (!isProjectionWindow && !isStageWindow && !isTransmissionWindow);
 });
 
