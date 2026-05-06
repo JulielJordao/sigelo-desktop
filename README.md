@@ -1,6 +1,8 @@
-#  Sigelo [!https://sigelo.cloud/_nuxt/icon_theme.DNh3D0mv.svg]
+#  Sigelo <img src="https://sigelo.cloud/_nuxt/icon_theme.DNh3D0mv.svg" width="32" height="32" alt="Sigelo Logo">
 
-**Aplicativo multiplataforma para projeção em igrejas moderno e simples, construído com Vue 3, TypeScript e Tauri.**
+# Projeção moderna e simplificada para igrejas. #
+
+**Uma solução multiplataforma simples, completa e moderna que busca facilitar e atentar para as necessidades de projeção de igrejas. Totalmente integrada ao ecossistema https://sigelo.cloud. Desenvolvido com Vue 3 e Tauri para oferecer a leveza da web com a robustez de um aplicativo nativo.**
 
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
