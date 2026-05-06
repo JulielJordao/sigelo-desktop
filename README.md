@@ -1,6 +1,6 @@
-# 🛡️ Sigelo
+#  Sigelo [!https://sigelo.cloud/_nuxt/icon_theme.DNh3D0mv.svg]
 
-**Aplicativo multiplataforma para gestão e projeção, construído com Vue 3, TypeScript e Tauri.**
+**Aplicativo multiplataforma para projeção em igrejas moderno e simples, construído com Vue 3, TypeScript e Tauri.**
 
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
