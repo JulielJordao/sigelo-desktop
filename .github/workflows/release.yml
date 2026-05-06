@@ -63,6 +63,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LZMA_API_STATIC: "1"
 
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           SIGELO_UPDATER_KEY: ${{ secrets.SIGELO_UPDATER_KEY }}
