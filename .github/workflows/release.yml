@@ -101,9 +101,8 @@ jobs:
         run: |
           TAG=${GITHUB_REF_NAME}
 
-          # Só roda em tags — disparo manual sem tag é ignorado
           if [[ "$TAG" != v* ]]; then
-            echo "::warning::Disparado sem tag (TAG=$TAG). Pulando geração do updater.json."
+            echo "::warning::Disparado sem tag (TAG=$TAG). Pulando."
             exit 0
           fi
 
@@ -124,32 +123,29 @@ jobs:
           echo "Conteúdo do latest.json original:"
           cat latest.json
 
-          # Valida se as signatures estão preenchidas no latest.json
-          WIN_SIG=$(jq -r '.platforms["windows-x86_64"].signature // ""' latest.json)
-          MAC_SIG=$(jq -r '.platforms["darwin-universal"].signature // ""' latest.json)
+          # Valida usando as chaves que realmente existem no seu latest.json
+          WIN_SIG=$(jq -r '.platforms["windows-x86_64-nsis"].signature // ""' latest.json)
+          MAC_SIG=$(jq -r '.platforms["darwin-aarch64"].signature // ""' latest.json)
           LINUX_SIG=$(jq -r '.platforms["linux-x86_64"].signature // ""' latest.json)
 
-          echo "Validando signatures do latest.json..."
-          echo "Mac:   $([ -n "$MAC_SIG" ]   && echo OK || echo VAZIO)"
-          echo "Win:   $([ -n "$WIN_SIG" ]   && echo OK || echo VAZIO)"
-          echo "Linux: $([ -n "$LINUX_SIG" ] && echo OK || echo VAZIO)"
+          echo "Validando signatures..."
+          echo "Mac   (darwin-aarch64):       $([ -n "$MAC_SIG" ]   && echo OK || echo VAZIO)"
+          echo "Win   (windows-x86_64-nsis):  $([ -n "$WIN_SIG" ]   && echo OK || echo VAZIO)"
+          echo "Linux (linux-x86_64):         $([ -n "$LINUX_SIG" ] && echo OK || echo VAZIO)"
 
           if [ -z "$MAC_SIG" ] || [ -z "$WIN_SIG" ] || [ -z "$LINUX_SIG" ]; then
-            echo "::error::Uma ou mais signatures estão vazias no latest.json!"
-            echo "Verifique se TAURI_SIGNING_PRIVATE_KEY está configurado corretamente."
+            echo "::error::Uma ou mais signatures estão vazias!"
             exit 1
           fi
 
-          # Extrai notas do CHANGELOG pela versão exata
+          # Extrai notas do CHANGELOG
           NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
 
-          # Fallback: seção mais recente ignorando [Unreleased]
           if [ -z "$NOTES" ]; then
-            echo "::warning::Versão ${VERSION} não encontrada no CHANGELOG — usando seção mais recente."
+            echo "::warning::Versão ${VERSION} não encontrada — usando seção mais recente."
             NOTES=$(awk '/^## \[/{if(/\[Unreleased\]/) next; if(flag) exit; flag=1; next} flag' CHANGELOG.md)
           fi
 
-          # Fallback final
           if [ -z "$NOTES" ]; then
             NOTES="Nova versão do Sigelo disponível para download."
           fi
@@ -159,7 +155,8 @@ jobs:
 
           NOTES_JSON=$(echo "$NOTES" | jq -Rs .)
 
-          # Injeta as notas do CHANGELOG no latest.json e salva como updater.json
+          # Injeta as notas e salva como updater.json
+          # Mantém o latest.json intacto e só substitui o campo notes
           jq --argjson notes "$NOTES_JSON" '.notes = $notes' latest.json > updater.json
 
           echo "updater.json final:"
