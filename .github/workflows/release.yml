@@ -95,7 +95,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate updater.json
+      - name: Download and enrich latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -115,30 +115,37 @@ jobs:
           echo "Listando assets da release $TAG:"
           gh release view $TAG --json assets --jq '.assets[].name'
 
-          mkdir -p sigs
-          gh release download $TAG --pattern "*.sig" --dir sigs
+          echo "Baixando latest.json gerado pelo tauri-action..."
+          gh release download $TAG --pattern "latest.json" --dir . || {
+            echo "::error::latest.json não encontrado na release $TAG"
+            exit 1
+          }
 
-          echo "Arquivos baixados:"
-          ls -la sigs/
+          echo "Conteúdo do latest.json original:"
+          cat latest.json
 
-          MAC_SIG=$(cat sigs/*universal.app.tar.gz.sig 2>/dev/null || echo "")
-          WIN_SIG=$(cat sigs/*setup.nsis.zip.sig 2>/dev/null || echo "")
-          LINUX_SIG=$(cat sigs/*AppImage.tar.gz.sig 2>/dev/null || echo "")
+          # Valida se as signatures estão preenchidas no latest.json
+          WIN_SIG=$(jq -r '.platforms["windows-x86_64"].signature // ""' latest.json)
+          MAC_SIG=$(jq -r '.platforms["darwin-universal"].signature // ""' latest.json)
+          LINUX_SIG=$(jq -r '.platforms["linux-x86_64"].signature // ""' latest.json)
+
+          echo "Validando signatures do latest.json..."
+          echo "Mac:   $([ -n "$MAC_SIG" ]   && echo OK || echo VAZIO)"
+          echo "Win:   $([ -n "$WIN_SIG" ]   && echo OK || echo VAZIO)"
+          echo "Linux: $([ -n "$LINUX_SIG" ] && echo OK || echo VAZIO)"
 
           if [ -z "$MAC_SIG" ] || [ -z "$WIN_SIG" ] || [ -z "$LINUX_SIG" ]; then
-            echo "::error::Uma ou mais assinaturas estão vazias!"
-            echo "Mac: $([ -n "$MAC_SIG" ] && echo OK || echo VAZIO)"
-            echo "Win: $([ -n "$WIN_SIG" ] && echo OK || echo VAZIO)"
-            echo "Linux: $([ -n "$LINUX_SIG" ] && echo OK || echo VAZIO)"
+            echo "::error::Uma ou mais signatures estão vazias no latest.json!"
+            echo "Verifique se TAURI_SIGNING_PRIVATE_KEY está configurado corretamente."
             exit 1
           fi
 
-          # Tenta pela versão exata primeiro (ex: ## [0.9.16])
+          # Extrai notas do CHANGELOG pela versão exata
           NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
 
           # Fallback: seção mais recente ignorando [Unreleased]
           if [ -z "$NOTES" ]; then
-            echo "::warning::Versão ${VERSION} não encontrada — usando seção mais recente do CHANGELOG."
+            echo "::warning::Versão ${VERSION} não encontrada no CHANGELOG — usando seção mais recente."
             NOTES=$(awk '/^## \[/{if(/\[Unreleased\]/) next; if(flag) exit; flag=1; next} flag' CHANGELOG.md)
           fi
 
@@ -152,29 +159,10 @@ jobs:
 
           NOTES_JSON=$(echo "$NOTES" | jq -Rs .)
 
-          cat <<EOF > updater.json
-          {
-            "version": "${VERSION}",
-            "notes": ${NOTES_JSON},
-            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "platforms": {
-              "darwin-universal": {
-                "signature": "${MAC_SIG}",
-                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Sigelo_${VERSION}_universal.app.tar.gz"
-              },
-              "windows-x86_64": {
-                "signature": "${WIN_SIG}",
-                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Sigelo_${VERSION}_x64-setup.nsis.zip"
-              },
-              "linux-x86_64": {
-                "signature": "${LINUX_SIG}",
-                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/sigelo_${VERSION}_amd64.AppImage.tar.gz"
-              }
-            }
-          }
-          EOF
+          # Injeta as notas do CHANGELOG no latest.json e salva como updater.json
+          jq --argjson notes "$NOTES_JSON" '.notes = $notes' latest.json > updater.json
 
-          echo "updater.json gerado:"
+          echo "updater.json final:"
           cat updater.json
 
       - name: Upload updater.json to GitHub Release
