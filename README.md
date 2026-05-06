@@ -28,6 +28,12 @@ renderiza HTML
 
 # 🛡️ Sigelo - Arquitetura Open-Core & Módulos Premium
 
+Bem-vindo! Este projeto adota um modelo **Open Core**. 
+
+Isso significa que o núcleo do software é de código aberto (licença MIT) e aceita contribuições da comunidade. No entanto, algumas funcionalidades avançadas e módulos premium encontram-se criptografados neste repositório e são protegidos por direitos autorais (Código Proprietário). O uso dessas funcionalidades requer uma licença/assinatura comercial.
+
+Para mais detalhes sobre as permissões e restrições, leia o arquivo [LICENSE](./LICENSE).
+
 ## 📖 Sobre o Sistema
 O **Sigelo** é um aplicativo multiplataforma (Mobile/Desktop) construído com **Vue.js** no frontend e **Tauri (Rust)** no backend. Ele adota um modelo de negócios **Open-Core**: o núcleo principal do aplicativo é de código aberto e transparente para a comunidade, enquanto funcionalidades específicas e avançadas (como o Módulo de Retorno de Palco e Visualização de Cifras) são fechadas, exigindo uma licença premium para acesso.
 

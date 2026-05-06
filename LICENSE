@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2026 JULIEL CHRISTIANSEN JORDÃO
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+EXCEÇÃO DE LICENCIAMENTO (MÓDULOS PREMIUM / CÓDIGO PROPRIETÁRIO)
+
+A licença MIT concedida acima NÃO SE APLICA a nenhum arquivo, código-fonte,
+binário ou artefato criptografado localizado dentro dos diretórios destinados 
+a módulos fechados ou premium (por exemplo, a pasta `src/premium-modules` 
+e seus subdiretórios).
+
+Todos os arquivos e códigos nestes diretórios específicos, estejam eles 
+criptografados ou não, são de propriedade exclusiva de [Seu Nome ou Empresa].
+Todos os Direitos são Reservados.
+
+O acesso ao código-fonte descriptografado destes módulos, bem como seu uso, 
+cópia, modificação, engenharia reversa ou distribuição, é estritamente proibido 
+sem a aquisição de uma licença comercial explícita. A presença dos arquivos 
+criptografados neste repositório público não constitui, em hipótese alguma, 
+renúncia aos direitos autorais sobre o software proprietário.
