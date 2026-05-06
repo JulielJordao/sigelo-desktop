@@ -20,6 +20,8 @@ import TimerManager from './timer/TimerManager.vue';
 import LiveMediaController from './media/LiveMediaController.vue';
 import TransmissionMenu from '../premium-modules/transmission/TransmissionMenu.vue';
 
+import UpdateButton from './UpdateButton.vue';
+
 const connectionStore = useConnectionStore()
 const menuStore = useMenuStore();
 const mediaStore = useMediaStore();
@@ -159,6 +161,8 @@ onUnmounted(() => {
         ></v-btn>
       </template>
     </v-tooltip>
+
+    <UpdateButton class="z-10" />
     
     <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 

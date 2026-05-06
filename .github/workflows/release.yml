@@ -10,8 +10,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches-ignore:
-      - '**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,13 +25,9 @@ jobs:
         include:
           - platform: "windows-latest"
             target: "x86_64-pc-windows-msvc"
-            
           - platform: "macos-latest"
-            # Install BOTH targets required for a universal build
             target: "aarch64-apple-darwin, x86_64-apple-darwin"
-            # Keep the universal argument for the Tauri CLI
             args: "--target universal-apple-darwin"
-
           - platform: "ubuntu-22.04"
             target: "x86_64-unknown-linux-gnu"
 
@@ -45,7 +39,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          
+
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -68,10 +62,14 @@ jobs:
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
         env:
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           SIGELO_UPDATER_KEY: ${{ secrets.SIGELO_UPDATER_KEY }}
+
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
           SIGELO_DECRYPT_KEY: ${{ secrets.SIGELO_DECRYPT_KEY }}
           VITE_SIGELO_DECRYPT_KEY: ${{ secrets.VITE_SIGELO_DECRYPT_KEY }}
 
@@ -84,11 +82,10 @@ jobs:
           tagName: v__VERSION__
           releaseName: "Sigelo v__VERSION__"
           releaseBody: "Release automática gerada pelo GitHub Actions."
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
-  # --- NOVO JOB: GERA O UPDATER.JSON APÓS AS BUILDS ---
   publish-updater:
     needs: publish-tauri
     runs-on: ubuntu-latest
@@ -103,26 +100,62 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG=${GITHUB_REF_NAME}
+
+          # Só roda em tags — disparo manual sem tag é ignorado
+          if [[ "$TAG" != v* ]]; then
+            echo "::warning::Disparado sem tag (TAG=$TAG). Pulando geração do updater.json."
+            exit 0
+          fi
+
           VERSION=${TAG#v}
-          
-          echo "Aguardando a propagação dos assets na API do GitHub..."
-          sleep 10
-          
-          echo "Baixando as assinaturas (.sig) da release..."
+
+          echo "Aguardando a propagação dos assets..."
+          sleep 15
+
+          echo "Listando assets da release $TAG:"
+          gh release view $TAG --json assets --jq '.assets[].name'
+
           mkdir -p sigs
-          # O gh cli baixa automaticamente da release atrelada à tag atual
-          gh release download $TAG --pattern "*.sig" --dir sigs || echo "Aviso: Nenhuma assinatura encontrada."
-          
-          # Lê o conteúdo dos arquivos .sig. O uso do asterisco lida com variações no nome do pacote
+          gh release download $TAG --pattern "*.sig" --dir sigs
+
+          echo "Arquivos baixados:"
+          ls -la sigs/
+
           MAC_SIG=$(cat sigs/*universal.app.tar.gz.sig 2>/dev/null || echo "")
-          WIN_SIG=$(cat sigs/*msi.zip.sig 2>/dev/null || echo "")
+          WIN_SIG=$(cat sigs/*setup.nsis.zip.sig 2>/dev/null || echo "")
           LINUX_SIG=$(cat sigs/*AppImage.tar.gz.sig 2>/dev/null || echo "")
-          
-          # Gera o updater.json com as assinaturas dinâmicas
+
+          if [ -z "$MAC_SIG" ] || [ -z "$WIN_SIG" ] || [ -z "$LINUX_SIG" ]; then
+            echo "::error::Uma ou mais assinaturas estão vazias!"
+            echo "Mac: $([ -n "$MAC_SIG" ] && echo OK || echo VAZIO)"
+            echo "Win: $([ -n "$WIN_SIG" ] && echo OK || echo VAZIO)"
+            echo "Linux: $([ -n "$LINUX_SIG" ] && echo OK || echo VAZIO)"
+            exit 1
+          fi
+
+          # Tenta pela versão exata primeiro (ex: ## [0.9.16])
+          NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+
+          # Fallback: seção mais recente ignorando [Unreleased]
+          if [ -z "$NOTES" ]; then
+            echo "::warning::Versão ${VERSION} não encontrada — usando seção mais recente do CHANGELOG."
+            NOTES=$(awk '/^## \[/{if(/\[Unreleased\]/) next; if(flag) exit; flag=1; next} flag' CHANGELOG.md)
+          fi
+
+          # Fallback final
+          if [ -z "$NOTES" ]; then
+            NOTES="Nova versão do Sigelo disponível para download."
+          fi
+
+          echo "Notas extraídas do CHANGELOG:"
+          echo "$NOTES"
+
+          NOTES_JSON=$(echo "$NOTES" | jq -Rs .)
+
           cat <<EOF > updater.json
           {
-            "version": "v${VERSION}",
-            "notes": "Nova versão do Sigelo disponível para download.",
+            "version": "${VERSION}",
+            "notes": ${NOTES_JSON},
             "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
             "platforms": {
               "darwin-universal": {
@@ -131,7 +164,7 @@ jobs:
               },
               "windows-x86_64": {
                 "signature": "${WIN_SIG}",
-                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Sigelo_${VERSION}_x64_pt-BR.msi.zip"
+                "url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/Sigelo_${VERSION}_x64-setup.nsis.zip"
               },
               "linux-x86_64": {
                 "signature": "${LINUX_SIG}",
@@ -141,16 +174,17 @@ jobs:
           }
           EOF
 
+          echo "updater.json gerado:"
+          cat updater.json
+
       - name: Upload updater.json to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Anexa o JSON de volta na release para histórico
           gh release upload ${{ github.ref_name }} updater.json --clobber
 
       - name: Prepare isolated directory for GitHub Pages
         run: |
-          # Cria uma pasta limpa para garantir que SÓ o JSON vá para a rota pública
           mkdir -p public_pages
           cp updater.json public_pages/
 
