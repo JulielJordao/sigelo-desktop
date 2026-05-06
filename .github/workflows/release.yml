@@ -29,7 +29,9 @@ jobs:
             target: "x86_64-pc-windows-msvc"
             
           - platform: "macos-latest"
-            target: "universal-apple-darwin"
+            # Install BOTH targets required for a universal build
+            target: "aarch64-apple-darwin, x86_64-apple-darwin"
+            # Keep the universal argument for the Tauri CLI
             args: "--target universal-apple-darwin"
 
           - platform: "ubuntu-22.04"
