@@ -1,108 +1,120 @@
-# Tauri + Vue + TypeScript
+# 🛡️ Sigelo
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+**Aplicativo multiplataforma para gestão e projeção, construído com Vue 3, TypeScript e Tauri.**
 
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
-
-
-Vue (controle)
-     │
-     │ invoke(update_projection)
-     ▼
-Tauri Command
-     │
-     ▼
-renderer.rs
-     │
-     ├─ salva HTML no AppState
-     └─ envia evento para janela projection
-           │
-           ▼
-Janela Projection
-           │
-           ▼
-renderiza HTML
-
-
-# 🛡️ Sigelo - Arquitetura Open-Core & Módulos Premium
-
-Bem-vindo! Este projeto adota um modelo **Open Core**. 
-
-Isso significa que o núcleo do software é de código aberto (licença MIT) e aceita contribuições da comunidade. No entanto, algumas funcionalidades avançadas e módulos premium encontram-se criptografados neste repositório e são protegidos por direitos autorais (Código Proprietário). O uso dessas funcionalidades requer uma licença/assinatura comercial.
-
-Para mais detalhes sobre as permissões e restrições, leia o arquivo [LICENSE](./LICENSE).
-
-## 📖 Sobre o Sistema
-O **Sigelo** é um aplicativo multiplataforma (Mobile/Desktop) construído com **Vue.js** no frontend e **Tauri (Rust)** no backend. Ele adota um modelo de negócios **Open-Core**: o núcleo principal do aplicativo é de código aberto e transparente para a comunidade, enquanto funcionalidades específicas e avançadas (como o Módulo de Retorno de Palco e Visualização de Cifras) são fechadas, exigindo uma licença premium para acesso.
-
-Este documento detalha a arquitetura de segurança utilizada para proteger os módulos premium contra cópias não autorizadas e engenharia reversa, mantendo a integridade do repositório público.
+[![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
+[![Vue.js](https://img.shields.io/badge/Vue.js-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Bun](https://img.shields.io/badge/Bun-Runtime-000000?logo=bun&logoColor=white)](https://bun.sh/)
 
 ---
 
-## 🏗️ Estrutura de Pastas e Regras de Versionamento
+## 📖 Modelo Open-Core & Módulos Premium
 
-Para que a arquitetura funcione, é estritamente necessário respeitar as regras do `.gitignore`. O código premium original **nunca** deve ir para o GitHub.
+Bem-vindo ao repositório do **Sigelo**! Este projeto adota um modelo de negócios **Open-Core**:
+
+Isso significa que o núcleo principal do software (sua fundação) é de **código aberto** e transparente, aceitando contribuições da comunidade. No entanto, algumas funcionalidades específicas e avançadas (como o Módulo de Retorno de Palco e a Visualização Avançada de Cifras) são **fechadas e criptografadas** neste repositório. 
+
+O código fonte dessas funcionalidades premium é protegido por direitos autorais (Código Proprietário) e seu uso requer uma licença/assinatura comercial.
+
+Para mais detalhes sobre as permissões e restrições, leia o arquivo [LICENSE](./LICENSE).
+
+---
+
+## 🏗️ Arquitetura e Comunicação IPC
+
+O Sigelo utiliza o poder do Rust no backend e a reatividade do Vue no frontend. A comunicação entre janelas (ex: Tela Principal controlando a Tela de Projeção) segue uma arquitetura baseada em eventos via Tauri IPC:
 
 ```text
+[ Vue (Controle / Editor) ]
+             │
+             │ invoke('update_projection')
+             ▼
+      [ Tauri Command ]
+             │
+             ▼
+       [ renderer.rs ]
+             │
+             ├─> Salva HTML no AppState (Rust)
+             │
+             └─> Envia evento via canal para a janela 'projection'
+                         │
+                         ▼
+               [ Janela Projection ]
+                         │
+                         ▼
+                [ Renderiza HTML ]
+
+ 🔐 Segurança e Proteção de Código               
+
+ Para proteger os módulos premium contra engenharia reversa e manter a integridade do repositório público, adotamos um sistema rigoroso de criptografia simétrica (AES-256-GCM) no momento do build.
+
+Estrutura de Pastas e Versionamento
+
+Para que a arquitetura funcione com segurança, as regras do .gitignore bloqueiam o envio do código original para o GitHub:
+
 📦 sigelo
  ┣ 📂 src
- ┃ ┣ 📂 premium-modules      # ❌ IGNORADO NO GIT: Seu código fonte privado
+ ┃ ┣ 📂 premium-modules      # ❌ IGNORADO NO GIT: Código fonte proprietário (.vue, .ts)
  ┃ ┗ 📂 views                # ✅ PÚBLICO: Telas open-source
  ┣ 📂 src-tauri
  ┃ ┣ 📂 src
- ┃ ┃ ┣ 📜 main.rs            # ✅ PÚBLICO: Backend Rust
- ┃ ┃ ┗ 📜 premium-bundle.enc # ✅ PÚBLICO: Payload Criptografado (seguro)
+ ┃ ┃ ┣ 📜 main.rs            # ✅ PÚBLICO: Backend em Rust
+ ┃ ┃ ┗ 📜 premium-bundle.dat # ✅ PÚBLICO: Payload criptografado do código premium
  ┣ 📜 build-premium.ts       # ✅ PÚBLICO: Script inteligente de empacotamento
  ┣ 📜 .env                   # ❌ IGNORADO NO GIT: Contém chaves secretas
  ┗ 📜 package.json
 
- # Arquivos e pastas Premium
-src/premium-modules/
-.env
+ O Fluxo de Compilação (Pre-Build)
 
-🔐 Regras de Segurança e Variáveis de Ambiente
-A segurança do sistema baseia-se na proteção da chave de descriptografia.
+Antes de o Rust compilar o aplicativo, o nosso script de segurança (build-premium.ts) entra em ação:
 
-A Chave Mestra (PRIVATE_KEY): * Deve ter exatamente 32 caracteres.
+1. Cache Inteligente: Verifica a data de modificação (mtime) dos arquivos locais. A criptografia só é refeita se houver alterações reais no código.
 
-Deve existir apenas no seu arquivo .env local e nas Secrets do seu ambiente de CI/CD.
+2. Encriptação: Pega todos os arquivos da pasta premium-modules, ofusca e tranca os dados usando a SIGELO_UPDATER_KEY (Chave AES de 32 caracteres).
 
-Isolamento de Build:
+3. Payload Vazio (Comunidade): Se o script for rodado por alguém da comunidade que clonou o repositório — sem a chave secreta e sem a pasta premium — ele gera um payload .dat vazio. O projeto compila normalmente para a comunidade, mas sem as funcionalidades pagas.
 
-O Vite/Vue é configurado para ignorar a PRIVATE_KEY.
+Fluxo de Execução (Runtime)
 
-O Tauri NÃO deve listar o .env no array de resources do tauri.conf.json.
+A liberação da funcionalidade premium ocorre em três etapas seguras:
 
-Ofuscação no Rust:
+1. Validação de Login: O usuário final faz login e a API oficial valida a assinatura.
 
-A chave é injetada no binário (.dmg/.exe) em tempo de compilação usando a biblioteca obfstr para embaralhar a string, impedindo extração por inspeção de texto.
+2. Descriptografia em Memória: O frontend Vue solicita o módulo premium ao backend Tauri. O Rust utiliza a chave embutida e ofuscada (via lib obfstr) para abrir o premium-bundle.dat diretamente na memória RAM, sem gravar arquivos temporários no disco do cliente.
 
-⚙️ O Fluxo de Compilação Condicional (Pre-Build)
-Antes de o Rust compilar o aplicativo, o script build-premium.ts atua:
+3. Injeção Dinâmica: O Rust devolve o código descriptografado em tempo real para o Vue, que o monta dinamicamente na interface.
 
-- Cache Inteligente: Verifica a data de modificação (mtime) dos arquivos. A criptografia (AES-256-GCM) só é refeita se houver alterações reais.
+⚙️ Configuração do Ambiente (IDE)
+Para a melhor experiência de desenvolvimento, recomendamos o seguinte setup:
 
-- Payload Vazio: Se o script for rodado por alguém da comunidade sem a PRIVATE_KEY e sem a pasta premium, ele gera um payload .enc vazio. O projeto compila normalmente, mas sem a funcionalidade paga.
+- IDE: VS Code
 
+Extensões Recomendadas:
 
-🚀 Fluxo de Execução (Runtime)
-A liberação da funcionalidade ocorre em três etapas:
+- Vue - Official (Volar)
 
-Validação de Login: O usuário final faz login e a API valida a assinatura.
+- Tauri
 
-- Descriptografia em Memória: O frontend Vue solicita o módulo ao backend Tauri via IPC. O Rust utiliza a chave embutida para abrir o premium-bundle.enc na memória RAM.
+- rust-analyzer
 
-- Injeção Dinâmica: O Rust devolve o código para o Vue, que utiliza URL.createObjectURL para montar o componente na interface.
+💻 Guia de Comandos (Bun)
+O projeto utiliza o Bun como gerenciador de pacotes e runtime ultrarrápido. Certifique-se de instalar as dependências rodando bun install após clonar o repositório.
 
-- 💻 Guia de Comandos e Desenvolvimento
-O projeto utiliza o Bun como gerenciador de pacotes e runtime ultrarrápido. Abaixo estão os comandos disponíveis no package.json para o ciclo de desenvolvimento:
+Desenvolvimento Desktop (Tauri)
 
-Comandos Padrões do Frontend (Vue/Vite)
+Estes são os comandos que você usará 99% do tempo para desenvolver o app completo:
 
-- bun run dev: Inicia o servidor de desenvolvimento do Vite (apenas frontend web, sem o backend Rust).
+- bun tauri dev: Inicia o aplicativo em modo de desenvolvimento (levanta o Vue e a janela nativa do Tauri simultaneamente).
 
-- bun run build: Executa a verificação de tipos (vue-tsc --noEmit) e compila o frontend web otimizado para produção.
+- bun tauri build: Compila a versão de produção final (Gera o instalador .exe, .dmg, .AppImage).
 
-- bun run preview: Levanta um servidor local para testar a versão web compilada no passo anterior.
+Comandos Exclusivos do Frontend (Web)
+
+Use estes comandos se precisar testar alterações de design apenas no navegador, sem o backend Rust:
+
+- bun run dev: Inicia apenas o servidor Vite para o frontend no navegador.
+
+- bun run build: Executa a verificação de tipos e compila os arquivos web otimizados.
+
+- bun run preview: Levanta um servidor local rápido para testar a versão web recém-compilada.

@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, mkdirSy
 import { join, relative, dirname } from 'path';
 import { $ } from "bun";
 
-const KEY = process.env.PRIVATE_KEY;
+const KEY = process.env.SIGELO_UPDATER_KEY;
 const SOURCE_DIR = './src/premium-modules';
 const OUTPUT_ENC = './src-tauri/src/premium-bundle.dat';
 const LOG_FILE = './.premium-build-history';

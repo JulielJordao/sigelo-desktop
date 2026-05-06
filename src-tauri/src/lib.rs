@@ -44,7 +44,7 @@ fn load_premium_module() -> Result<String, String> {
 
     // 3. Inicia o decodificador lendo a chave ofuscada DIRETAMENTE na chamada.
     // Assim o Rust entende que a variável temporária só precisa viver nesta linha!
-    let cipher = Aes256Gcm::new_from_slice(obfstr!(env!("PRIVATE_KEY")).as_bytes())
+    let cipher = Aes256Gcm::new_from_slice(obfstr!(env!("SIGELO_UPDATER_KEY")).as_bytes())
         .map_err(|_| "Falha ao iniciar cifra")?;
 
     // 4. Descriptografa. Se a chave estiver errada ou o arquivo alterado, isso falha.

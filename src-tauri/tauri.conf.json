@@ -69,5 +69,13 @@
     "macOS": {
       "entitlements": null 
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQyNzEzMTY3OTIwNDAzNzcKUldSM0F3U1NaekZ4UWdkelNHcGtQUkY4Y1p4UzZBSy92NDhxUmlOVG1jVnRyKzdpMEtZK2U1ZWIK",
+      "endpoints": [
+        "https://JulielJordao.github.io/sigelo-desktop/updater.json"
+      ]
+    }
   }
 }

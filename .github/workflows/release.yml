@@ -70,6 +70,8 @@ jobs:
         env:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          SIGELO_UPDATER_KEY: ${{ secrets.SIGELO_UPDATER_KEY }}
           SIGELO_DECRYPT_KEY: ${{ secrets.SIGELO_DECRYPT_KEY }}
           VITE_SIGELO_DECRYPT_KEY: ${{ secrets.VITE_SIGELO_DECRYPT_KEY }}
 
