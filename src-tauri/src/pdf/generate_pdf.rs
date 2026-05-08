@@ -1,13 +1,13 @@
+use ::image::{open, DynamicImage, Rgba};
 use printpdf::*;
+use rust_embed::RustEmbed;
 use serde::Deserialize;
+use std::collections::HashMap; // <-- NOVO: Para o Cache de Fontes
 use std::fs::File;
 use std::io::{BufWriter, Cursor};
-use std::collections::HashMap; // <-- NOVO: Para o Cache de Fontes
-use rust_embed::RustEmbed;
-use ::image::{DynamicImage, Rgba, open}; 
 
 #[derive(RustEmbed)]
-#[folder = "src/fonts/"] 
+#[folder = "src/fonts/"]
 struct EmbeddedFonts;
 
 // 1. O Style Input continua igual
@@ -27,7 +27,7 @@ pub struct StyleInput {
 // 2. Mas agora ele mora DENTRO do SlideInput!
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct SlideInput { 
+pub struct SlideInput {
     pub text: String,
     pub style: StyleInput, // O estilo dinâmico vem aqui!
 }
@@ -53,24 +53,23 @@ fn process_background_image(
     // Agora o Rust sabe que `open` vem da biblioteca externa ::image
     let clean_path = path.trim_matches('"').trim();
 
-    
     let prefixes = [
-        "asset://localhost/", 
-        "http://asset.localhost/", 
+        "asset://localhost/",
+        "http://asset.localhost/",
         "https://asset.localhost/",
-        "http://asset:localhost/" // Caso venha com dois pontos em alguma config
+        "http://asset:localhost/", // Caso venha com dois pontos em alguma config
     ];
-    
+
     // Se por acaso ainda vier o prefixo, remove aqui também
     let mut final_path = clean_path.to_string();
 
     for prefix in &prefixes {
         if final_path.starts_with(prefix) {
-            final_path  = final_path.replacen(prefix, "", 1);
+            final_path = final_path.replacen(prefix, "", 1);
             break;
         }
     }
-    
+
     // No macOS, caminhos absolutos precisam começar com /
     // Se após remover o prefixo não começar com /, e for Unix, adicionamos
     #[cfg(unix)]
@@ -119,17 +118,17 @@ pub async fn generate_pdf(
     slides: Vec<SlideInput>,
     design: DesignInput,
 ) -> Result<String, String> {
-    
     let doc_width = Mm(254.0);
     let doc_height = Mm(142.875);
     let (doc, page1, layer1) = PdfDocument::new("Apresentacao", doc_width, doc_height, "Fundo");
-    
+
     // [PREPARAÇÃO DO FUNDO - MANTENHA IGUAL]
     let bg_data = if let Some(media_path) = &design.bg_media {
         let opacity = design.bg_opacity.unwrap_or(100.0);
         let img = process_background_image(media_path, &design.bg_color, opacity)?;
         let mut img_bytes: Vec<u8> = Vec::new();
-        img.write_to(&mut Cursor::new(&mut img_bytes), ::image::ImageFormat::Jpeg).map_err(|e| e.to_string())?;
+        img.write_to(&mut Cursor::new(&mut img_bytes), ::image::ImageFormat::Jpeg)
+            .map_err(|e| e.to_string())?;
         Some((img_bytes, img.width(), img.height()))
     } else {
         None
@@ -170,14 +169,17 @@ pub async fn generate_pdf(
                 clipping_bbox: None,
             };
 
-            Image::from(xobject).add_to_layer(bg_layer, ImageTransform {
-                translate_x: Some(Mm(0.0)),
-                translate_y: Some(Mm(0.0)),
-                scale_x: Some(scale_x),
-                scale_y: Some(scale_y), 
-                dpi: Some(dpi),
-                ..Default::default()
-            });
+            Image::from(xobject).add_to_layer(
+                bg_layer,
+                ImageTransform {
+                    translate_x: Some(Mm(0.0)),
+                    translate_y: Some(Mm(0.0)),
+                    scale_x: Some(scale_x),
+                    scale_y: Some(scale_y),
+                    dpi: Some(dpi),
+                    ..Default::default()
+                },
+            );
         }
 
         // --- CAMADA DE TEXTO ---
@@ -186,15 +188,20 @@ pub async fn generate_pdf(
 
         // 2. LÓGICA DA FONTE (AGORA COM ITÁLICO)
         // 5. LÓGICA DA FONTE (AGORA COM CASCATA DE FALLBACK)
-        let font_key = format!("{}_{}_{}_{}", style.font_family, style.is_bold, style.is_italic, style.is_custom);
-        
+        let font_key = format!(
+            "{}_{}_{}_{}",
+            style.font_family, style.is_bold, style.is_italic, style.is_custom
+        );
+
         let current_font = if let Some(cached_font) = font_cache.get(&font_key) {
             cached_font.clone()
         } else {
             let loaded_font = if style.is_custom {
                 if let Some(path) = &style.custom_font_path {
-                    let font_file = File::open(path).map_err(|e| format!("Erro ao abrir: {}", e))?;
-                    doc.add_external_font(font_file).map_err(|_| "Erro embutir custom")?
+                    let font_file =
+                        File::open(path).map_err(|e| format!("Erro ao abrir: {}", e))?;
+                    doc.add_external_font(font_file)
+                        .map_err(|_| "Erro embutir custom")?
                 } else {
                     return Err("Caminho custom vazio.".to_string());
                 }
@@ -205,31 +212,45 @@ pub async fn generate_pdf(
                     (false, true) => "Italic",
                     (false, false) => "Regular",
                 };
-                
+
                 let target_filename = format!("{}-{}.ttf", style.font_family, weight);
-                
+
                 // === A CASCATA INTELIGENTE ===
                 let embedded_file = EmbeddedFonts::get(&target_filename)
                     // 1. Se pediu BoldItalic e falhou, tenta salvar pelo menos o Bold da mesma família
-                    .or_else(|| if weight == "BoldItalic" { EmbeddedFonts::get(&format!("{}-Bold.ttf", style.font_family)) } else { None })
+                    .or_else(|| {
+                        if weight == "BoldItalic" {
+                            EmbeddedFonts::get(&format!("{}-Bold.ttf", style.font_family))
+                        } else {
+                            None
+                        }
+                    })
                     // 2. Se não achou Bold, tenta pelo menos o Italic da mesma família
-                    .or_else(|| if weight == "BoldItalic" { EmbeddedFonts::get(&format!("{}-Italic.ttf", style.font_family)) } else { None })
+                    .or_else(|| {
+                        if weight == "BoldItalic" {
+                            EmbeddedFonts::get(&format!("{}-Italic.ttf", style.font_family))
+                        } else {
+                            None
+                        }
+                    })
                     // 3. Falhou as variações? Tenta o Regular da MESMA família (Ex: Montserrat-Regular)
                     .or_else(|| EmbeddedFonts::get(&format!("{}-Regular.ttf", style.font_family)))
                     // 4. A família inteira sumiu? Vai pro Roboto, mas TENTA MANTER O PESO (Ex: Roboto-BoldItalic)
                     .or_else(|| EmbeddedFonts::get(&format!("Roboto-{}.ttf", weight)))
                     // 5. Último recurso absoluto para o app não crashar (Roboto-Regular)
                     .unwrap_or_else(|| {
-                        EmbeddedFonts::get("Roboto-Regular.ttf").expect("A fonte de segurança Roboto-Regular.ttf sumiu do sistema!")
+                        EmbeddedFonts::get("Roboto-Regular.ttf")
+                            .expect("A fonte de segurança Roboto-Regular.ttf sumiu do sistema!")
                     });
-                    
+
                 let mut font_cursor = Cursor::new(embedded_file.data.as_ref());
-                doc.add_external_font(&mut font_cursor).map_err(|_| "Erro fonte nativa")?
+                doc.add_external_font(&mut font_cursor)
+                    .map_err(|_| "Erro fonte nativa")?
             };
             font_cache.insert(font_key, loaded_font.clone());
             loaded_font
         };
-        
+
         // COR DO TEXTO
         let hex = style.color.trim_start_matches('#');
         let r = u8::from_str_radix(hex.get(0..2).unwrap_or("FF"), 16).unwrap_or(255) as f32 / 255.0;
@@ -239,7 +260,7 @@ pub async fn generate_pdf(
 
         // 3. A NOVA MATEMÁTICA DE CAIXA DE TEXTO (Respeitando X, Y, Width e Height)
         let lines: Vec<&str> = slide.text.lines().collect();
-        let line_height = style.font_size * 0.45; 
+        let line_height = style.font_size * 0.45;
         let total_text_height = lines.len() as f32 * line_height;
 
         // Limites da "Caixa" (Bounding Box) baseada nas porcentagens
@@ -266,12 +287,19 @@ pub async fn generate_pdf(
                 final_x = box_x_mm + box_w_mm - approx_text_width;
             }
 
-            text_layer.use_text(*line, style.font_size, Mm(final_x), Mm(y_line), &current_font);
+            text_layer.use_text(
+                *line,
+                style.font_size,
+                Mm(final_x),
+                Mm(y_line),
+                &current_font,
+            );
         }
     }
 
     let file = File::create(&save_path).map_err(|e| e.to_string())?;
-    doc.save(&mut BufWriter::new(file)).map_err(|e| e.to_string())?;
+    doc.save(&mut BufWriter::new(file))
+        .map_err(|e| e.to_string())?;
 
     Ok("PDF Gerado com Sucesso!".to_string())
 }

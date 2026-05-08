@@ -11,29 +11,28 @@
 //   xz2      = "0.1"
 //   futures-util = "0.3"
 
+use futures_util::StreamExt;
 use std::fs;
 use std::io::{copy, Cursor};
 use std::path::{Path, PathBuf};
-use futures_util::StreamExt;
-use tauri::{AppHandle, Emitter, Manager};
-use zip::ZipArchive;
 use tar::Archive;
+use tauri::{AppHandle, Emitter, Manager};
 use xz2::read::XzDecoder;
+use zip::ZipArchive;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // URLs por plataforma
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Windows — pacote "essentials" que inclui ffmpeg.exe + ffprobe.exe
-const WIN_URL: &str =
-    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+const WIN_URL: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
 
 // Linux — tarball estático que inclui ffmpeg + ffprobe
 const LINUX_URL: &str =
     "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz";
 
 // macOS — evermeet.cx entrega ffmpeg e ffprobe em ZIPs separados
-const MAC_FFMPEG_URL:  &str = "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip";
+const MAC_FFMPEG_URL: &str = "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip";
 const MAC_FFPROBE_URL: &str = "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,15 +45,15 @@ const MAC_FFPROBE_URL: &str = "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip
 #[derive(Clone, serde::Serialize)]
 pub struct DownloadProgress {
     /// Nome do binário sendo baixado ("ffmpeg" ou "ffprobe")
-    pub binary:  String,
+    pub binary: String,
     /// Bytes já recebidos
     pub received: u64,
     /// Total de bytes (0 se o servidor não enviou Content-Length)
-    pub total:    u64,
+    pub total: u64,
     /// Percentual 0–100 (None se total desconhecido)
-    pub percent:  Option<u8>,
+    pub percent: Option<u8>,
     /// Mensagem legível ("Baixando ffmpeg… 42%")
-    pub message:  String,
+    pub message: String,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,11 +64,11 @@ pub async fn ensure_binaries(app: &AppHandle) -> Result<(), String> {
     fs::create_dir_all(&bin_dir).map_err(|e| format!("create_dir_all: {}", e))?;
 
     let (ffmpeg_name, ffprobe_name) = binary_names();
-    let ffmpeg_path  = bin_dir.join(ffmpeg_name);
+    let ffmpeg_path = bin_dir.join(ffmpeg_name);
     let ffprobe_path = bin_dir.join(ffprobe_name);
 
     // Verifica cada binário individualmente — baixa só o que falta
-    let need_ffmpeg  = !is_executable(&ffmpeg_path);
+    let need_ffmpeg = !is_executable(&ffmpeg_path);
     let need_ffprobe = !is_executable(&ffprobe_path);
 
     if !need_ffmpeg && !need_ffprobe {
@@ -83,10 +82,11 @@ pub async fn ensure_binaries(app: &AppHandle) -> Result<(), String> {
     {
         // macOS: dois ZIPs separados, um por binário
         if need_ffmpeg {
-            download_and_extract_zip(app, MAC_FFMPEG_URL,  "ffmpeg",  &bin_dir, ffmpeg_name).await?;
+            download_and_extract_zip(app, MAC_FFMPEG_URL, "ffmpeg", &bin_dir, ffmpeg_name).await?;
         }
         if need_ffprobe {
-            download_and_extract_zip(app, MAC_FFPROBE_URL, "ffprobe", &bin_dir, ffprobe_name).await?;
+            download_and_extract_zip(app, MAC_FFPROBE_URL, "ffprobe", &bin_dir, ffprobe_name)
+                .await?;
         }
     }
 
@@ -96,9 +96,14 @@ pub async fn ensure_binaries(app: &AppHandle) -> Result<(), String> {
         if need_ffmpeg || need_ffprobe {
             let bytes = download_with_progress(app, WIN_URL, "ffmpeg+ffprobe").await?;
             extract_zip_multi(
-                &bytes, &bin_dir,
-                if need_ffmpeg  { Some(ffmpeg_name)  } else { None },
-                if need_ffprobe { Some(ffprobe_name) } else { None },
+                &bytes,
+                &bin_dir,
+                if need_ffmpeg { Some(ffmpeg_name) } else { None },
+                if need_ffprobe {
+                    Some(ffprobe_name)
+                } else {
+                    None
+                },
             )?;
         }
     }
@@ -109,9 +114,14 @@ pub async fn ensure_binaries(app: &AppHandle) -> Result<(), String> {
         if need_ffmpeg || need_ffprobe {
             let bytes = download_with_progress(app, LINUX_URL, "ffmpeg+ffprobe").await?;
             extract_tar_xz_multi(
-                &bytes, &bin_dir,
-                if need_ffmpeg  { Some(ffmpeg_name)  } else { None },
-                if need_ffprobe { Some(ffprobe_name) } else { None },
+                &bytes,
+                &bin_dir,
+                if need_ffmpeg { Some(ffmpeg_name) } else { None },
+                if need_ffprobe {
+                    Some(ffprobe_name)
+                } else {
+                    None
+                },
             )?;
         }
     }
@@ -158,9 +168,9 @@ pub async fn ensure_binaries(app: &AppHandle) -> Result<(), String> {
 
 /// Baixa a URL e retorna os bytes, emitindo eventos de progresso ao frontend.
 async fn download_with_progress(
-    app:    &AppHandle,
-    url:    &str,
-    label:  &str,
+    app: &AppHandle,
+    url: &str,
+    label: &str,
 ) -> Result<Vec<u8>, String> {
     eprintln!("[ffmpeg_install] GET {}", url);
 
@@ -182,7 +192,11 @@ async fn download_with_progress(
 
     let total = response.content_length().unwrap_or(0);
     let mut received: u64 = 0;
-    let mut bytes = if total > 0 { Vec::with_capacity(total as usize) } else { Vec::new() };
+    let mut bytes = if total > 0 {
+        Vec::with_capacity(total as usize)
+    } else {
+        Vec::new()
+    };
 
     let mut stream = response.bytes_stream();
 
@@ -200,34 +214,48 @@ async fn download_with_progress(
         let message = if let Some(p) = percent {
             format!("Baixando {}… {}%", label, p)
         } else {
-            format!("Baixando {}… {:.1} MB", label, received as f64 / 1_048_576.0)
+            format!(
+                "Baixando {}… {:.1} MB",
+                label,
+                received as f64 / 1_048_576.0
+            )
         };
 
         // Emite a cada ~1% ou a cada 256 KB para não inundar o frontend
         let should_emit = match percent {
             Some(p) => p % 1 == 0,
-            None    => received % (256 * 1024) < chunk.len() as u64,
+            None => received % (256 * 1024) < chunk.len() as u64,
         };
 
         if should_emit {
-            let _ = app.emit("ffmpeg://progress", DownloadProgress {
-                binary:   label.to_string(),
-                received,
-                total,
-                percent,
-                message,
-            });
+            let _ = app.emit(
+                "ffmpeg://progress",
+                DownloadProgress {
+                    binary: label.to_string(),
+                    received,
+                    total,
+                    percent,
+                    message,
+                },
+            );
         }
     }
 
     // Evento de conclusão
-    let _ = app.emit("ffmpeg://progress", DownloadProgress {
-        binary:   label.to_string(),
-        received,
-        total:    received,
-        percent:  Some(100),
-        message:  format!("{} baixado ({:.1} MB)", label, received as f64 / 1_048_576.0),
-    });
+    let _ = app.emit(
+        "ffmpeg://progress",
+        DownloadProgress {
+            binary: label.to_string(),
+            received,
+            total: received,
+            percent: Some(100),
+            message: format!(
+                "{} baixado ({:.1} MB)",
+                label,
+                received as f64 / 1_048_576.0
+            ),
+        },
+    );
 
     Ok(bytes)
 }
@@ -239,10 +267,10 @@ async fn download_with_progress(
 /// Baixa um ZIP do evermeet.cx que contém exatamente um binário e o extrai.
 #[cfg(target_os = "macos")]
 async fn download_and_extract_zip(
-    app:         &AppHandle,
-    url:         &str,
-    label:       &str,
-    dest:        &Path,
+    app: &AppHandle,
+    url: &str,
+    label: &str,
+    dest: &Path,
     binary_name: &str,
 ) -> Result<(), String> {
     let bytes = download_with_progress(app, url, label).await?;
@@ -253,12 +281,13 @@ async fn download_and_extract_zip(
     let mut found = false;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| format!("zip entry {}: {}", i, e))?;
 
         // O ZIP do evermeet contém um único arquivo com o nome do binário
         let entry_name = entry.name().to_string();
-        let file_stem  = Path::new(&entry_name)
+        let file_stem = Path::new(&entry_name)
             .file_name()
             .map(|n| n.to_string_lossy().to_lowercase())
             .unwrap_or_default();
@@ -266,10 +295,9 @@ async fn download_and_extract_zip(
         // Aceita "ffmpeg", "ffmpeg-7.1", etc.
         if file_stem == binary_name || file_stem.starts_with(binary_name) {
             let target = dest.join(binary_name);
-            let mut out = fs::File::create(&target)
-                .map_err(|e| format!("create {:?}: {}", target, e))?;
-            copy(&mut entry, &mut out)
-                .map_err(|e| format!("copy {}: {}", label, e))?;
+            let mut out =
+                fs::File::create(&target).map_err(|e| format!("create {:?}: {}", target, e))?;
+            copy(&mut entry, &mut out).map_err(|e| format!("copy {}: {}", label, e))?;
             found = true;
             eprintln!("[ffmpeg_install] Extraído {} → {:?}", entry_name, target);
             break;
@@ -282,14 +310,14 @@ async fn download_and_extract_zip(
             .map_err(|e| format!("ZipArchive fallback: {}", e))?;
 
         for i in 0..archive2.len() {
-            let mut entry = archive2.by_index(i)
+            let mut entry = archive2
+                .by_index(i)
                 .map_err(|e| format!("zip entry fallback {}: {}", i, e))?;
             if entry.is_file() {
                 let target = dest.join(binary_name);
                 let mut out = fs::File::create(&target)
                     .map_err(|e| format!("create fallback {:?}: {}", target, e))?;
-                copy(&mut entry, &mut out)
-                    .map_err(|e| format!("copy fallback: {}", e))?;
+                copy(&mut entry, &mut out).map_err(|e| format!("copy fallback: {}", e))?;
                 eprintln!("[ffmpeg_install] Extraído (fallback) → {:?}", target);
                 break;
             }
@@ -305,31 +333,35 @@ async fn download_and_extract_zip(
 
 #[cfg(target_os = "windows")]
 fn extract_zip_multi(
-    bytes:   &[u8],
-    dest:    &Path,
-    ffmpeg:  Option<&str>,
+    bytes: &[u8],
+    dest: &Path,
+    ffmpeg: Option<&str>,
     ffprobe: Option<&str>,
 ) -> Result<(), String> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes))
-        .map_err(|e| format!("ZipArchive: {}", e))?;
+    let mut archive =
+        ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ZipArchive: {}", e))?;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| format!("zip entry {}: {}", i, e))?;
 
         let name = entry.name().to_lowercase();
 
         // gyan.dev: "ffmpeg-N.N-essentials_build/bin/ffmpeg.exe"
-        let is_ffmpeg  = ffmpeg.map_or(false,  |n| name.ends_with(n));
+        let is_ffmpeg = ffmpeg.map_or(false, |n| name.ends_with(n));
         let is_ffprobe = ffprobe.map_or(false, |n| name.ends_with(n));
 
         if is_ffmpeg || is_ffprobe {
-            let binary_name = if is_ffmpeg { ffmpeg.unwrap() } else { ffprobe.unwrap() };
+            let binary_name = if is_ffmpeg {
+                ffmpeg.unwrap()
+            } else {
+                ffprobe.unwrap()
+            };
             let target = dest.join(binary_name);
-            let mut out = fs::File::create(&target)
-                .map_err(|e| format!("create {:?}: {}", target, e))?;
-            copy(&mut entry, &mut out)
-                .map_err(|e| format!("copy {}: {}", binary_name, e))?;
+            let mut out =
+                fs::File::create(&target).map_err(|e| format!("create {:?}: {}", target, e))?;
+            copy(&mut entry, &mut out).map_err(|e| format!("copy {}: {}", binary_name, e))?;
             eprintln!("[ffmpeg_install] Extraído → {:?}", target);
         }
     }
@@ -342,26 +374,34 @@ fn extract_zip_multi(
 
 #[cfg(target_os = "linux")]
 fn extract_tar_xz_multi(
-    bytes:   &[u8],
-    dest:    &Path,
-    ffmpeg:  Option<&str>,
+    bytes: &[u8],
+    dest: &Path,
+    ffmpeg: Option<&str>,
     ffprobe: Option<&str>,
 ) -> Result<(), String> {
-    let dec     = XzDecoder::new(Cursor::new(bytes));
+    let dec = XzDecoder::new(Cursor::new(bytes));
     let mut arc = Archive::new(dec);
 
     for entry in arc.entries().map_err(|e| format!("tar entries: {}", e))? {
         let mut entry = entry.map_err(|e| format!("tar entry: {}", e))?;
-        let path = entry.path().map_err(|e| format!("tar path: {}", e))?.to_path_buf();
+        let path = entry
+            .path()
+            .map_err(|e| format!("tar path: {}", e))?
+            .to_path_buf();
         let name = path.to_string_lossy().to_lowercase();
 
-        let is_ffmpeg  = ffmpeg.map_or(false,  |n| name.ends_with(n));
+        let is_ffmpeg = ffmpeg.map_or(false, |n| name.ends_with(n));
         let is_ffprobe = ffprobe.map_or(false, |n| name.ends_with(n));
 
         if is_ffmpeg || is_ffprobe {
-            let binary_name = if is_ffmpeg { ffmpeg.unwrap() } else { ffprobe.unwrap() };
+            let binary_name = if is_ffmpeg {
+                ffmpeg.unwrap()
+            } else {
+                ffprobe.unwrap()
+            };
             let target = dest.join(binary_name);
-            entry.unpack(&target)
+            entry
+                .unpack(&target)
                 .map_err(|e| format!("unpack {}: {}", binary_name, e))?;
             eprintln!("[ffmpeg_install] Extraído → {:?}", target);
         }

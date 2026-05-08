@@ -24,7 +24,7 @@ pub enum MonitorPreference {
     Monitor(usize),
 }
 
-/* 
+/*
 pub fn choose_projection_monitor(app: &AppHandle) -> Option<Monitor> {
     let monitors = app.available_monitors().ok()?;
 

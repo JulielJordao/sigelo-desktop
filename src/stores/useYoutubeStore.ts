@@ -12,11 +12,34 @@ interface RustCachedVideo {
     thumbnail_path: string;
 }
 
+interface StatusYt {
+    downloading: boolean,
+    progress: number
+}
+
 export type YoutubeMediaFile = MediaFile & { thumbnailUrl?: string, size_mb: number };
 
 export const useYoutubeStore = defineStore('youtubeCache', () => {
     const cachedVideos = ref<YoutubeMediaFile[]>([]);
     const isLoading = ref(false);
+
+    const state = ref<StatusYt>({downloading: false, progress: 0})
+
+    const actions =  {
+        start() {
+            state.value.downloading = true
+            state.value.progress = 0
+        },
+
+        setProgress(value: number) {
+            state.value.progress = value
+        },
+
+        finish() {
+            state.value.downloading = false
+            state.value.progress = 0
+        }
+    }
 
     const fetchCache = async () => {
         isLoading.value = true;
@@ -59,5 +82,5 @@ export const useYoutubeStore = defineStore('youtubeCache', () => {
         }
     };
 
-    return { cachedVideos, isLoading, fetchCache, deleteVideo };
+    return { cachedVideos, isLoading, state, actions, fetchCache, deleteVideo };
 });

@@ -1,6 +1,6 @@
 /*use tauri::{AppHandle, WebviewUrl, WebviewWindowBuilder};
 
- 
+
 pub fn open_projection_window(app: &AppHandle) -> tauri::Result<()> {
     // pega os monitores disponíveis
     let monitors = app.available_monitors()?;

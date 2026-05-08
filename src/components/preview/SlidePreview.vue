@@ -197,8 +197,10 @@ const creditsPosition = computed(() => props.design.authorCreditsPosition || 'bo
         maxWidth: `min(900px, calc(400px * ${screenRatio}))`
     }">
 
-        <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
-            class="video-bg" :style="{ objectFit: design.bgFit }" />
+        <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" 
+            :src="design.bgMedia"
+            class="video-bg" 
+            :style="{ objectFit: design.bgFit || 'cover' }" />
 
         <div v-if="props.isFixedPreview">
             <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"

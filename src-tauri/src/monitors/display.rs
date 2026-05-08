@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{AppHandle};
+use tauri::AppHandle;
 
 // 1. Estrutura para formatar os dados e enviar ao Vue (JavaScript)
 #[derive(Serialize)]

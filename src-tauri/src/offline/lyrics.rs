@@ -1,8 +1,8 @@
 use aes_gcm::{
     aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce
+    Aes256Gcm, Nonce,
 };
-use serde::{Deserialize};
+use serde::Deserialize;
 
 // A chave injetada no build (32 caracteres/bytes)
 const ENCRYPTION_KEY: Option<&'static str> = option_env!("SIGELO_DECRYPT_KEY");
@@ -16,15 +16,17 @@ struct EncryptedResponse {
 
 #[tauri::command]
 pub async fn get_offline_lyrics_safe(group_id: String) -> Result<serde_json::Value, String> {
-
     let url_base = if cfg!(debug_assertions) {
         "http://localhost:3000"
     } else {
         "https://meu-app-backend-f9867824586e.herokuapp.com"
     };
-    
-    let url = format!("{}/{}/{}", url_base, "api/songGroup/getOfflineLyric", group_id);
-    
+
+    let url = format!(
+        "{}/{}/{}",
+        url_base, "api/songGroup/getOfflineLyric", group_id
+    );
+
     // 1. Faz o Fetch da rota criptografada
     let response = reqwest::get(url)
         .await
@@ -57,6 +59,7 @@ pub async fn get_offline_lyrics_safe(group_id: String) -> Result<serde_json::Val
     let decrypted_str = String::from_utf8(decrypted_bytes).map_err(|_| "UTF8 inválido")?;
 
     // 5. Retorna como JSON para o Vue
-    let json: serde_json::Value = serde_json::from_str(&decrypted_str).map_err(|e| e.to_string())?;
+    let json: serde_json::Value =
+        serde_json::from_str(&decrypted_str).map_err(|e| e.to_string())?;
     Ok(json)
 }

@@ -1,17 +1,17 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
+mod dependency_manager;
 mod directory;
 mod monitors;
+mod notice;
+mod offline;
+mod pdf;
 mod projection;
 mod state;
-mod youtube;
-mod pdf;
-mod offline;
-mod notice;
-mod timer;
 mod stream;
-mod dependency_manager;
+mod timer;
 mod transmission;
+mod youtube;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -19,15 +19,18 @@ fn greet(name: &str) -> String {
 }
 
 use crate::state::app_state::AppState;
-use std::net::{SocketAddr, TcpStream};
-use std::time::Duration;
 use crate::stream::PipelineState;
-use tauri::command;
 use obfstr::obfstr;
-use tokio::sync::Mutex;
+use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
+use std::time::Duration;
+use tauri::command;
+use tokio::sync::Mutex;
 
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
 
 #[tauri::command]
 fn load_premium_module() -> Result<String, String> {
@@ -48,7 +51,8 @@ fn load_premium_module() -> Result<String, String> {
         .map_err(|_| "Falha ao iniciar cifra")?;
 
     // 4. Descriptografa. Se a chave estiver errada ou o arquivo alterado, isso falha.
-    let decrypted_bytes = cipher.decrypt(nonce, data_and_tag)
+    let decrypted_bytes = cipher
+        .decrypt(nonce, data_and_tag)
         .map_err(|_| "Licença inválida ou arquivo corrompido")?;
 
     // 5. Retorna o JavaScript puro em formato de String para o Vue
@@ -60,7 +64,7 @@ fn load_premium_module() -> Result<String, String> {
 fn is_online() -> bool {
     // Tenta conectar no DNS do Google (8.8.8.8) na porta 53 (porta de DNS)
     let addr = SocketAddr::from(([8, 8, 8, 8], 53));
-    
+
     // Define um timeout de 2 segundos. Se não responder, assume offline.
     match TcpStream::connect_timeout(&addr, Duration::from_secs(2)) {
         Ok(_) => true,
@@ -70,15 +74,15 @@ fn is_online() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    
     // 1. Desativa recursos de taxa de atualização variável que causam flickering em 75Hz+
     // 2. Desativa o 'Occlusion Tracker' que às vezes faz o Windows 'pausar' o app sem bordas
     std::env::set_var(
-        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", 
-        "--disable-features=msWebview2EnableVariableRefreshRate,CalculateNativeWinOcclusion"
+        "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+        "--disable-features=msWebview2EnableVariableRefreshRate,CalculateNativeWinOcclusion",
     );
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -88,7 +92,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .manage(AppState::new())
         .manage(crate::stream::PipelineState::new())
-        .manage(Arc::new(Mutex::new(None::<crate::transmission::transmission::ServerHandle>)))
+        .manage(Arc::new(Mutex::new(
+            None::<crate::transmission::transmission::ServerHandle>,
+        )))
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -125,8 +131,8 @@ pub fn run() {
             stream::stop_video,
             stream::send_video_command,
             stream::get_video_preview,
-            stream::get_video_info,    
-            stream::extract_audio_local,        
+            stream::get_video_info,
+            stream::extract_audio_local,
             crate::transmission::transmission::start_broadcast_server,
             crate::transmission::transmission::stop_broadcast_server,
             crate::transmission::transmission::update_broadcast_config,
@@ -136,7 +142,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let label = window.label();
-                
+
                 // 1. A PROJEÇÃO: Sempre se esconde em qualquer sistema (para reabrir rápido)
                 if label == "projection" {
                     api.prevent_close();
@@ -153,14 +159,14 @@ pub fn run() {
                     #[cfg(target_os = "macos")]
                     {
                         // No Mac: Impede de fechar e apenas esconde (comportamento de Dock)
-                        api.prevent_close(); 
-                        let _ = window.hide(); 
+                        api.prevent_close();
+                        let _ = window.hide();
                     }
-                    
+
                     #[cfg(not(target_os = "macos"))]
                     {
-                        // No Windows/Linux: Não fazemos nada! 
-                        // Deixamos o Tauri seguir o padrão natural, que é fechar a 
+                        // No Windows/Linux: Não fazemos nada!
+                        // Deixamos o Tauri seguir o padrão natural, que é fechar a
                         // janela e, por consequência, encerrar o aplicativo de vez.
                     }
                 }
@@ -171,9 +177,9 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-             if let Err(e) = dependency_manager::ensure_binaries(&handle).await {
-                        eprintln!("[ffmpeg_install] {}", e);
-                    }
+                if let Err(e) = dependency_manager::ensure_binaries(&handle).await {
+                    eprintln!("[ffmpeg_install] {}", e);
+                }
             });
 
             // --- LÓGICA EXCLUSIVA PARA MACOS ---
@@ -182,7 +188,7 @@ pub fn run() {
                 use tauri::TitleBarStyle;
                 if let Some(window) = app.get_webview_window("main") {
                     // Garante que o título esteja vazio para não ocupar espaço
-                    let _ = window.set_title(""); 
+                    let _ = window.set_title("");
                     // Força o Overlay caso o JSON não tenha pego
                     let _ = window.set_title_bar_style(TitleBarStyle::Overlay);
                 }
@@ -214,4 +220,3 @@ pub fn run() {
             _ => {} // Ignora outros eventos do ciclo de vida
         });
 }
-

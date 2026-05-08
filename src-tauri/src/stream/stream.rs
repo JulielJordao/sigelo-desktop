@@ -33,13 +33,12 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// No macOS/Linux é equivalente a Command::new().
 fn silent_cmd(bin: &PathBuf) -> Command {
     let mut cmd = Command::new(bin);
-    
+
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    
+
     cmd
 }
-
 
 // =============================================================================
 // TIPOS

@@ -22,10 +22,30 @@ import TransmissionMenu from '../premium-modules/transmission/TransmissionMenu.v
 
 import UpdateButton from './UpdateButton.vue';
 
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+
 const connectionStore = useConnectionStore()
 const menuStore = useMenuStore();
 const mediaStore = useMediaStore();
 const youtubeStore = useYoutubeStore();
+
+const ytMessage = {
+  init: {
+    color: 'alert',
+    message: 'Iniciando o Download'
+  },
+  success: {
+    color: 'success',
+    message: 'O vídeo foi salvo com sucesso.'
+  },
+  error: {
+    color: 'error',
+    message: 'Falha ao baixar vídeo.'
+  },
+}
+
+const showYtAlert = ref(false)
+const typeYtStatus = ref<'init' | 'error' | 'success'> ('init')
 
 const osType = type();
 const isMac = osType === 'macos';
@@ -65,6 +85,22 @@ const formatDuration = (seconds: number | undefined) => {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 };
 
+async function sendYtSuccessNotification() {
+  let checkPermission = await isPermissionGranted();
+
+  if (!checkPermission) {
+    const permission = await requestPermission();
+    checkPermission = permission === 'granted';
+  }
+
+  if (checkPermission) {
+    sendNotification({
+      title: 'Download Concluído',
+      body: 'Seus vídeos em cache foram processados com sucesso!',
+    });
+  }
+}
+
 /*
 const projectYoutubeVideo = async (video: MediaFile) => {
   console.log(video)
@@ -100,7 +136,7 @@ const toggleMaximize = async () => {
   try {
     // Pergunta ao sistema operacional se a janela JÁ está maximizada
     const isMaximized = await appWindow.isMaximized();
-    
+
     if (isMaximized) {
       await appWindow.unmaximize();
     } else {
@@ -122,7 +158,7 @@ const close = async () => {
   if (confirm) {
     // Isso emite um sinal nativo de "SIGKILL" para o Windows
     // Ele destrói a WebView, limpa a memória RAM e fecha o arquivo .exe
-    await exit(0); 
+    await exit(0);
   }
 };
 
@@ -130,16 +166,50 @@ const close = async () => {
 let unlistenImport: () => void;
 let unlistenExport: () => void;
 
+let unlistenYtStarted: () => void;
+let unlistenYtProgress: () => void;
+let unlistenYtFinished: () => void;
+let unlistenYtError: () => void;
+
 onMounted(async () => {
   await youtubeStore.fetchCache();
   // Por padrão, o atalho do sistema pode acionar o PDF
   unlistenImport = await listen('menu-import', () => { emit('import', 'pdf'); });
   unlistenExport = await listen('menu-export', () => { emit('export', 'pptx'); });
+  unlistenYtStarted = await listen('youtube-download-started', () => {
+    youtubeStore.actions.start()
+    typeYtStatus.value = 'init'
+    showYtAlert.value = true
+  })
+
+  unlistenYtProgress = await listen<number>('youtube-download-progress', (event) => {
+    youtubeStore.actions.setProgress(event.payload)
+  })
+
+  unlistenYtFinished = await listen('youtube-download-finished', async () => {
+    await youtubeStore.fetchCache();
+    await mediaStore.loadMedia();
+    youtubeStore.actions.finish()
+    typeYtStatus.value = 'success'
+    showYtAlert.value = true
+    await sendYtSuccessNotification()
+  })
+
+  unlistenYtError = await listen('youtube-download-error', () => {
+
+    youtubeStore.actions.finish()
+    typeYtStatus.value = 'error'
+    showYtAlert.value = true   
+  })
 });
 
 onUnmounted(() => {
   if (unlistenImport) unlistenImport();
   if (unlistenExport) unlistenExport();
+  if (unlistenYtStarted) unlistenYtStarted();
+  if (unlistenYtProgress) unlistenYtProgress();
+  if (unlistenYtFinished) unlistenYtFinished();
+  if (unlistenYtError) unlistenYtError();
 });
 </script>
 
@@ -147,53 +217,40 @@ onUnmounted(() => {
   <v-app-bar height="48" elevation="0" color="surface-light" class="app-header px-4 border-b">
     <div data-tauri-drag-region class="drag-layer"></div>
     <div v-if="isMac" style="width: 70px;" data-tauri-drag-region class="z-10"></div>
-    
+
     <v-tooltip text="Sobre o Sigelo" location="bottom">
       <template v-slot:activator="{ props }">
-        <v-btn 
-          v-bind="props" 
-          icon="mdi-information-variant" 
-          size="small"
-          variant="text" 
-          color="grey-darken-1"
-          class="z-10 ml-2" 
-          @click="showAboutDialog = true"
-        ></v-btn>
+        <v-btn v-bind="props" icon="mdi-information-variant" size="small" variant="text" color="grey-darken-1"
+          class="z-10 ml-2" @click="showAboutDialog = true"></v-btn>
       </template>
     </v-tooltip>
 
     <UpdateButton class="z-10" />
-    
+
     <v-spacer data-tauri-drag-region class="z-10"></v-spacer>
 
     <div class="z-10 d-flex align-center" :class="isMac ? '' : 'mr-4'">
-      
+
       <v-tooltip location="bottom">
         <template v-slot:activator="{ props }">
-          <div 
-            v-bind="props" 
-            class="d-flex align-center mr-4 transition-swing"
-            style="cursor: default;"
-          >
+          <div v-bind="props" class="d-flex align-center mr-4 transition-swing" style="cursor: default;">
             <v-icon
               :icon="connectionStore.hasInternet ? 'mdi-wifi' : (connectionStore.isNetworkConnected ? 'mdi-wifi-alert' : 'mdi-wifi-off')"
               :color="connectionStore.hasInternet ? 'success' : (connectionStore.isNetworkConnected ? 'warning' : 'error')"
-              size="small"
-            ></v-icon>
-            
+              size="small"></v-icon>
+
             <v-expand-x-transition>
-              <span 
-                v-if="!connectionStore.hasInternet" 
-                class="text-caption ml-2 font-weight-medium transition-swing text-no-wrap" 
-                :class="connectionStore.isNetworkConnected ? 'text-warning' : 'text-error'"
-              >
+              <span v-if="!connectionStore.hasInternet"
+                class="text-caption ml-2 font-weight-medium transition-swing text-no-wrap"
+                :class="connectionStore.isNetworkConnected ? 'text-warning' : 'text-error'">
                 {{ connectionStore.isNetworkConnected ? 'Sem Internet' : 'Offline' }}
               </span>
             </v-expand-x-transition>
           </div>
         </template>
         <span>
-          {{ connectionStore.hasInternet ? 'Conectado à Internet' : (connectionStore.isNetworkConnected ? 'Conectado à rede local (Sem Internet)' : 'Desconectado da rede') }}
+          {{ connectionStore.hasInternet ? 'Conectado à Internet' : (connectionStore.isNetworkConnected ?
+            'Conectado à rede local(Sem Internet)' : 'Desconectado da rede') }}
         </span>
       </v-tooltip>
       <v-divider vertical class="mx-3 h-50 align-self-center opacity-50"></v-divider>
@@ -209,9 +266,16 @@ onUnmounted(() => {
           <template v-slot:activator="{ props: menuProps }">
             <v-tooltip text="Vídeos em Cache" location="bottom">
               <template v-slot:activator="{ props: tooltipProps }">
-                <v-btn v-bind="{ ...menuProps, ...tooltipProps }" prepend-icon="mdi-youtube">
+
+                <!-- Adicionamos a classe 'overflow-hidden' para garantir que a barra não vaze pelas bordas arredondadas -->
+                <v-btn v-bind="{ ...menuProps, ...tooltipProps }" prepend-icon="mdi-youtube" class="overflow-hidden">
                   {{ youtubeStore.cachedVideos.length }}
+
+                  <!-- A barra de progresso agora fica DENTRO do botão -->
+                  <v-progress-linear v-if="youtubeStore.state.downloading" :model-value="youtubeStore.state.progress"
+                    height="3" absolute bottom />
                 </v-btn>
+
               </template>
             </v-tooltip>
           </template>
@@ -298,8 +362,9 @@ onUnmounted(() => {
               <v-divider class="mb-3"></v-divider>
 
               <div class="d-flex gap-22">
-                <v-btn :color="isFixedActive ? 'warning' : 'success'" variant="tonal" size="small" class="flex-grow-1 mr-2 mt-1"
-                  :prepend-icon="isFixedActive ? 'mdi-eye-off' : 'mdi-eye'" @click="toggleFixedMedia">
+                <v-btn :color="isFixedActive ? 'warning' : 'success'" variant="tonal" size="small"
+                  class="flex-grow-1 mr-2 mt-1" :prepend-icon="isFixedActive ? 'mdi-eye-off' : 'mdi-eye'"
+                  @click="toggleFixedMedia">
                   {{ isFixedActive ? 'Ocultar' : 'Exibir' }}
                 </v-btn>
 
@@ -314,7 +379,7 @@ onUnmounted(() => {
       <v-btn-group color="primary" variant="outlined" density="comfortable" divided
         class="rounded-pill overflow-hidden bg-surface-light" v-if="optionsIsVisible">
 
-        <v-menu location="bottom end" transition="slide-y-transition" >
+        <v-menu location="bottom end" transition="slide-y-transition">
           <template v-slot:activator="{ props: menuProps }">
             <v-tooltip text="Importar..." location="bottom">
               <template v-slot:activator="{ props: tooltipProps }">
@@ -356,6 +421,14 @@ onUnmounted(() => {
       <v-btn icon="mdi-close" variant="text" size="small" class="window-btn btn-close" @click="close"></v-btn>
     </div>
   </v-app-bar>
+  <v-snackbar v-model="showYtAlert" :color="ytMessage[typeYtStatus].color" elevation="24" rounded="pill" :timeout="3000">
+        <v-icon start icon="mdi-check-circle"></v-icon>
+        {{ytMessage[typeYtStatus].message}}
+
+        <template v-slot:actions>
+            <v-btn variant="text" @click="showYtAlert = false">Fechar</v-btn>
+        </template>
+    </v-snackbar>
 </template>
 
 <style scoped>
