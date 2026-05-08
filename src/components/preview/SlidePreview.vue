@@ -2,10 +2,14 @@
 import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import { useMusicPresentationStore } from '../../stores/presentationStore';
 import SmartVideo from '../SmartVideo.vue';
+import { formatAuthorCredits } from '../../utils/formatCredits';
 
 const configStore = useConfigStore()
 const statusStore = useStatusPresentationStore()
+
+const songInfo = useMusicPresentationStore();
 
 const isReloadEngine = ref(true);
 
@@ -20,10 +24,11 @@ const props = defineProps({
     editable: { type: Boolean, default: false },
     autoFontSize: { type: Boolean, default: false },
 
-    isFixedPreview: {type: Boolean, default: false},
+    isFixedPreview: { type: Boolean, default: false },
 
     // NOVO: Prop para forçar a pausa do vídeo externamente
-    pauseVideo: { type: Boolean, default: false }
+    pauseVideo: { type: Boolean, default: false },
+    isCoverSlide: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['update-layout', 'update-font-size']);
@@ -142,7 +147,7 @@ watch(() => props.design.bgMedia, async () => {
         // videoRef.value.load(); // ← força o browser a recarregar o novo src
         if (!isVideoPaused.value) {
             videoRef.value.play().catch(() => { });
-        } 
+        }
     }
 });
 
@@ -154,6 +159,34 @@ watch(() => configStore.settings.videoEngine, (engine) => {
         isReloadEngine.value = true
     })
 })
+
+// Texto formatado dos créditos
+const creditsText = computed(() => {
+
+    const song = songInfo.activeSong as any;
+    if (!song) return '';
+
+    return formatAuthorCredits(song)
+
+});
+
+// Decide se mostra os créditos no canto
+const showCornerCredits = computed(() => {
+    return props.design.authorCredits
+        && creditsText.value
+        && !props.design.authorCreditsCoverOnly
+        && !props.isCoverSlide;
+});
+
+// Decide se mostra os créditos abaixo do título (capa)
+const showCoverCredits = computed(() => {
+    return props.design.authorCredits
+        && creditsText.value
+        && props.design.authorCreditsCoverOnly
+        && props.isCoverSlide;
+});
+
+const creditsPosition = computed(() => props.design.authorCreditsPosition || 'bottom-right');
 </script>
 
 <template>
@@ -166,17 +199,17 @@ watch(() => configStore.settings.videoEngine, (engine) => {
         <img v-if="design.bgType !== 'color' && !design.bgIsVideo && design.bgMedia" :src="design.bgMedia"
             class="video-bg" :style="{ objectFit: design.bgFit }" />
 
-        <div v-if="props.isFixedPreview"> 
+        <div v-if="props.isFixedPreview">
             <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia"
-            :src="design.bgMedia" no-audio loop muted class="video-bg"
-            :object-fit="design.bgFit"  preview-only/>
+                :src="design.bgMedia" no-audio loop muted class="video-bg" :object-fit="design.bgFit" preview-only />
         </div>
         <div v-else>
-            <SmartVideo ref="videoRef" v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia && isReloadEngine" 
-            :src="design.bgMedia" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
-            :object-fit="design.bgFit" :preview-timestamp="1" />
+            <SmartVideo ref="videoRef"
+                v-if="design.bgType !== 'color' && design.bgIsVideo && design.bgMedia && isReloadEngine"
+                :src="design.bgMedia" no-audio :autoplay="!isVideoPaused" loop muted class="video-bg"
+                :object-fit="design.bgFit" :preview-timestamp="1" />
         </div>
-        
+
 
         <v-fade-transition>
             <div v-if="design.bgIsVideo && isVideoPaused && !props.isFixedPreview" class="video-paused-indicator">
@@ -187,46 +220,52 @@ watch(() => configStore.settings.videoEngine, (engine) => {
         <div class="dark-overlay"
             :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
 
-        <div class="slide-text-box" :class="{
-            'is-positioning': editable,
-            'is-active': interactionType !== null
-        }" :style="{
-            left: `${design.posX}%`,
-            top: `${design.posY}%`,
-            width: `${design.width}%`,
-            height: `${design.height}%`,
-            fontFamily: textStyle.fontFamily
-        }" @mousedown="startAction($event, 'move')">
+        <div class="slide-text-box" :class="{ 'is-positioning': editable, 'is-active': interactionType !== null }"
+            :style="{ left: `${design.posX}%`, top: `${design.posY}%`, width: `${design.width}%`, height: `${design.height}%`, fontFamily: textStyle.fontFamily }"
+            @mousedown="startAction($event, 'move')">
 
-            <div class="text-inner-content" :style="{
-                fontSize: `${textStyle.fontSize}cqi`,
-                textAlign: textStyle.align,
-                fontWeight: textStyle.bold ? 'bold' : 'normal',
-                fontStyle: textStyle.italic ? 'italic' : 'normal',
-                color: textStyle.color,
-                width: '100%',
-                maxHeight: '100%',
-                overflow: 'hidden'
-            }">
-                {{ text }}
+            <div class="text-with-credits-wrapper-preview" :style="{ textAlign: textStyle.align }">
+                <div class="text-inner-content" :style="{
+                    fontSize: `${textStyle.fontSize}cqi`,
+                    textAlign: textStyle.align,
+                    fontWeight: textStyle.bold ? 'bold' : 'normal',
+                    fontStyle: textStyle.italic ? 'italic' : 'normal',
+                    color: textStyle.color,
+                    width: '100%',
+                    lineHeight: 1.2
+                }">
+                    {{ text }}
+                </div>
+
+                <!-- Créditos abaixo do título (modo capa) -->
+                <div v-if="showCoverCredits" class="author-credits-cover-preview" :style="{
+                    fontFamily: textStyle.fontFamily,
+                    fontSize: (textStyle.fontSize * 0.20) + 'cqi',
+                    color: textStyle.color,
+                    textAlign: textStyle.align
+                }">
+                    {{ creditsText }}
+                </div>
             </div>
 
+            <!-- Handles de edição -->
             <template v-if="editable">
                 <div class="handle tl" @mousedown.stop="startAction($event, 'tl')" />
-                <div class="handle tr" @mousedown.stop="startAction($event, 'tr')" />
-                <div class="handle bl" @mousedown.stop="startAction($event, 'bl')" />
-                <div class="handle br" @mousedown.stop="startAction($event, 'br')" />
-                <div class="handle t" @mousedown.stop="startAction($event, 't')" />
-                <div class="handle b" @mousedown.stop="startAction($event, 'b')" />
-                <div class="handle l" @mousedown.stop="startAction($event, 'l')" />
-                <div class="handle r" @mousedown.stop="startAction($event, 'r')" />
+                <!-- ... outros handles ... -->
             </template>
+        </div>
+        <!-- Créditos no canto (fora da text-box, no preview-screen) -->
+        <div v-if="showCornerCredits" class="author-credits-corner-preview" :class="`pos-${creditsPosition}`" :style="{
+            fontFamily: textStyle.fontFamily,
+            fontSize: (textStyle.fontSize * 0.3) + 'cqi',
+            color: textStyle.color
+        }">
+            {{ creditsText }}
         </div>
     </div>
 </template>
 
 <style scoped>
-/* O seu bloco <style> não precisou de alteração, mantém as configurações de exibição */
 .preview-wrapper {
     height: 45vh;
     padding: 24px;
@@ -238,13 +277,9 @@ watch(() => configStore.settings.videoEngine, (engine) => {
     overflow: hidden;
     position: relative;
     transition: aspect-ratio 0.3s ease;
-
-    /* NOVO: CSS Containment. Diz ao Chromium que nada dentro dessa div afeta o layout de fora.
-       Isso corta o tempo de recálculo da CPU/GPU pela metade. */
     contain: layout paint;
-
-    /* NOVO: Força o Preview inteiro a virar uma textura única na memória da GPU */
     transform: translateZ(0);
+    container-type: inline-size;
 }
 
 .dark-overlay {
@@ -254,12 +289,8 @@ watch(() => configStore.settings.videoEngine, (engine) => {
     width: 100%;
     height: 100%;
     z-index: 2;
-    /* Nível 2 - Acima do fundo */
     pointer-events: none;
     transition: background-color 0.3s ease;
-
-    /* NOVO: Força a película a ter sua própria camada, para que a GPU não precise
-       "fundir" a cor dela com os pixels do vídeo a todo momento via CPU */
     will-change: background-color;
     transform: translateZ(0);
 }
@@ -272,9 +303,7 @@ watch(() => configStore.settings.videoEngine, (engine) => {
     width: 100%;
     height: 100%;
     z-index: 1;
-
     will-change: contents;
-    /* NOVO: Impede que o vídeo recalcule cliques do mouse desnecessariamente */
     pointer-events: none;
 }
 
@@ -286,20 +315,29 @@ watch(() => configStore.settings.videoEngine, (engine) => {
     justify-content: center;
     overflow: hidden;
     color: white;
-    /* Cor da fonte em branco na projeção */
     text-align: center;
     white-space: pre-wrap;
     user-select: none;
     border: 2px dashed rgba(255, 255, 255, 0.6);
     background-color: rgba(33, 150, 243, 0.1);
     cursor: move;
-
     container-type: inline-size;
+}
+
+.text-with-credits-wrapper-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-height: 100%;
+    overflow: hidden;
 }
 
 .text-inner-content {
     pointer-events: none;
     z-index: 3;
+    width: 100%;
 }
 
 .slide-text-box.is-positioning {
@@ -407,7 +445,6 @@ watch(() => configStore.settings.videoEngine, (engine) => {
     outline: 2px solid rgb(var(--v-theme-primary));
     outline-offset: 3px;
     transform: scale(1.1);
-    /* Dá um leve zoom no botão selecionado */
 }
 
 .video-paused-indicator {
@@ -421,13 +458,63 @@ watch(() => configStore.settings.videoEngine, (engine) => {
     align-items: center;
     justify-content: center;
     z-index: 10;
-    /* Fica acima do fundo e dark-overlay, mas abaixo do texto (z-index 20) */
     background-color: rgba(0, 0, 0, 0.5);
-    /* Escurece um pouco mais o vídeo congelado */
 }
 
 .video-paused-indicator span {
     text-shadow: 0px 2px 4px rgba(0, 0, 0, 0.8);
     letter-spacing: 1px;
+}
+
+/* ════════════════════ CRÉDITOS ════════════════════ */
+
+/* Créditos no canto dos slides */
+.author-credits-corner-preview {
+    position: absolute;
+    z-index: 15;
+    padding: 1.5cqi 2cqi;
+    opacity: 0.85;
+    pointer-events: none;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.2;
+    max-width: 40%;
+}
+
+.author-credits-corner-preview.pos-top-left {
+    top: 0;
+    left: 0;
+    text-align: left;
+}
+
+.author-credits-corner-preview.pos-top-right {
+    top: 0;
+    right: 0;
+    text-align: right;
+}
+
+.author-credits-corner-preview.pos-bottom-left {
+    bottom: 0;
+    left: 0;
+    text-align: left;
+}
+
+.author-credits-corner-preview.pos-bottom-right {
+    bottom: 0;
+    right: 0;
+    text-align: right;
+}
+
+/* Créditos abaixo do título (slide de capa) - dentro do flex wrapper */
+.author-credits-cover-preview {
+    margin-top: 2.5cqi;
+    opacity: 0.85;
+    font-style: italic;
+    line-height: 1.3;
+    width: 100%;
+    pointer-events: none;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 </style>

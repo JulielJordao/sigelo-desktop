@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { usePresentationStore } from '../../stores/usePresentationStore'
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import SlidePreview from '../preview/SlidePreview.vue'
@@ -51,21 +51,19 @@ const isDeleteMode = ref(false);
 const confirmDeleteModal = ref(false);
 const presetToDelete = ref<any>(null);
 
-// Alterna o modo de exclusão (e cancela edições ativas por segurança)
 const toggleDeleteMode = () => {
     isDeleteMode.value = !isDeleteMode.value;
     if (isDeleteMode.value) {
         cancelEditing();
+        closeSearch();
     }
 };
 
-// Abre a modal de confirmação
 const promptDelete = (preset: any) => {
     presetToDelete.value = preset;
     confirmDeleteModal.value = true;
 };
 
-// Efetiva a exclusão
 const confirmDeletion = () => {
     if (presetToDelete.value) {
         presentationStore.deletePreset(presetToDelete.value.id);
@@ -74,21 +72,114 @@ const confirmDeletion = () => {
     confirmDeleteModal.value = false;
     presetToDelete.value = null;
 
-    // Opcional: Sai do modo de exclusão se não houver mais presets
     if (presentationStore.presets.length === 0) {
         isDeleteMode.value = false;
     }
 };
 
-// Limpa os estados ao fechar a modal principal
+// --- Lógica de Busca ---
+const isSearchOpen = ref(false);
+const searchQuery = ref('');
+const searchInputRef = ref<any>(null);
+
+const openSearch = async (initialChar = '') => {
+    isSearchOpen.value = true;
+    searchQuery.value = initialChar;
+    await nextTick();
+    const input = searchInputRef.value?.$el?.querySelector('input');
+    if (input) {
+        input.focus();
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+    }
+};
+
+const closeSearch = () => {
+    isSearchOpen.value = false;
+    searchQuery.value = '';
+};
+
+const filteredPresets = computed(() => {
+    if (!searchQuery.value.trim()) {
+        return presentationStore.presets;
+    }
+    const query = searchQuery.value.toLowerCase().trim();
+    return presentationStore.presets.filter((preset: any) =>
+        preset.name.toLowerCase().includes(query)
+    );
+});
+
+// Listener global de teclado
+const handleGlobalKeydown = (e: KeyboardEvent) => {
+    if (!isPresetModalOpen.value) return;
+
+    // ESC com prioridade hierárquica
+    if (e.key === 'Escape') {
+        // Se a confirmação de delete está aberta, deixa ela tratar
+        if (confirmDeleteModal.value) return;
+
+        // 1ª prioridade: fechar busca
+        if (isSearchOpen.value) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSearch();
+            return;
+        }
+
+        // 2ª prioridade: sair do modo deletar
+        if (isDeleteMode.value) {
+            e.preventDefault();
+            e.stopPropagation();
+            isDeleteMode.value = false;
+            return;
+        }
+
+        // 3ª prioridade: cancelar edição
+        if (editingPresetId.value !== null) {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelEditing();
+            return;
+        }
+
+        // Sem nenhum modo ativo → deixa o ESC fechar a modal naturalmente
+        return;
+    }
+
+    // Bloqueios para abrir busca por digitação
+    if (editingPresetId.value !== null) return;
+    if (isDeleteMode.value) return;
+    if (confirmDeleteModal.value) return;
+    if (isSearchOpen.value) return;
+
+    const target = e.target as HTMLElement;
+    const tag = target?.tagName?.toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || target?.isContentEditable) return;
+
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+    if (e.key.length === 1 && /\S/.test(e.key)) {
+        e.preventDefault();
+        openSearch(e.key);
+    }
+};
+
+onMounted(() => {
+    window.addEventListener('keydown', handleGlobalKeydown, true);
+});
+
+onUnmounted(() => {
+    window.removeEventListener('keydown', handleGlobalKeydown, true);
+});
+
 watch(isPresetModalOpen, (newVal) => {
     if (!newVal) {
         isDeleteMode.value = false;
         cancelEditing();
+        closeSearch();
     }
     menuStore.setShiftShortcutLocked(newVal)
 });
-
 </script>
 
 <template>
@@ -98,6 +189,38 @@ watch(isPresetModalOpen, (newVal) => {
                 <v-icon icon="mdi-palette" class="mr-2" color="primary"></v-icon>
                 Galeria de Temas
                 <v-spacer></v-spacer>
+
+                <!-- Campo de busca expansível (à esquerda da lupa) -->
+                <div class="search-wrapper" :class="{ 'is-open': isSearchOpen }">
+                    <v-text-field
+                        v-show="isSearchOpen"
+                        ref="searchInputRef"
+                        v-model="searchQuery"
+                        density="compact"
+                        variant="solo-filled"
+                        flat
+                        hide-details
+                        placeholder="Buscar tema..."
+                        clearable
+                        class="search-field"
+                        @keyup.esc.stop="closeSearch"
+                        @click:clear="closeSearch"
+                    ></v-text-field>
+                </div>
+
+                <v-tooltip :text="isSearchOpen ? 'Fechar busca' : 'Buscar tema'" location="bottom">
+                    <template v-slot:activator="{ props }">
+                        <v-btn
+                            v-bind="props"
+                            :icon="isSearchOpen ? 'mdi-magnify-close' : 'mdi-magnify'"
+                            variant="text"
+                            :color="isSearchOpen ? 'primary' : 'medium-emphasis'"
+                            class="mr-1"
+                            :disabled="isDeleteMode"
+                            @click="isSearchOpen ? closeSearch() : openSearch()"
+                        ></v-btn>
+                    </template>
+                </v-tooltip>
                 
                 <v-tooltip :text="isDeleteMode ? 'Sair do modo de exclusão' : 'Excluir temas'" location="bottom">
                     <template v-slot:activator="{ props }">
@@ -116,9 +239,14 @@ watch(isPresetModalOpen, (newVal) => {
             </v-card-title>
 
             <v-card-text class="pa-6 bg-background">
-                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
+                <div v-if="filteredPresets.length === 0" class="text-center py-8 text-medium-emphasis">
+                    <v-icon icon="mdi-magnify-close" size="48" class="mb-2"></v-icon>
+                    <div>Nenhum tema encontrado para "{{ searchQuery }}"</div>
+                </div>
 
-                    <v-card v-for="preset in presentationStore.presets" :key="preset.id" hover
+                <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
+
+                    <v-card v-for="preset in filteredPresets" :key="preset.id" hover
                         class="d-flex flex-column rounded-lg overflow-hidden border"
                         :class="{ 
                             'border-primary border-md': presentationStore.currentPresetId === preset.id && !isDeleteMode,
@@ -133,7 +261,8 @@ watch(isPresetModalOpen, (newVal) => {
                                 style="border-radius: 0;" 
                                 :isFixedPreview="true"
                                 :class="{ 'opacity-50': isDeleteMode }"
-                                :pauseVideo="true" />
+                                :pauseVideo="true"
+                                :isCoverSlide="songInfo.getCurrentSlideType === 'titulo'"/>
                         </div>
 
                         <div class="pa-2 bg-surface d-flex align-center justify-space-between" style="min-height: 52px;">
@@ -193,3 +322,21 @@ watch(isPresetModalOpen, (newVal) => {
         </v-card>
     </v-dialog>
 </template>
+
+<style scoped>
+.search-wrapper {
+    width: 0;
+    overflow: hidden;
+    transition: width 0.25s ease;
+    margin-right: 0;
+}
+
+.search-wrapper.is-open {
+    width: 240px;
+    margin-right: 8px;
+}
+
+.search-field {
+    width: 100%;
+}
+</style>

@@ -42,7 +42,9 @@ export const useSongCacheStore = defineStore('songCache', () => {
         songGroupId: '', 
         id: '', 
         fullName: '', 
-        lyric: '' 
+        lyric: '',
+        writerBy: undefined,
+        melodyBy: undefined
     });
     const listLastDataUpdated = ref<LastUpdateMap>({});
 
@@ -87,6 +89,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
                 // Se descriptografou com sucesso, converte de volta para o Array
                 if (decryptedStr) {
                     listSongGroups.value = JSON.parse(decryptedStr);
+                    console.log("list", listSongGroups.value)
                 }
             } else {
                 cacheSongsIsClean = false

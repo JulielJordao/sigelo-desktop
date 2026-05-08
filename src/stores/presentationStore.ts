@@ -156,12 +156,17 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
 
     // Função local para atualizar a reatividade da tela de forma limpa
     const updateUI = (listSongs: any[]) => {
-      songs.value = listSongs.map((it) => ({
-        id: it.id,
-        songGroupId: it.songGroupId,
-        fullName: it.fullName,
-        lyric: it.lyric
-      }));
+      songs.value = listSongs.map((it) => (
+        {
+          id: it.id,
+          songGroupId: it.songGroupId,
+          fullName: it.fullName,
+          lyric: it.lyric,
+          writerBy: it.writerBy,
+          melodyBy: it.melodyBy,
+          tone: it.tone,
+          bibleRefs: it.bibleRefs
+        }));
     };
 
     // 1. OFFLINE-FIRST: Carrega as músicas do cache instantaneamente
@@ -198,7 +203,11 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
             songGroupId: selectedGroupId.value,
             id: it._id,
             fullName: it.fullName,
-            lyric: "" // O getCacheLyrics preencherá isso
+            lyric: "",
+            melodyBy: it.melodyBy,
+            writerBy: it.writerBy,
+            tags: it.tags,
+            bibleRefs: it.bibleRef
           }))
         });
 

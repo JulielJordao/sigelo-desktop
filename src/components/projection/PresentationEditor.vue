@@ -16,6 +16,7 @@ import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
 import type { Slide } from '../../stores/presentationStore';
+import { formatAuthorCredits } from '../../utils/formatCredits';
 
 // Importação das Abas Separadas
 import TabSlides from '../tabs/TabSlides.vue';
@@ -326,7 +327,8 @@ const projectCurrentSlide = async () => {
         meta: {
             songTitle: songInfo.activeSong?.fullName || '',
             songId: songInfo.activeSong?.id || null,
-            author: (songInfo.activeSong as any)?.author || null,
+            writerBy: (songInfo.activeSong as any)?.writerBy || null,
+            melodyBy: (songInfo.activeSong as any)?.melodyBy || null,
             slideNumber: slideNumber,
             totalSlides: totalSlides,
             progressPct: progressPct,
@@ -350,6 +352,15 @@ const projectCurrentSlide = async () => {
             opacity: conf.bgOpacity / 100,
             transition: conf.transitionType === 'fade' ? 'ease-in-out' : 'none',
             padding: `${conf.marginTop}px ${conf.marginRight}px ${conf.marginBottom}px ${conf.marginLeft}px`
+        },
+
+        credits: {
+            enabled: !!currentDesign.authorCredits,
+            text: formatAuthorCredits(songInfo.activeSong),
+            position: currentDesign.authorCreditsPosition || 'bottom-right',
+            coverOnly: !!currentDesign.authorCreditsCoverOnly,
+            // Flag útil para o componente saber se este slide é a capa
+            isCoverSlide: slideKind === 'titulo'
         },
         
         // ─── TEXTO ATUAL (existente + enriquecido) ───────────────────────
@@ -762,6 +773,7 @@ const updateCurrentPreset = async () => {
             <div class="bg-black d-flex align-center justify-center relative flex-shrink-0 preview-wrapper">
                 <SlidePreview :design="design" :textStyle="currentActiveStyle" :text="currentSlideText"
                     :screenRatio="configStore.screenRatio" :editable="currentTab === 'posicao'"
+                    :isCoverSlide="songInfo.getCurrentSlideType === 'titulo'"
                     :autoFontSize="infoPresentationStore.autoFontSize" @update-layout="handleLayoutUpdate"
                     @update-font-size="handleFontSizeUpdate" />
             </div>

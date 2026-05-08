@@ -494,10 +494,9 @@ onUnmounted(() => {
             <div v-if="projectionType === 'html'" v-html="htmlContent" class="h-100 w-100"></div>
 
             <div v-else-if="projectionType === 'slide' && slideData" class="slide-root-container"
-                :class="`theme-${slideData.layout.theme}`" :style="{
-                    backgroundColor: slideData.layout.chromaKey,
-                    transition: `opacity 0.3s ${slideData.layout.transition}`
-                }">
+                :class="`theme-${slideData.layout.theme}`" :style="{ backgroundColor: slideData.layout.chromaKey }">
+
+                <!-- Background fixo - NÃO animado -->
                 <div class="background-layer">
                     <div v-if="slideData.background.type === 'color'"
                         :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
@@ -507,43 +506,75 @@ onUnmounted(() => {
                     <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
                         :style="{ objectFit: slideData.background.fit }" />
                 </div>
+
                 <div class="dark-overlay"
                     :style="{ backgroundColor: `rgba(0, 0, 0, ${configStore.settings.bgOpacity / 100})` }"></div>
+
                 <div class="content-layer" :style="{ padding: slideData.layout.padding }">
                     <div class="relative-box">
-                        <div class="text-layer" :style="{
-                            left: slideData.text.posX + '%', top: slideData.text.posY + '%',
-                            width: slideData.text.width + '%', height: slideData.text.height + '%'
-                        }">
-                            <div :style="{
-                                fontFamily: `'${slideData.text.fontFamily}', sans-serif`, fontSize: slideData.text.fontSize + 'cqi',
-                                color: slideData.text.color, textAlign: slideData.text.align,
-                                fontWeight: slideData.text.bold ? 'bold' : 'normal', fontStyle: slideData.text.italic ? 'italic' : 'normal',
-                                whiteSpace: 'pre-wrap', width: '100%', maxHeight: '100%', overflow: 'hidden'
+                        <!-- Texto principal -->
+                        <Transition :name="`text-${configStore.settings.transitionType}`" mode="out-in">
+                            <div class="text-layer" :key="slideData.text.content" :style="{
+                                left: slideData.text.posX + '%',
+                                top: slideData.text.posY + '%',
+                                width: slideData.text.width + '%',
+                                height: slideData.text.height + '%'
                             }">
-                                {{ slideData.text.content }}
+                                <!-- Wrapper flex que agrupa título + créditos -->
+                                <div class="text-with-credits-wrapper" :style="{ textAlign: slideData.text.align }">
+                                    <div :style="{
+                                        fontFamily: `'${slideData.text.fontFamily}', sans-serif`,
+                                        fontSize: slideData.text.fontSize + 'cqi',
+                                        color: slideData.text.color,
+                                        textAlign: slideData.text.align,
+                                        fontWeight: slideData.text.bold ? 'bold' : 'normal',
+                                        fontStyle: slideData.text.italic ? 'italic' : 'normal',
+                                        whiteSpace: 'pre-wrap',
+                                        width: '100%',
+                                        lineHeight: 1.2
+                                    }">
+                                        {{ slideData.text.content }}
+                                    </div>
+
+                                    <!-- Créditos abaixo do título (só na capa) -->
+                                    <div v-if="slideData.credits?.enabled
+                                        && slideData.credits.text
+                                        && slideData.credits.coverOnly
+                                        && slideData.credits.isCoverSlide" class="author-credits-cover" :style="{
+                                            fontFamily: `'${slideData.text.fontFamily}', sans-serif`,
+                                            fontSize: (slideData.text.fontSize * 0.18) + 'cqi',
+                                            color: slideData.text.color,
+                                            textAlign: slideData.text.align
+                                        }">
+                                        {{ slideData.credits.text }}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        </Transition>
                     </div>
+                </div>
+
+                <!-- Créditos no canto (em todos os slides, quando NÃO é coverOnly) -->
+                <div v-if="slideData.credits?.enabled
+                    && slideData.credits.text
+                    && !slideData.credits.coverOnly
+                    && !slideData.credits.isCoverSlide" class="author-credits-corner"
+                    :class="`pos-${slideData.credits.position}`" :style="{
+                        fontFamily: `'${slideData.text.fontFamily}', sans-serif`,
+                        fontSize: (slideData.text.fontSize * 0.3) + 'cqi',
+                        color: slideData.text.color
+                    }">
+                    {{ slideData.credits.text }}
                 </div>
             </div>
 
             <!-- ═══════════════ VÍDEO PRINCIPAL DA MÍDIA ═══════════════ -->
             <!-- Emite TODOS os eventos relevantes para sync imediato -->
             <div v-else-if="projectionType === 'media' && currentMedia" class="media-fullscreen-container">
-                <SmartVideo
-                    v-if="currentMedia.isVideo"
-                    ref="videoRef"
-                    :src="currentMedia.url"
-                    autoplay
-                    class="w-100 h-100"
-                    :style="{ width: '100%', height: '100%' }"
-                    @loadedmetadata="onVideoLoadedMetadata"
-                    @play="onVideoPlay"
-                    @playing="onVideoPlay"
-                    @pause="onVideoPause"
-                    @seeked="onVideoSeeked"
-                    @ended="onVideoEnded" />
+                <SmartVideo v-if="currentMedia.isVideo" ref="videoRef" :src="currentMedia.url" autoplay
+                    class="w-100 h-100" :style="{ width: '100%', height: '100%' }"
+                    @loadedmetadata="onVideoLoadedMetadata" @play="onVideoPlay" @playing="onVideoPlay"
+                    @pause="onVideoPause" @seeked="onVideoSeeked" @ended="onVideoEnded" />
                 <img v-else :src="currentMedia.url" class="w-100 h-100 object-fit-contain" />
             </div>
 
@@ -665,6 +696,156 @@ onUnmounted(() => {
     background-color: black;
 }
 
+/* ════════════════════ CRÉDITOS ════════════════════ */
+
+/* Créditos no canto dos slides (versos/refrão) */
+.author-credits-corner {
+    position: absolute;
+    z-index: 4;
+    padding: 1.5cqi 2cqi;
+    opacity: 0.85;
+    pointer-events: none;
+    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.2;
+    max-width: 40%;
+}
+
+.author-credits-corner.pos-top-left {
+    top: 0;
+    left: 0;
+    text-align: left;
+}
+
+.author-credits-corner.pos-top-right {
+    top: 0;
+    right: 0;
+    text-align: right;
+}
+
+.author-credits-corner.pos-bottom-left {
+    bottom: 0;
+    left: 0;
+    text-align: left;
+}
+
+.author-credits-corner.pos-bottom-right {
+    bottom: 0;
+    right: 0;
+    text-align: right;
+}
+
+/* Créditos abaixo do título (slide de capa) - dentro do flex wrapper */
+.author-credits-cover {
+    margin-top: 2.5cqi;
+    opacity: 0.8;
+    font-style: italic;
+    line-height: 1.3;
+    width: 100%;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ════════════════════ TRANSIÇÕES DE TEXTO ════════════════════ */
+
+/* FADE */
+.text-fade-enter-active,
+.text-fade-leave-active {
+    transition: opacity 0.25s ease;
+}
+
+.text-fade-enter-from,
+.text-fade-leave-to {
+    opacity: 0;
+}
+
+/* NONE */
+.text-none-enter-active,
+.text-none-leave-active {
+    transition: none;
+}
+
+/* SLIDE vertical */
+.text-slide-enter-active,
+.text-slide-leave-active {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.text-slide-enter-from {
+    opacity: 0;
+    transform: translateY(20px);
+}
+
+.text-slide-leave-to {
+    opacity: 0;
+    transform: translateY(-20px);
+}
+
+/* ZOOM */
+.text-zoom-enter-active,
+.text-zoom-leave-active {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.text-zoom-enter-from {
+    opacity: 0;
+    transform: scale(0.92);
+}
+
+.text-zoom-leave-to {
+    opacity: 0;
+    transform: scale(1.05);
+}
+
+/* BLUR */
+.text-blur-enter-active,
+.text-blur-leave-active {
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.text-blur-enter-from,
+.text-blur-leave-to {
+    opacity: 0;
+    filter: blur(8px);
+}
+
+/* SLIDE horizontal */
+.text-slide-h-enter-active,
+.text-slide-h-leave-active {
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.text-slide-h-enter-from {
+    opacity: 0;
+    transform: translateX(30px);
+}
+
+.text-slide-h-leave-to {
+    opacity: 0;
+    transform: translateX(-30px);
+}
+
+/* RISE */
+.text-rise-enter-active {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.text-rise-leave-active {
+    transition: opacity 0.15s ease;
+}
+
+.text-rise-enter-from {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+.text-rise-leave-to {
+    opacity: 0;
+}
+
+/* ════════════════════ ESTRUTURA DA PROJEÇÃO ════════════════════ */
+
 .projection-window-container {
     position: fixed;
     inset: 0;
@@ -733,7 +914,20 @@ onUnmounted(() => {
     align-items: center;
     justify-content: center;
     container-type: inline-size;
+    overflow: hidden;
 }
+
+.text-with-credits-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+/* ════════════════════ MÍDIA / TIMER / NOTICE (mantidos) ════════════════════ */
 
 .media-fullscreen-container {
     width: 100%;

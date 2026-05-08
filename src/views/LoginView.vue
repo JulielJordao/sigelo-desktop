@@ -35,17 +35,19 @@ const checkAuthStatus = async () => {
   try {
     await userStore.init();
     
-    console.log(userStore.userId)
-    if (userStore.userId && userStore.userId !== "") {
+    const token = localStorage.getItem("userToken")
+    const isValid = userStore.userId && userStore.userId !== "" && !!token
+
+    if (isValid) {
       redirect();
-      // Não mudamos o isChecking para false aqui, pois a tela já vai mudar
     } else {
-      // Apenas se não tiver usuário, revelamos o form de login
+      await userStore.logout()  
       isChecking.value = false;
     }
   } catch (error) {
-    console.error("Erro ao checar auth:", error);
-    isChecking.value = false; // Em caso de erro, libera a tela de login
+    console.log(error)
+    await userStore.logout()
+    isChecking.value = false;
   }
 };
 

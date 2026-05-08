@@ -58,9 +58,13 @@ const aspectOptions = [
 ];
 
 const transitionOptions = [
-  { title: 'Esmaecimento (Fade-in)', value: 'fade' },
+  { title: 'Esmaecimento (Fade)', value: 'fade' },
   { title: 'Corte Seco (Sem animação)', value: 'none' },
-  { title: 'Deslizar (Slide)', value: 'slide' }
+  { title: 'Deslizar Vertical', value: 'slide' },
+  { title: 'Deslizar Horizontal', value: 'slide-h' },
+  { title: 'Zoom Suave', value: 'zoom' },
+  { title: 'Desfoque (Blur)', value: 'blur' },
+  { title: 'Subida Suave', value: 'rise' }
 ];
 
 const themeOptions = <string[]>[];
@@ -161,22 +165,6 @@ const clearCache = async () => {
     console.error("Erro ao limpar cache:", error);
   }
 };
-
-/* Vamos simular o carregamento do tamanho das pastas ao abrir o modal
-const fetchStorageStats = async () => {
-    try {
-        // const stats = await invoke('get_storage_stats_cmd');
-        // storageStats.value = stats;
-        
-        // Mock visual:
-        storageStats.value = {
-            mediaSize: '4.2 GB',
-            cacheSize: '350 MB'
-        };
-    } catch (error) {
-        console.error("Erro ao ler armazenamento:", error);
-    }
-};*/
 
 // Inicializa os caminhos e garante que as pastas existem
 const setupFolders = async () => {
@@ -586,7 +574,7 @@ const engineOptions = [
               <v-col cols="12" md="6">
                 <v-select v-model="localSettings.transitionType" :items="transitionOptions"
                   label="Transição entre Slides" variant="outlined" density="comfortable"
-                  prepend-inner-icon="mdi-transition" hide-details class="mb-4" disabled></v-select>
+                  prepend-inner-icon="mdi-transition" hide-details class="mb-4"></v-select>
               </v-col>
             </v-row>
 

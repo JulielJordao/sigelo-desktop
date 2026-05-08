@@ -34,6 +34,8 @@ export interface DesignState {
     authorCredits: boolean;
     targetLines?: number;
     maxLines?: number;
+    authorCreditsPosition?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+    authorCreditsCoverOnly?: boolean;
 }
 
 export interface TextStylesState {
@@ -83,7 +85,9 @@ export const usePresentationStore = defineStore('presentation', () => {
         posX: 5,
         posY: 5,
         width: 90,
-        height: 90
+        height: 90,
+        authorCreditsPosition: undefined,
+        authorCreditsCoverOnly: undefined
     });
 
     const textStyles = ref<TextStylesState>({
