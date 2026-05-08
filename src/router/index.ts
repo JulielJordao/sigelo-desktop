@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import { useUserStore } from 'stores/userStore';
 
 // 1. Definição das rotas
 const routes: Array<RouteRecordRaw> = [

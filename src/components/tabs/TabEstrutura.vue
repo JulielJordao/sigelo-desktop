@@ -88,7 +88,7 @@ const clearDivisionLimits = () => {
             </h3>
 
             <!-- Switches principais lado a lado -->
-            <v-row dense>
+            <v-row density="comfortable">
                 <v-col cols="12" sm="6">
                     <v-switch v-model="coverSlide" color="primary" label="Slide de Capa (Título)" density="compact"
                         hide-details></v-switch>
@@ -102,7 +102,7 @@ const clearDivisionLimits = () => {
             <!-- Configurações dos créditos -->
             <v-expand-transition>
                 <div v-if="authorCredits" class="credits-config mt-3 pa-3 rounded-lg">
-                    <v-row dense align="center">
+                    <v-row density="comfortable" align="center">
 
                         <!-- Opção: somente na capa (só aparece se coverSlide estiver ativo) -->
                         <v-col v-if="coverSlide" cols="12" :md="authorCreditsCoverOnly ? 12 : 5">

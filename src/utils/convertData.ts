@@ -21,3 +21,9 @@ export const getLinkFiles = (filename: String) => {
 
   return url;
 }
+
+export const cleanSlideText = (text: String) => {
+  let newText = text.replace("_", " ")
+  newText = newText.replace("\n-", "\n")
+  return newText
+}

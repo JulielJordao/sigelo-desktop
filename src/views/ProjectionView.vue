@@ -11,8 +11,8 @@ import { emit, emitTo } from '@tauri-apps/api/event';
 
 import { useConfigStore } from '../stores/useConfigStore';
 
-import FFmpegVideo from '../FFmpegVideo.vue';
 import SmartVideo from '../components/SmartVideo.vue';
+import { cleanSlideText } from "../utils/convertData";
 
 const isDev = import.meta.env.DEV;
 
@@ -500,9 +500,11 @@ onUnmounted(() => {
                 <div class="background-layer">
                     <div v-if="slideData.background.type === 'color'"
                         :style="{ backgroundColor: slideData.background.color, width: '100%', height: '100%' }"></div>
-                    <FFmpegVideo v-else-if="slideData.background.type === 'video'" :src="slideData.background.media"
-                        :autoplay="true" :loop="true" :muted="true" no-audio :object-fit="slideData.background.fit"
-                        style="width: 100%; height: 100%;" />
+
+                    <SmartVideo v-else-if="slideData.background.type === 'video'" :key="slideData.background.media"
+                        :src="slideData.background.media" :autoplay="true" :loop="true" :muted="true" no-audio
+                        :object-fit="slideData.background.fit" style="width: 100%; height: 100%;" />
+
                     <img v-else-if="slideData.background.type === 'image'" :src="slideData.background.media"
                         :style="{ objectFit: slideData.background.fit }" />
                 </div>
@@ -533,7 +535,7 @@ onUnmounted(() => {
                                         width: '100%',
                                         lineHeight: 1.2
                                     }">
-                                        {{ slideData.text.content }}
+                                        {{ cleanSlideText(slideData.text.content) }}
                                     </div>
 
                                     <!-- Créditos abaixo do título (só na capa) -->

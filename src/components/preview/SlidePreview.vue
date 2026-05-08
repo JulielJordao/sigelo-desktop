@@ -5,6 +5,7 @@ import { useStatusPresentationStore } from '../../stores/statusPresentationStore
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import SmartVideo from '../SmartVideo.vue';
 import { formatAuthorCredits } from '../../utils/formatCredits';
+import { cleanSlideText } from '../../utils/convertData';
 
 const configStore = useConfigStore()
 const statusStore = useStatusPresentationStore()
@@ -234,7 +235,7 @@ const creditsPosition = computed(() => props.design.authorCreditsPosition || 'bo
                     width: '100%',
                     lineHeight: 1.2
                 }">
-                    {{ text }}
+                    {{ cleanSlideText(text) }}
                 </div>
 
                 <!-- Créditos abaixo do título (modo capa) -->
@@ -251,7 +252,13 @@ const creditsPosition = computed(() => props.design.authorCreditsPosition || 'bo
             <!-- Handles de edição -->
             <template v-if="editable">
                 <div class="handle tl" @mousedown.stop="startAction($event, 'tl')" />
-                <!-- ... outros handles ... -->
+                <div class="handle tr" @mousedown.stop="startAction($event, 'tr')" />
+                <div class="handle bl" @mousedown.stop="startAction($event, 'bl')" />
+                <div class="handle br" @mousedown.stop="startAction($event, 'br')" />
+                <div class="handle t" @mousedown.stop="startAction($event, 't')" />
+                <div class="handle b" @mousedown.stop="startAction($event, 'b')" />
+                <div class="handle l" @mousedown.stop="startAction($event, 'l')" />
+                <div class="handle r" @mousedown.stop="startAction($event, 'r')" />
             </template>
         </div>
         <!-- Créditos no canto (fora da text-box, no preview-screen) -->
