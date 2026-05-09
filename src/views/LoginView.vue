@@ -26,7 +26,7 @@ const redirect = () => {
     menuStore.toggleMenu('Onboarding')
     router.push("/onboarding");
   } else {
-    router.push("/musicas");
+    router.push("/app/musicas");
   }
 }
 

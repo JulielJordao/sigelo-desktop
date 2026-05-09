@@ -32,6 +32,28 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
 ---
 
+## [0.9.18] - 2026-05-06
+
+> Primeira de aprimoramento
+
+### Adicionado
+
+#### Importar Youtube
+- Download do youtube em segundo plano com barra de andamento no ícone do youtube
+
+### Apresentação
+- Implementação da função que mostra os créditos do autor.
+- Implementação dos efeitos de transição de slides.
+
+### Temas
+- Implementação do sistema de pesquisa de temas.
+
+### Tutorial
+- Inserido as instruções principais.
+
+> Correções de problemas na abertura da tela ao clicar em "Não mostrar novamente"
+> Correção de problema que poderia impedir a saída da tela de inicialização para a tela principal.
+
 ## [0.9.17] - 2026-05-06
 
 > Primeira versão pública do Sigelo.

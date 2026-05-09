@@ -11,6 +11,7 @@ import { useConnectionStore } from '../stores/statusConnectionStore';
 import { invoke } from '@tauri-apps/api/core';
 import ModalAbout from "./ModalAbout.vue"
 import StageMonitorMenu from '../premium-modules/stage-monitor/components/StageMonitorMenu.vue';
+import TutorialView from './TutorialView.vue';
 
 import { exit } from '@tauri-apps/plugin-process'
 
@@ -45,7 +46,7 @@ const ytMessage = {
 }
 
 const showYtAlert = ref(false)
-const typeYtStatus = ref<'init' | 'error' | 'success'> ('init')
+const typeYtStatus = ref<'init' | 'error' | 'success'>('init')
 
 const osType = type();
 const isMac = osType === 'macos';
@@ -53,6 +54,7 @@ const appWindow = getCurrentWindow();
 
 const isFixedActive = ref(true);
 const showAboutDialog = ref(false)
+const showTutorialDialog = ref(false)
 
 watch(() => mediaStore.fixedMedia, (newVal) => {
   if (newVal) isFixedActive.value = true;
@@ -199,7 +201,7 @@ onMounted(async () => {
 
     youtubeStore.actions.finish()
     typeYtStatus.value = 'error'
-    showYtAlert.value = true   
+    showYtAlert.value = true
   })
 });
 
@@ -224,6 +226,43 @@ onUnmounted(() => {
           class="z-10 ml-2" @click="showAboutDialog = true"></v-btn>
       </template>
     </v-tooltip>
+    
+    
+    <v-tooltip text="Rever Tutorial" location="bottom">
+      <template v-slot:activator="{ props }">
+        <v-btn 
+          v-bind="props" 
+          icon="mdi-information-outline" 
+          size="small" 
+          variant="text" 
+          color="yellow-darken-2"
+          class="z-10 ml-2" 
+          @click="showTutorialDialog = true"
+        ></v-btn>
+      </template>
+    </v-tooltip>
+    
+    <v-dialog v-model="showTutorialDialog" max-width="800" scrollable transition="dialog-bottom-transition">
+      <v-card class="rounded-xl overflow-hidden elevation-12 border">
+
+        <v-card-title class="d-flex align-center justify-space-between pa-4 bg-surface">
+          <div class="d-flex align-center">
+            <v-icon color="primary" size="small" class="mr-2">mdi-help-circle</v-icon>
+            <span class="text-h6 font-weight-bold text-primary">Central de Ajuda</span>
+          </div>
+
+          <v-btn icon="mdi-close" variant="tonal" density="comfortable" color="grey-darken-1"
+            @click="showTutorialDialog = false"></v-btn>
+        </v-card-title>
+
+        <v-divider no-icon></v-divider>
+
+        <v-card-text class="pa-4 bg-background">
+          <TutorialView :noIcon="true"/>
+        </v-card-text>
+
+      </v-card>
+    </v-dialog>
 
     <UpdateButton class="z-10" />
 
@@ -421,14 +460,15 @@ onUnmounted(() => {
       <v-btn icon="mdi-close" variant="text" size="small" class="window-btn btn-close" @click="close"></v-btn>
     </div>
   </v-app-bar>
-  <v-snackbar v-model="showYtAlert" :color="ytMessage[typeYtStatus].color" elevation="24" rounded="pill" :timeout="3000">
-        <v-icon start icon="mdi-check-circle"></v-icon>
-        {{ytMessage[typeYtStatus].message}}
+  <v-snackbar v-model="showYtAlert" :color="ytMessage[typeYtStatus].color" elevation="24" rounded="pill"
+    :timeout="3000">
+    <v-icon start icon="mdi-check-circle"></v-icon>
+    {{ ytMessage[typeYtStatus].message }}
 
-        <template v-slot:actions>
-            <v-btn variant="text" @click="showYtAlert = false">Fechar</v-btn>
-        </template>
-    </v-snackbar>
+    <template v-slot:actions>
+      <v-btn variant="text" @click="showYtAlert = false">Fechar</v-btn>
+    </template>
+  </v-snackbar>
 </template>
 
 <style scoped>
