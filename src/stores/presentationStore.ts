@@ -226,6 +226,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   const selectSong = async (song: SongCache) => {
     customSong.value = null
     selectedSongId.value = song.id;
+    console.log("aq")
     if (song.lyric === "" || !song.lyric) {
       await fetchLyric();
     } else {

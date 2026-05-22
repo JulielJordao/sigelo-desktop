@@ -1,36 +1,19 @@
 <template>
-  <v-container fluid class="fill-height bg-background pa-0">
-    <v-row density="compact" align="center" justify="center" class="fill-height">
-      <v-col cols="12" sm="10" md="10" lg="10" xl="10">
-        
-        <v-card class="mx-auto pa-4 pa-md-8 rounded-xl elevation-12" border>
-
-          <v-card-text>
-            <TutorialView :noIcon="false"/>
+  <v-container fluid class="fill-height bg-background pa-2 pa-md-4">
+    <v-row density="comfortable" align="center" justify="center" class="fill-height ma-0" no-gutters>
+      <v-col cols="12" sm="11" md="10" lg="9" xl="8" class="d-flex justify-center">
+        <v-card class="mx-auto pa-2 pa-md-6 rounded-xl elevation-12 d-flex flex-column onboarding-card" border>
+          <v-card-text class="flex-grow-1 overflow-y-auto pa-2 pa-md-4">
+            <TutorialView :noIcon="false" />
           </v-card-text>
 
-          <v-divider class="my-4"></v-divider>
+          <v-divider class="my-2"></v-divider>
 
-          <v-card-actions class="flex-column flex-md-row justify-space-between px-4">
-            <v-checkbox
-              v-model="dontShowAgain"
-              label="Não mostrar este guia ao iniciar"
-              color="primary"
-              hide-details
-              density="comfortable"
-              class="mb-4 mb-md-0"
-            ></v-checkbox>
-
-            <v-btn
-              color="primary"
-              variant="flat"
-              size="x-large"
-              rounded="pill"
-              min-width="200"
-              @click="finishOnboarding"
-              append-icon="mdi-chevron-right-circle"
-              class="font-weight-bold elevation-4"
-            >
+          <v-card-actions class="flex-column flex-md-row justify-space-between px-2 px-md-4 flex-shrink-0">
+            <v-checkbox v-model="dontShowAgain" label="Não mostrar este guia ao iniciar" color="primary" hide-details
+              density="comfortable" class="mb-2 mb-md-0"></v-checkbox>
+            <v-btn color="primary" variant="flat" size="large" rounded="pill" min-width="200" @click="finishOnboarding"
+              append-icon="mdi-chevron-right-circle" class="font-weight-bold elevation-4">
               Começar agora
             </v-btn>
           </v-card-actions>
@@ -52,13 +35,26 @@ const finishOnboarding = () => {
   if (dontShowAgain.value) {
     localStorage.setItem('hideOnboarding', 'true');
   }
-  // Rota de destino
   router.push('/app/musicas');
 };
 </script>
 
+<style scoped>
+.onboarding-card {
+  width: 100%;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 960px) {
+  .onboarding-card {
+    max-height: calc(100vh - 64px);
+  }
+}
+</style>
+
 <style>
-/* Estilo Global para arredondar os botões do carrossel (opcional) */
 .v-carousel__controls__item.v-btn {
   color: rgb(var(--v-theme-primary)) !important;
 }
