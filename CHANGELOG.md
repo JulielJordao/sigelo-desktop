@@ -32,6 +32,16 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
 ---
 
+## [0.9.19] - 2026-05-22
+
+#### Correções
+
+- Ajuste na tela de boas-vindas para não estrapolar os limites de altura da tela.
+
+- Ajuste no gerados de PDF e PPTX para suportar os créditos ao autor.
+
+- Ajuste para otimização final no tamanho final dos arquivos PPTX gerados.
+
 ## [0.9.18] - 2026-05-06
 
 > Primeira de aprimoramento
