@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::io::{Cursor, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tauri::AppHandle;
 use tauri::Emitter;
@@ -115,6 +115,23 @@ pub fn check_ytdlp_status(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(std::path::Path::new(&exe_path).exists())
 }
 
+// =============================================================================
+// ATUALIZAÇÃO DE BINÁRIOS — EM PARALELO
+// =============================================================================
+//
+// Os três binários (yt-dlp, ffmpeg, deno) são baixados e instalados
+// CONCORRENTEMENTE, cada um em sua própria task. Como escrevem em arquivos
+// distintos, não há conflito. O tempo total passa a ser ~o do maior download
+// em vez da soma dos três.
+//
+// O progresso é comunicado por EVENTOS (não pelo retorno do comando), então
+// o frontend pode fechar a modal e o download continua no backend:
+//   - "engine-update-started"  (payload: true)
+//   - "engine-update-progress" (payload: nome do componente concluído)
+//   - "engine-update-finished" (payload: true)
+//   - "engine-update-error"    (payload: mensagem de erro)
+//
+
 #[tauri::command]
 pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
     let app_dir = app
@@ -127,8 +144,54 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
         fs::create_dir_all(&bin_dir).map_err(|e| format!("Erro ao criar pasta bin: {}", e))?;
     }
 
-    // 1. ATUALIZAR YT-DLP
-    let (ytdlp_name, ytdlp_url) = if cfg!(target_os = "windows") {
+    app.emit("engine-update-started", true).ok();
+
+    // Dispara os três em paralelo (cada um numa task independente).
+    let h_ytdlp = {
+        let app = app.clone();
+        let dir = bin_dir.clone();
+        tokio::spawn(async move { install_ytdlp(app, dir).await })
+    };
+    let h_ffmpeg = {
+        let app = app.clone();
+        let dir = bin_dir.clone();
+        tokio::spawn(async move { install_ffmpeg(app, dir).await })
+    };
+    let h_deno = {
+        let app = app.clone();
+        let dir = bin_dir.clone();
+        tokio::spawn(async move { install_deno(app, dir).await })
+    };
+
+    let (r_ytdlp, r_ffmpeg, r_deno) = tokio::join!(h_ytdlp, h_ffmpeg, h_deno);
+
+    // Desembrulha JoinError (panic na task) + Result interno de cada instalação.
+    let unwrap_task =
+        |label: &str, r: Result<Result<(), String>, tokio::task::JoinError>| -> Result<(), String> {
+            match r {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(e)) => Err(format!("{}: {}", label, e)),
+                Err(e) => Err(format!("{}: task falhou ({})", label, e)),
+            }
+        };
+
+    let result = unwrap_task("yt-dlp", r_ytdlp)
+        .and(unwrap_task("ffmpeg", r_ffmpeg))
+        .and(unwrap_task("deno", r_deno));
+
+    if let Err(e) = result {
+        app.emit("engine-update-error", e.clone()).ok();
+        return Err(e);
+    }
+
+    app.emit("engine-update-finished", true).ok();
+    Ok("Motores atualizados com sucesso!".to_string())
+}
+
+// --- Instaladores individuais (rodam em paralelo) ---------------------------
+
+async fn install_ytdlp(app: AppHandle, bin_dir: PathBuf) -> Result<(), String> {
+    let (name, url) = if cfg!(target_os = "windows") {
         (
             "yt-dlp.exe",
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
@@ -145,13 +208,24 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
         )
     };
 
-    let ytdlp_path = bin_dir.join(ytdlp_name);
-    let ytdlp_bytes = download_bytes(ytdlp_url).await?;
-    save_file(&ytdlp_path, &ytdlp_bytes)?;
-    set_executable_permission(&ytdlp_path);
+    let path = bin_dir.join(name);
+    let bytes = download_bytes(url).await?;
 
-    // 2. ATUALIZAR FFMPEG
-    let ffmpeg_url = if cfg!(target_os = "windows") {
+    // Escrita/permissão são bloqueantes → spawn_blocking para não travar o runtime.
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        save_file(&path, &bytes)?;
+        set_executable_permission(&path);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    app.emit("engine-update-progress", "yt-dlp").ok();
+    Ok(())
+}
+
+async fn install_ffmpeg(app: AppHandle, bin_dir: PathBuf) -> Result<(), String> {
+    let url = if cfg!(target_os = "windows") {
         "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
     } else if cfg!(target_os = "macos") {
         "https://evermeet.cx/ffmpeg/getrelease/zip"
@@ -159,24 +233,35 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
         "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
     };
 
-    let ffmpeg_exe_name = if cfg!(target_os = "windows") {
+    let name = if cfg!(target_os = "windows") {
         "ffmpeg.exe"
     } else {
         "ffmpeg"
     };
-    let ffmpeg_path = bin_dir.join(ffmpeg_exe_name);
+    let path = bin_dir.join(name);
+    let is_zip = cfg!(any(target_os = "windows", target_os = "macos"));
 
-    if cfg!(any(target_os = "windows", target_os = "macos")) {
-        let zip_bytes = download_bytes(ffmpeg_url).await?;
-        extract_file_from_zip(&zip_bytes, &ffmpeg_path, "ffmpeg")?;
-    } else {
-        let bytes = download_bytes(ffmpeg_url).await?;
-        save_file(&ffmpeg_path, &bytes)?;
-    }
-    set_executable_permission(&ffmpeg_path);
+    let bytes = download_bytes(url).await?;
 
-    // 3. ATUALIZAR DENO (NOVO - MOTOR JAVASCRIPT)
-    let deno_url = if cfg!(target_os = "windows") {
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        if is_zip {
+            extract_file_from_zip(&bytes, &path, "ffmpeg")?;
+        } else {
+            // Linux: comportamento preservado do original.
+            save_file(&path, &bytes)?;
+        }
+        set_executable_permission(&path);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    app.emit("engine-update-progress", "ffmpeg").ok();
+    Ok(())
+}
+
+async fn install_deno(app: AppHandle, bin_dir: PathBuf) -> Result<(), String> {
+    let url = if cfg!(target_os = "windows") {
         "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
     } else if cfg!(target_os = "macos") {
         if cfg!(target_arch = "aarch64") {
@@ -188,18 +273,25 @@ pub async fn update_binaries(app: AppHandle) -> Result<String, String> {
         "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
     };
 
-    let deno_exe_name = if cfg!(target_os = "windows") {
+    let name = if cfg!(target_os = "windows") {
         "deno.exe"
     } else {
         "deno"
     };
-    let deno_path = bin_dir.join(deno_exe_name);
+    let path = bin_dir.join(name);
 
-    let deno_zip_bytes = download_bytes(deno_url).await?;
-    extract_file_from_zip(&deno_zip_bytes, &deno_path, "deno")?;
-    set_executable_permission(&deno_path);
+    let bytes = download_bytes(url).await?;
 
-    Ok("Motores atualizados com sucesso!".to_string())
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        extract_file_from_zip(&bytes, &path, "deno")?;
+        set_executable_permission(&path);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    app.emit("engine-update-progress", "deno").ok();
+    Ok(())
 }
 
 // --- FUNÇÕES AUXILIARES ---
@@ -382,7 +474,7 @@ pub async fn cache_youtube_video(
 
     app.emit("youtube-download-started", true).unwrap();
 
-    let (mut rx, mut child) = app
+    let (mut rx, mut _child) = app
         .shell()
         .command(exe_path)
         .args(args)

@@ -2,8 +2,10 @@
 import { ref, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useMenuStore } from '../../stores/menuStore';
+import { useYoutubeStore } from '../../stores/useYoutubeStore';
 
 const menuStore = useMenuStore()
+const youtube = useYoutubeStore()
 
 const props = defineProps({
     modelValue: Boolean
@@ -16,10 +18,9 @@ const isOpen = computed({
     set: (val) => emit('update:modelValue', val)
 });
 
-// Estados de Gerenciamento do Motor (yt-dlp)
-const isEngineReady = ref(false);
-const isCheckingEngine = ref(false);
-const isUpdatingEngine = ref(false);
+// Estado do motor vem do store (persiste mesmo com a modal fechada).
+const isEngineReady = computed(() => youtube.engine.isReady);
+const isUpdatingEngine = computed(() => youtube.engine.isUpdating);
 
 // Estados do Vídeo
 const url = ref('');
@@ -34,7 +35,7 @@ const qualityOptions = [
     { title: 'Baixa Qualidade (Mais rápido)', value: 'Lowest' }
 ];
 
-// NOVO: Estados de Navegador para os Cookies
+// Estados de Navegador para os Cookies
 const selectedBrowser = ref('none');
 const browserOptions = [
     { title: 'Sem Login (Padrão)', value: 'none' },
@@ -47,44 +48,20 @@ const browserOptions = [
 
 watch(isOpen, async (newVal) => {
     if (newVal) {
-        await checkAndSetupEngine();
+        // Dispara o setup em segundo plano; NÃO bloqueia a modal.
+        youtube.ensureEngineReady();
     } else {
         setTimeout(() => {
             url.value = '';
             videoInfo.value = null;
             selectedQuality.value = 'Highest';
-            selectedBrowser.value = 'none'; // Reseta o navegador
+            selectedBrowser.value = 'none';
         }, 300);
     }
 });
 
-const checkAndSetupEngine = async () => {
-    isCheckingEngine.value = true;
-    try {
-        const engineExists = await invoke<boolean>('check_ytdlp_status');
-        if (!engineExists) {
-            await updateEngine();
-        } else {
-            isEngineReady.value = true;
-        }
-    } catch (error) {
-        console.error("Erro ao checar motor:", error);
-    } finally {
-        isCheckingEngine.value = false;
-    }
-};
-
-const updateEngine = async () => {
-    isUpdatingEngine.value = true;
-    try {
-        await invoke('update_binaries');
-        isEngineReady.value = true;
-    } catch (error) {
-        alert("Erro ao baixar os componentes do YouTube. Verifique sua internet.");
-        console.error(error);
-    } finally {
-        isUpdatingEngine.value = false;
-    }
+const updateEngine = () => {
+    youtube.updateEngine();
 };
 
 const fetchVideoInfo = async () => {
@@ -105,15 +82,12 @@ const fetchVideoInfo = async () => {
 };
 
 const downloadAndCache = async () => {
-
     if (!url.value) return;
 
     isDownloading.value = true;
-
     isOpen.value = false;
 
     try {
-
         const browserToSend =
             selectedBrowser.value === 'none'
                 ? null
@@ -124,19 +98,17 @@ const downloadAndCache = async () => {
             quality: selectedQuality.value,
             browser: browserToSend
         });
-
     } catch (error) {
-
         console.error(error);
-
     } finally {
-
         isDownloading.value = false;
     }
 };
 
+// Fechar agora é permitido durante o setup do motor: o download dos binários
+// continua no backend. Só bloqueia enquanto o vídeo em si está baixando.
 const closeModal = () => {
-    if (!isDownloading.value && !isUpdatingEngine.value && !isCheckingEngine.value) {
+    if (!isDownloading.value) {
         isOpen.value = false;
     }
 };
@@ -154,7 +126,7 @@ watch(isOpen, () => {
                 Importar do YouTube
                 <v-spacer></v-spacer>
                 <v-btn icon="mdi-close" variant="text" size="small" @click="closeModal"
-                    :disabled="isDownloading || isCheckingEngine || isUpdatingEngine"></v-btn>
+                    :disabled="isDownloading"></v-btn>
             </v-card-title>
 
             <v-card-text class="pa-5">
@@ -167,6 +139,24 @@ watch(isOpen, () => {
                         O Sigelo está baixando os componentes necessários para processar vídeos do YouTube (Primeira
                         Instalação).
                     </p>
+
+                    <div class="text-caption text-medium-emphasis mb-4">
+                        {{ youtube.engine.progress }} de {{ youtube.engine.total }} componentes prontos
+                    </div>
+
+                    <v-alert v-if="youtube.engine.error" type="error" variant="tonal" density="compact"
+                        class="mb-4 text-caption text-left">
+                        {{ youtube.engine.error }}
+                        <div class="mt-2">
+                            <v-btn size="x-small" variant="flat" color="error" @click="updateEngine">
+                                Tentar novamente
+                            </v-btn>
+                        </div>
+                    </v-alert>
+
+                    <v-btn variant="text" color="medium-emphasis" size="small" @click="closeModal">
+                        Continuar em segundo plano
+                    </v-btn>
                 </div>
 
                 <div v-else>
@@ -183,11 +173,11 @@ watch(isOpen, () => {
 
                     <v-text-field v-model="url" label="Cole o link do vídeo"
                         placeholder="https://www.youtube.com/watch?v=..." variant="outlined" density="comfortable"
-                        :disabled="isFetchingInfo || isDownloading || isUpdatingEngine" @keyup.enter="fetchVideoInfo"
+                        :disabled="isFetchingInfo || isDownloading" @keyup.enter="fetchVideoInfo"
                         hide-details="auto" class="mb-4">
                         <template v-slot:append-inner>
                             <v-btn color="primary" variant="tonal" size="small" :loading="isFetchingInfo"
-                                @click="fetchVideoInfo" :disabled="!url || isUpdatingEngine">Buscar</v-btn>
+                                @click="fetchVideoInfo" :disabled="!url">Buscar</v-btn>
                         </template>
                     </v-text-field>
 

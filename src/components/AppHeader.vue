@@ -103,19 +103,6 @@ async function sendYtSuccessNotification() {
   }
 }
 
-/*
-const projectYoutubeVideo = async (video: MediaFile) => {
-  console.log(video)
-  // Converte o caminho físico do disco para um caminho que a tag <video> do Vue consiga ler
-  const webPath = convertFileSrc(video.path);
-  console.log(video)
-
-  // Você pode enviar para o seu mediaStore como Fundo Fixo ou para o PresentationStore
-  mediaStore.setFixedMedia(video);
-
-  // O seu watch do 'mediaStore.fixedMedia' no AppHeader já vai cuidar de projetar!
-}; */
-
 const openCacheFolder = async () => {
   try {
     await invoke('open_youtube_cache_folder');
@@ -136,7 +123,6 @@ const minimize = async () => {
 
 const toggleMaximize = async () => {
   try {
-    // Pergunta ao sistema operacional se a janela JÁ está maximizada
     const isMaximized = await appWindow.isMaximized();
 
     if (isMaximized) {
@@ -149,7 +135,6 @@ const toggleMaximize = async () => {
   }
 };
 const close = async () => {
-  // O 'ask' retorna um booleano (true se o usuário clicar em 'Sim/Yes')
   const confirm = await ask('Tem certeza que deseja fechar o Sigelo?', {
     title: 'Sair do Sistema',
     kind: 'warning',
@@ -158,8 +143,6 @@ const close = async () => {
   });
 
   if (confirm) {
-    // Isso emite um sinal nativo de "SIGKILL" para o Windows
-    // Ele destrói a WebView, limpa a memória RAM e fecha o arquivo .exe
     await exit(0);
   }
 };
@@ -175,6 +158,8 @@ let unlistenYtError: () => void;
 
 onMounted(async () => {
   await youtubeStore.fetchCache();
+  // Registra os listeners do motor (indicador de download dos binários no header)
+  await youtubeStore.initEngineListeners();
   // Por padrão, o atalho do sistema pode acionar o PDF
   unlistenImport = await listen('menu-import', () => { emit('import', 'pdf'); });
   unlistenExport = await listen('menu-export', () => { emit('export', 'pptx'); });
@@ -299,20 +284,30 @@ onUnmounted(() => {
       <notice-manager v-if="optionsIsVisible"></notice-manager>
       <timer-manager v-if="optionsIsVisible"></timer-manager>
 
-      <v-btn-group v-if="youtubeStore.cachedVideos.length > 0" color="error" variant="tonal" density="comfortable"
-        class="rounded-pill overflow-hidden mr-3">
+      <v-btn-group v-if="youtubeStore.cachedVideos.length > 0 || youtubeStore.engine.isUpdating" color="error"
+        variant="tonal" density="comfortable" class="rounded-pill overflow-hidden mr-3">
         <v-menu location="bottom end" transition="slide-y-transition" :close-on-content-click="false">
           <template v-slot:activator="{ props: menuProps }">
-            <v-tooltip text="Vídeos em Cache" location="bottom">
+            <v-tooltip
+              :text="youtubeStore.engine.isUpdating ? 'Preparando componentes do YouTube...' : 'Vídeos em Cache'"
+              location="bottom">
               <template v-slot:activator="{ props: tooltipProps }">
 
                 <!-- Adicionamos a classe 'overflow-hidden' para garantir que a barra não vaze pelas bordas arredondadas -->
                 <v-btn v-bind="{ ...menuProps, ...tooltipProps }" prepend-icon="mdi-youtube" class="overflow-hidden">
-                  {{ youtubeStore.cachedVideos.length }}
+                  <!-- Motor baixando e ainda sem vídeos: mostra spinner no lugar da contagem -->
+                  <v-progress-circular
+                    v-if="youtubeStore.engine.isUpdating && youtubeStore.cachedVideos.length === 0" indeterminate
+                    size="16" width="2" class="ml-1" />
+                  <template v-else>
+                    {{ youtubeStore.cachedVideos.length }}
+                  </template>
 
-                  <!-- A barra de progresso agora fica DENTRO do botão -->
-                  <v-progress-linear v-if="youtubeStore.state.downloading" :model-value="youtubeStore.state.progress"
+                  <!-- Barra: indeterminada p/ o motor, determinada p/ o vídeo -->
+                  <v-progress-linear v-if="youtubeStore.engine.isUpdating" indeterminate color="amber-darken-2"
                     height="3" absolute bottom />
+                  <v-progress-linear v-else-if="youtubeStore.state.downloading"
+                    :model-value="youtubeStore.state.progress" height="3" absolute bottom />
                 </v-btn>
 
               </template>
@@ -333,6 +328,19 @@ onUnmounted(() => {
                     color="medium-emphasis" @click="openCacheFolder"></v-btn>
                 </template>
               </v-tooltip>
+            </div>
+
+            <!-- Faixa de status do motor (download dos binários) -->
+            <div v-if="youtubeStore.engine.isUpdating"
+              class="px-4 py-2 border-b d-flex align-center text-caption bg-amber-lighten-5">
+              <v-progress-circular indeterminate size="16" width="2" color="amber-darken-2"
+                class="mr-2" />
+              Preparando componentes... {{ youtubeStore.engine.progress }} de {{ youtubeStore.engine.total }}
+            </div>
+            <div v-else-if="youtubeStore.engine.error"
+              class="px-4 py-2 border-b d-flex align-center justify-space-between text-caption bg-red-lighten-5 text-error">
+              <span class="text-truncate mr-2">{{ youtubeStore.engine.error }}</span>
+              <v-btn size="x-small" variant="flat" color="error" @click="youtubeStore.updateEngine()">Repetir</v-btn>
             </div>
 
             <v-list density="compact" lines="two" class="pa-0" max-height="400" style="overflow-y: auto;">
@@ -358,6 +366,12 @@ onUnmounted(() => {
                   <v-icon size="x-small" class="mr-1">mdi-harddisk</v-icon>
                   {{ video.size_mb }} MB
                 </v-list-item-subtitle>
+              </v-list-item>
+
+              <!-- Vazio: só o motor baixando, ainda sem vídeos -->
+              <v-list-item v-if="youtubeStore.cachedVideos.length === 0 && !youtubeStore.engine.isUpdating"
+                class="pa-4 text-center text-caption text-medium-emphasis">
+                Nenhum vídeo em cache ainda.
               </v-list-item>
             </v-list>
           </v-card>
@@ -477,15 +491,12 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
 
-  /* MÁGICA 2: Mata qualquer comportamento de seleção de texto nativo */
   user-select: none !important;
   -webkit-user-select: none !important;
   cursor: default !important;
-  /* Trava o cursor como setinha */
   z-index: 50;
 }
 
-/* Oculta completamente a camada extra do layout visual, mas captura cliques */
 .drag-layer {
   position: absolute;
   top: 0;
@@ -493,29 +504,24 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   z-index: 1;
-  /* Fica atrás de tudo no header */
   cursor: default !important;
 }
 
 .z-10 {
   z-index: 10;
   position: relative;
-  /* Necessário para que o z-index funcione e fique sobre a drag-layer */
 }
 
-/* Container flexível para os controles nativos */
 .window-controls {
   gap: 4px;
   margin-right: -4px;
 }
 
-/* Força as dimensões do botão para garantir o alinhamento perfeito */
 .window-btn {
   border-radius: 0 !important;
   width: 32px !important;
   height: 32px !important;
   color: inherit;
-  /* Garante que botões não deixem arrastar a tela acidentalmente */
   -webkit-app-region: no-drag;
 }
 
