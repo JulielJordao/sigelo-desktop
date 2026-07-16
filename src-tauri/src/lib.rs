@@ -133,6 +133,7 @@ pub fn run() {
             stream::get_video_preview,
             stream::get_video_info,
             stream::extract_audio_local,
+            stream::ensure_audio_extracted,
             crate::transmission::transmission::start_broadcast_server,
             crate::transmission::transmission::stop_broadcast_server,
             crate::transmission::transmission::update_broadcast_config,

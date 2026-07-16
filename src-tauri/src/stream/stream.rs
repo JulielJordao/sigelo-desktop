@@ -1,12 +1,16 @@
 // src/stream.rs
 //
-// v6 — Correções críticas de áudio:
-//   1. Volta para fMP4 (ADTS falha silenciosamente em WKWebView e WebView2).
-//   2. movflags CORRETAS para streaming live:
-//      +frag_keyframe+empty_moov+default_base_moof+separate_moof+omit_tfhd_offset
-//   3. -frag_duration menor (200ms) → canplay dispara mais rápido.
-//   4. HEAD handler explícito para probes sem consumir banda.
-//   5. Logs verbosos no endpoint de áudio para diagnóstico.
+// v7 — Correções:
+//   1. WS de vídeo NÃO derruba mais o socket em RecvError::Lagged.
+//      (era a principal causa de "vídeo travado" ao mover a timeline:
+//      rajadas de seek atrasavam o consumidor, o broadcast reportava
+//      Lagged, o `while let Ok` encerrava o loop e o WebSocket morria
+//      silenciosamente → frontend ficava 350ms+ reconectando).
+//   2. Endpoint de áudio aceita `?o=<segundos>` para offset explícito —
+//      permite ao frontend recarregar o stream em qualquer ponto após um
+//      seek sem depender (e sem corrida) do estado `audio_offset` da sessão.
+//      Com isso o áudio toca DIRETO do arquivo de vídeo original, sem
+//      extração prévia de .m4a.
 
 use futures_util::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
@@ -745,16 +749,15 @@ async fn frame_loop(
 }
 
 // =============================================================================
-// SERVIDORES WARP — ÁUDIO CORRIGIDO
+// SERVIDORES WARP
 // =============================================================================
 //
-// ESTRATÉGIA DE ÁUDIO (fMP4 streaming live):
-//   - frag_keyframe     → fragmento inicia em keyframe
-//   - empty_moov        → moov vazio no início, moof por fragmento
-//   - default_base_moof → offsets relativos ao moof
-//   - separate_moof     → moof e mdat em átomos separados
-//   - omit_tfhd_offset  → omite offset absoluto (crítico p/ live)
-//   - frag_duration 200ms → canplay dispara rápido
+// ÁUDIO: o endpoint transcodifica o áudio do PRÓPRIO arquivo de vídeo em
+// tempo real — não precisa mais de extração prévia (.m4a). O offset inicial
+// pode vir de duas fontes, nesta ordem de prioridade:
+//
+//   1. Query param `?o=<segundos>` (frontend recarrega o stream após seek)
+//   2. `audio_offset` da sessão (atualizado pelo pipeline em cada Seek)
 //
 
 /// Gera args do FFmpeg para formato de áudio específico.
@@ -782,6 +785,9 @@ fn audio_args(vpath: &str, offset: f64, format: &str) -> (Vec<String>, &'static 
                 "44100".into(),
                 "-f".into(),
                 "mp3".into(),
+                // Sem cabeçalho Xing/Info — reduz atraso e engano de duração
+                "-write_xing".into(),
+                "0".into(),
                 "-loglevel".into(),
                 "error".into(),
                 "pipe:1".into(),
@@ -839,10 +845,14 @@ fn audio_args(vpath: &str, offset: f64, format: &str) -> (Vec<String>, &'static 
                 "44100".into(),
                 "-f".into(),
                 "mp4".into(),
+                // fMP4 para MSE: moov vazio no início + moof por fragmento
+                // com offsets relativos. `faststart` foi REMOVIDO — exige
+                // saída seekable e não se aplica a pipe.
                 "-movflags".into(),
-                "frag_keyframe+empty_moov+default_base_moof+faststart".into(),
+                "empty_moov+default_base_moof+frag_keyframe".into(),
+                // Fragmentos de 200ms → áudio começa rápido após play/seek
                 "-frag_duration".into(),
-                "500000".into(),
+                "200000".into(),
                 "-loglevel".into(),
                 "error".into(),
                 "pipe:1".into(),
@@ -869,13 +879,33 @@ fn start_warp_servers() {
                         None => return,
                     };
                     let (mut sink, _) = socket.split();
-                    while let Ok(pkt) = rx.recv().await {
-                        if sink
-                            .send(warp::ws::Message::binary((*pkt).clone()))
-                            .await
-                            .is_err()
-                        {
-                            break;
+
+                    // ─── CORREÇÃO CRÍTICA (travadas no seek) ───
+                    //
+                    // O `while let Ok(pkt) = rx.recv()` anterior ENCERRAVA o
+                    // loop quando o broadcast retornava Err(Lagged) — que é
+                    // exatamente o que acontece quando o consumidor atrasa
+                    // durante rajadas de seek. O WebSocket morria em silêncio
+                    // e o frontend ficava 350ms+ reconectando (ou esgotava
+                    // as tentativas). Lagged NÃO é fatal: apenas pula os
+                    // frames perdidos e continua no mais recente.
+                    //
+                    loop {
+                        match rx.recv().await {
+                            Ok(pkt) => {
+                                if sink
+                                    .send(warp::ws::Message::binary((*pkt).clone()))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Err(broadcast::error::RecvError::Lagged(n)) => {
+                                eprintln!("[video_ws {}] lagged {} frames — continuando", sid, n);
+                                continue;
+                            }
+                            Err(broadcast::error::RecvError::Closed) => break,
                         }
                     }
                 })
@@ -884,12 +914,12 @@ fn start_warp_servers() {
     // ── 9002 — HTTP áudio em múltiplos formatos ────────────────────────────
     //
     // Rotas disponíveis:
-    //   GET /{sid}/stream.mp3  → audio/mpeg  (máxima compatibilidade)
-    //   GET /{sid}/stream.mp4  → audio/mp4   (fMP4 + AAC)
-    //   GET /{sid}/stream.ogg  → audio/ogg   (Vorbis)
-    //   GET /{sid}/stream.wav  → audio/wav   (PCM, sem compressão)
+    //   GET /{sid}/stream.mp3[?o=SEC]  → audio/mpeg  (máxima compatibilidade)
+    //   GET /{sid}/stream.mp4[?o=SEC]  → audio/mp4   (fMP4 + AAC)
+    //   GET /{sid}/stream.ogg[?o=SEC]  → audio/ogg   (Vorbis)
+    //   GET /{sid}/stream.wav[?o=SEC]  → audio/wav   (PCM, sem compressão)
     //
-    // O frontend pode testar cada um e usar o que o WebView aceitar.
+    // `o` = offset em segundos: o FFmpeg abre o arquivo com -ss nesse ponto.
     //
 
     fn build_audio_handler(
@@ -906,11 +936,12 @@ fn start_warp_servers() {
             .and(warp::path(ext))
             .and(warp::path::end())
             .and(warp::get())
-            .and_then(move |sid: String| {
+            .and(warp::query::<HashMap<String, String>>())
+            .and_then(move |sid: String, q: HashMap<String, String>| {
                 let fmt = format;
                 async move {
-                    println!("[audio] GET /{}/stream.{}", sid, fmt);
-                    let (ffmpeg, vpath, offset, has_audio) = {
+                    println!("[audio] GET /{}/stream.{} q={:?}", sid, fmt, q);
+                    let (ffmpeg, vpath, session_offset, has_audio) = {
                         let map = SESSIONS.lock().unwrap();
                         match map.get(&sid) {
                             Some(s) => (
@@ -941,8 +972,19 @@ fn start_warp_servers() {
                         );
                     }
 
+                    // Offset explícito do frontend tem prioridade sobre o
+                    // estado da sessão (elimina corrida seek ↔ GET de áudio)
+                    let offset = q
+                        .get("o")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .filter(|v| v.is_finite() && *v >= 0.0)
+                        .unwrap_or(session_offset);
+
                     let (args, content_type) = audio_args(&vpath, offset, fmt);
-                    println!("[audio] spawn ffmpeg fmt={} ct={}", fmt, content_type);
+                    println!(
+                        "[audio] spawn ffmpeg fmt={} ct={} offset={:.3}",
+                        fmt, content_type, offset
+                    );
 
                     let mut child = match silent_cmd(&ffmpeg)
                         .args(&args)
@@ -1118,16 +1160,93 @@ fn dispatch_cmd(session_id: &str, fc: &FrontendCmd) {
 }
 
 // =============================================================================
-// EXTRAÇÃO DE ÁUDIO LOCAL (com fallback robusto)
+// EXTRAÇÃO DE ÁUDIO SOB DEMANDA (com cache)
 // =============================================================================
 //
-// Estratégia:
-//   1. Tenta `-c:a copy` primeiro (rápido, sem re-encode).
-//      Funciona se o áudio já for AAC/ALAC compatível com .m4a.
-//   2. Se falhar, re-encoda para AAC (funciona com qualquer codec de entrada
-//      — Opus, Vorbis, FLAC, WMA etc).
-//   3. Se ainda falhar, sonda o arquivo para reportar erro útil.
+// Chamado pelo frontend antes de tocar. Comportamento:
+//   - Vídeo sem trilha de áudio      → Ok(None)   (sem erro, sem arquivo)
+//   - .m4a já existe ao lado do vídeo → Ok(Some(caminho))  (instantâneo)
+//   - Caso contrário: extrai (copy → fallback AAC) para um .part e renomeia
+//     no final — nunca deixa um .m4a parcial que enganaria o cache.
 //
+
+#[tauri::command]
+pub async fn ensure_audio_extracted(
+    app: AppHandle,
+    video_path: String,
+) -> Result<Option<String>, String> {
+    let ffprobe = ffprobe_bin(&app)?;
+    let info = probe(&ffprobe, &video_path).await;
+    if !info.has_audio {
+        println!("[ensure_audio] sem trilha de áudio: {}", video_path);
+        return Ok(None);
+    }
+
+    let vp = std::path::Path::new(&video_path);
+    let audio_path = vp.with_extension("m4a");
+    let audio_str = audio_path.to_string_lossy().to_string();
+
+    // Cache: já extraído (e não vazio/corrompido de tentativa abortada)
+    if std::fs::metadata(&audio_path)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false)
+    {
+        return Ok(Some(audio_str));
+    }
+
+    let ffmpeg = ffmpeg_bin(&app)?;
+    let tmp = vp.with_extension("m4a.part");
+    let tmp_str = tmp.to_string_lossy().to_string();
+
+    // ── Tentativa 1: copy direto (rápido, sem re-encode — funciona p/ AAC) ──
+    // `-f ipod` é obrigatório: a extensão .part não permite inferir o muxer.
+    let copy_result = silent_cmd(&ffmpeg)
+        .args([
+            "-i", &video_path, "-vn", "-c:a", "copy",
+            "-movflags", "+faststart", "-f", "ipod", "-y", &tmp_str,
+        ])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let ok = if copy_result.status.success() {
+        println!("[ensure_audio] copy OK: {}", audio_str);
+        true
+    } else {
+        // ── Tentativa 2: re-encode AAC (Opus, Vorbis, FLAC, WMA, etc.) ──
+        let enc = silent_cmd(&ffmpeg)
+            .args([
+                "-i", &video_path, "-vn", "-c:a", "aac", "-b:a", "192k",
+                "-ac", "2", "-ar", "44100",
+                "-movflags", "+faststart", "-f", "ipod", "-y", &tmp_str,
+            ])
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        if enc.status.success() {
+            println!("[ensure_audio] re-encode AAC OK: {}", audio_str);
+            true
+        } else {
+            let stderr = String::from_utf8_lossy(&enc.stderr);
+            eprintln!("[ensure_audio] falhou:\n{}", stderr);
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!(
+                "Falha ao extrair áudio: {}",
+                stderr.lines().take(3).collect::<Vec<_>>().join(" | ")
+            ));
+        }
+    };
+
+    if ok {
+        std::fs::rename(&tmp, &audio_path).map_err(|e| e.to_string())?;
+    }
+    Ok(Some(audio_str))
+}
+
+// =============================================================================
+// EXTRAÇÃO DE ÁUDIO LOCAL (mantido para compatibilidade — NÃO é mais
+// necessário para reprodução: o áudio agora vem via streaming da porta 9002)
+// =============================================================================
 
 #[tauri::command]
 pub async fn extract_audio_local(
