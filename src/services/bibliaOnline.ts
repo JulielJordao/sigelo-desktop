@@ -107,6 +107,15 @@ export async function fetchPassageFromBibliaOnline(params: {
     bookName: params.bookName ?? null,
   });
 
+  // Item 4: monta o texto com o número do verso quando há mais de um (ex.: capítulo
+  // inteiro fica numerado). Versículo único fica sem o número, mais limpo.
+  if (data?.verses?.length) {
+    data.text =
+      data.verses.length > 1
+        ? data.verses.map((v) => `${v.number} ${v.text}`).join("\n")
+        : data.verses[0].text;
+  }
+
   if (data?.source) data.source.extractedAt = new Date().toISOString();
   return data;
 }

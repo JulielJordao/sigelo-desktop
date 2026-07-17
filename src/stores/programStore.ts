@@ -13,14 +13,15 @@ import type { Event } from "../types/event";
 export type ProgramItemType = "song" | "media" | "bible";
 
 export interface ProgramItem {
-  id: string; // id único da instância dentro da programação
+  id: string;
   type: ProgramItemType;
   title: string;
   subtitle?: string;
-  tone?: string; // tom da música (quando type === 'song')
-  source?: string; // versão da bíblia (quando type === 'bible')
+  tone?: string;
+  source?: string;
   icon: string;
-  payload: any; // snapshot completo (música / mídia / { ref, source }) p/ apresentar depois
+  presetId?: string | null; // tema (preset) escolhido para a música
+  payload: any;
 }
 
 export interface Program {
@@ -30,6 +31,9 @@ export interface Program {
   items: ProgramItem[];
   createdAt: number;
   updatedAt: number;
+  // Vínculo com evento (para comparar/sincronizar músicas)
+  eventId?: string | null;
+  eventSnapshot?: string[]; // ids das músicas do evento (na ordem) da última sincronização
 }
 
 const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -44,11 +48,12 @@ const dayTime = (d: string | Date) => {
   return new Date(o.getFullYear(), o.getMonth(), o.getDate()).getTime();
 };
 
+const songIdOf = (s: any): string => s?._id ?? s?.id ?? "";
+
 export const useProgramStore = defineStore("program", () => {
   const programs = ref<Program[]>([]);
   const currentProgramId = ref<string | null>(null);
   const showPast = ref(false);
-
   const isLoaded = ref(false);
 
   // --- GETTERS ---
@@ -66,16 +71,12 @@ export const useProgramStore = defineStore("program", () => {
     sortedAsc.value.filter((p) => dayTime(p.date) >= startOfToday()),
   );
 
-  // Anteriores: mais recente primeiro
   const pastPrograms = computed(() =>
     sortedAsc.value.filter((p) => dayTime(p.date) < startOfToday()).reverse(),
   );
 
-  // ==========================================================
-  // PERSISTÊNCIA EM ARQUIVO JSON (appLocalDataDir/programacoes.json)
-  // ==========================================================
+  // --- PERSISTÊNCIA (arquivo JSON) ---
   let filePath = "";
-
   const getFilePath = async () => {
     if (filePath) return filePath;
     const baseDir = await appLocalDataDir();
@@ -92,7 +93,6 @@ export const useProgramStore = defineStore("program", () => {
         programs: JSON.parse(JSON.stringify(programs.value)),
         current_program_id: currentProgramId.value,
       };
-      // Pretty-print para ficar legível/editável no disco
       await writeTextFile(path, JSON.stringify(data, null, 2));
     } catch (e) {
       console.error("Erro ao salvar programações:", e);
@@ -116,29 +116,26 @@ export const useProgramStore = defineStore("program", () => {
     }
   };
 
-  // --- NAVEGAÇÃO (mantém a programação aberta ao voltar) ---
+  // --- NAVEGAÇÃO ---
   const openProgram = (id: string) => {
     currentProgramId.value = id;
     persist();
   };
-
   const closeProgram = () => {
     currentProgramId.value = null;
     persist();
   };
 
-  // ==========================================================
-  // CRIAÇÃO / EDIÇÃO / IMPORTAÇÃO
-  // ==========================================================
+  // --- CRIAÇÃO / EDIÇÃO / IMPORTAÇÃO ---
   const createProgram = (name?: string, date?: Date | string) => {
     const p: Program = {
       _id: uid(),
       name: name?.trim() || "Nova Programação",
-      // Mantém data + horário informados (ou agora)
       date: (date ? new Date(date) : new Date()).toISOString(),
       items: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      eventId: null,
     };
     programs.value.push(p);
     currentProgramId.value = p._id;
@@ -146,12 +143,7 @@ export const useProgramStore = defineStore("program", () => {
     return p;
   };
 
-  // Atualiza nome + data/horário
-  const updateProgramMeta = (
-    id: string,
-    name: string,
-    date: Date | string,
-  ) => {
+  const updateProgramMeta = (id: string, name: string, date: Date | string) => {
     const p = programs.value.find((p) => p._id === id);
     if (!p) return;
     p.name = name?.trim() || p.name;
@@ -165,10 +157,12 @@ export const useProgramStore = defineStore("program", () => {
     const p: Program = {
       _id: uid(),
       name: event.name,
-      date: new Date(event.date).toISOString(), // herda data/horário do evento
+      date: new Date(event.date).toISOString(),
       items,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      eventId: (event as any)._id ?? null,
+      eventSnapshot: (songs || []).map(songIdOf),
     };
     programs.value.push(p);
     currentProgramId.value = p._id;
@@ -183,9 +177,7 @@ export const useProgramStore = defineStore("program", () => {
     persist();
   };
 
-  // ==========================================================
-  // BUILDERS DE ITEM
-  // ==========================================================
+  // --- BUILDERS DE ITEM ---
   const songToItem = (song: any): ProgramItem => ({
     id: uid(),
     type: "song",
@@ -193,6 +185,7 @@ export const useProgramStore = defineStore("program", () => {
     subtitle: song.writerBy || "",
     tone: song.tone || "",
     icon: "mdi-music-note",
+    presetId: song.presetId ?? null,
     payload: song,
   });
 
@@ -219,17 +212,14 @@ export const useProgramStore = defineStore("program", () => {
     payload: {
       ref,
       version: source,
-      provider: extra.provider ?? "manual", // 'bibliaonline' | 'manual'
+      provider: extra.provider ?? "manual",
       text: extra.text ?? "",
       verses: extra.verses ?? [],
-      // origem: { url, label, donationUrl, extractedAt } | null (aviso da fonte)
       origin: extra.origin ?? null,
     },
   });
 
-  // ==========================================================
-  // ITENS DA PROGRAMAÇÃO ATUAL
-  // ==========================================================
+  // --- ITENS DA PROGRAMAÇÃO ATUAL ---
   const addItem = (item: ProgramItem) => {
     const p = currentProgram.value;
     if (!p) return;
@@ -270,6 +260,146 @@ export const useProgramStore = defineStore("program", () => {
     persist();
   };
 
+  // --- EDIÇÃO DE ITENS (item 2 e 3) ---
+  const findItem = (itemId: string) =>
+    currentProgram.value?.items.find((i) => i.id === itemId) || null;
+
+  const touch = () => {
+    if (currentProgram.value) currentProgram.value.updatedAt = Date.now();
+    persist();
+  };
+
+  // Tema (preset) por música — item 3
+  const setItemPreset = (itemId: string, presetId: string | null) => {
+    const it = findItem(itemId);
+    if (!it) return;
+    it.presetId = presetId ?? null;
+    touch();
+  };
+
+  // Substituir a música do item (mantém o preset escolhido)
+  const replaceSong = (itemId: string, song: any) => {
+    const it = findItem(itemId);
+    if (!it) return;
+    it.title = song.fullName || song.name || "Música";
+    it.subtitle = song.writerBy || "";
+    it.tone = song.tone || "";
+    it.payload = song;
+    touch();
+  };
+
+  // Substituir a mídia do item
+  const replaceMedia = (itemId: string, media: any) => {
+    const it = findItem(itemId);
+    if (!it) return;
+    it.title = media.name || "Mídia";
+    it.subtitle = media.isVideo ? "Vídeo" : "Imagem";
+    it.icon = media.isVideo ? "mdi-play-box" : "mdi-image";
+    it.payload = media;
+    touch();
+  };
+
+  // Editar o texto da passagem bíblica
+  const updateBibleText = (itemId: string, text: string) => {
+    const it = findItem(itemId);
+    if (!it || it.type !== "bible") return;
+    it.payload = { ...it.payload, text };
+    touch();
+  };
+
+
+  // ==========================================================
+  // SINCRONIZAÇÃO COM O EVENTO (item 6)
+  // ==========================================================
+  const programSongIds = (p: Program) =>
+    p.items.filter((i) => i.type === "song").map((i) => songIdOf(i.payload));
+
+  // O evento mudou desde a última sincronização deste programa?
+  const eventChangedSince = (programId: string, currentSongs: any[]) => {
+    const p = programs.value.find((x) => x._id === programId);
+    if (!p) return false;
+    const snap = p.eventSnapshot || [];
+    const cur = currentSongs.map(songIdOf);
+    if (snap.length !== cur.length) return true;
+    return snap.some((id, i) => id !== cur[i]);
+  };
+
+  // Diferenças entre as músicas do programa e as músicas atuais do evento.
+  const diffProgramWithEvent = (programId: string, currentSongs: any[]) => {
+    const p = programs.value.find((x) => x._id === programId);
+    const progIds = p ? programSongIds(p) : [];
+    const curIds = currentSongs.map(songIdOf);
+
+    const added = currentSongs
+      .filter((s) => !progIds.includes(songIdOf(s)))
+      .map((s) => ({ id: songIdOf(s), name: s.fullName || s.name || "Música" }));
+
+    const removed = (p?.items || [])
+      .filter((i) => i.type === "song" && !curIds.includes(songIdOf(i.payload)))
+      .map((i) => ({ name: i.title }));
+
+    const commonProg = progIds.filter((id) => curIds.includes(id));
+    const commonCur = curIds.filter((id) => progIds.includes(id));
+    const reordered =
+      commonProg.length > 0 && commonProg.some((id, i) => id !== commonCur[i]);
+
+    return {
+      added,
+      removed,
+      reordered,
+      changed: added.length > 0 || removed.length > 0 || reordered,
+    };
+  };
+
+  // Marca o estado atual do evento como "conhecido" (sem alterar itens).
+  const acknowledgeEvent = (programId: string, currentSongs: any[]) => {
+    const p = programs.value.find((x) => x._id === programId);
+    if (!p) return;
+    p.eventSnapshot = currentSongs.map(songIdOf);
+    persist();
+  };
+
+  // Aplica as músicas do evento: reordena/atualiza as músicas mantendo mídias/bíblia no lugar.
+  const applyEventSync = (programId: string, currentSongs: any[]) => {
+    const p = programs.value.find((x) => x._id === programId);
+    if (!p) return;
+
+    const bySongId = new Map<string, ProgramItem>();
+    p.items.forEach((i) => {
+      if (i.type === "song") bySongId.set(songIdOf(i.payload), i);
+    });
+
+    // Sequência de músicas desejada (na ordem do evento), reaproveitando itens existentes.
+    const desired = currentSongs.map(
+      (s) => bySongId.get(songIdOf(s)) ?? songToItem(s),
+    );
+
+    // Preenche os "slots" de música na ordem do evento; mídias/bíblia ficam onde estão.
+    const result: ProgramItem[] = [];
+    let di = 0;
+    for (const it of p.items) {
+      if (it.type === "song") {
+        if (di < desired.length) {
+          result.push(desired[di]);
+          di++;
+        }
+        // se sobraram menos músicas que slots → música removida (slot some)
+      } else {
+        result.push(it);
+      }
+    }
+    // músicas novas que sobraram entram no fim
+    while (di < desired.length) {
+      result.push(desired[di]);
+      di++;
+    }
+
+    p.items = result;
+    p.eventSnapshot = currentSongs.map(songIdOf);
+    p.updatedAt = Date.now();
+    persist();
+  };
+
   return {
     // state
     programs,
@@ -295,8 +425,17 @@ export const useProgramStore = defineStore("program", () => {
     removeItem,
     moveItem,
     reorderItems,
+    setItemPreset,
+    replaceSong,
+    replaceMedia,
+    updateBibleText,
     songToItem,
     mediaToItem,
     bibleToItem,
+    // sincronização com evento
+    eventChangedSince,
+    diffProgramWithEvent,
+    acknowledgeEvent,
+    applyEventSync,
   };
 });
