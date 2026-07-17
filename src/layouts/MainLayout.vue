@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { ask } from '@tauri-apps/plugin-dialog';
 import SettingsModal from '../components/config/SettingsModal.vue';
@@ -9,15 +9,18 @@ import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o 
 
 import { useMenuStore } from '../stores/menuStore';
 import { useUserStore } from '../stores/userStore';
+import { useConfigStore } from '../stores/useConfigStore.js';
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 
 import { BibleRef } from '../types/bibleRef';
 
-
+const configStore = useConfigStore();
 const userStore = useUserStore()
 const menuStore = useMenuStore();
+
+const isDark = computed(() => configStore.getTheme() === 'dark');
 
 const router = useRouter();
 
@@ -35,7 +38,7 @@ const toggleBible = (hasBibleRef: boolean, bibleRef: BibleRef | undefined) => {
     const verses = bibleRef.verseStart ? (
       bibleRef.verseEnd ? `${bibleRef.verseStart}-${bibleRef.verseEnd}` : bibleRef.verseStart) :
       undefined
-    bibleDrawerRef.value?.open({abbr: bibleRef.book, chapter: bibleRef.chapter, verses})
+    bibleDrawerRef.value?.open({ abbr: bibleRef.book, chapter: bibleRef.chapter, verses })
   }
 
   // Exemplo de como você poderia abri-lo já buscando um texto de outro lugar do app:
@@ -74,6 +77,10 @@ const logout = async () => {
 
 };
 
+const toggleProgramSidebar = () => {
+  menuStore.toggleMenu('Program');
+}
+
 const toogleSongsSidebar = () => {
   menuStore.toggleMenu('Songs');
 };
@@ -86,7 +93,7 @@ onMounted(async () => {
   menuStore.toggleMenu('Songs')
 
   unlistenBible = await listen<BibleRef>('open-bible', async (event) => {
-      toggleBible(true, event.payload)
+    toggleBible(true, event.payload)
   });
 });
 
@@ -102,15 +109,19 @@ onUnmounted(() => {
     <v-navigation-drawer permanent rail expand-on-hover elevation="2" class="bg-grey-darken-3 text-white">
       <v-list density="compact" nav>
         <v-list-item prepend-icon="mdi-music-box-multiple" title="Músicas" value="musicas" @click="toogleSongsSidebar"
-          :active="menuStore.menuOpened === 'Songs'" color="primary"></v-list-item>
+          :active="menuStore.menuOpened === 'Songs'" :color="isDark ? 'primary' : 'secondary'"></v-list-item>
         <v-list-item prepend-icon="mdi-calendar-multiselect" title="Eventos" value="event" @click="toggleEventsSidebar"
-          :active="menuStore.menuOpened === 'Events'" color="primary"></v-list-item>
+          :active="menuStore.menuOpened === 'Events'" :color="isDark ? 'primary' : 'secondary'"></v-list-item>
+
+        <v-list-item prepend-icon="mdi-playlist-music" title="Programação" value="program" @click="toggleProgramSidebar"
+          :active="menuStore.menuOpened === 'Program'" :color="isDark ? 'primary' : 'secondary'"></v-list-item>
 
         <v-list-item prepend-icon="mdi-book-open-page-variant" title="Bíblia" value="bible"
-          @click="toggleBible(false, undefined)" color="primary"></v-list-item>
+          @click="toggleBible(false, undefined)" :color="isDark ? 'primary' : 'secondary'"></v-list-item>
 
         <v-list-item prepend-icon="mdi-image-multiple" title="Mídia / Imagens" @click="toogleMediaSidebar"
-          :active="menuStore.menuOpened === 'Media'" value="midia"></v-list-item>
+          :active="menuStore.menuOpened === 'Media'" value="midia"
+          :color="isDark ? 'primary' : 'secondary'"></v-list-item>
       </v-list>
 
       <template v-slot:append>
@@ -132,7 +143,7 @@ onUnmounted(() => {
       </router-view>
     </v-main>
 
-    <SettingsModal ref="settingsModalRef"/>
+    <SettingsModal ref="settingsModalRef" />
 
   </v-layout>
 </template>

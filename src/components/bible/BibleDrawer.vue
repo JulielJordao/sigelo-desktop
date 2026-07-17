@@ -38,8 +38,7 @@ const bibleMedia = computed(() => {
 
 // ABRIR O DRAWER (Inteligente)
 const open = async (reference?: { abbr: string, chapter: number, verses?: string }) => {
-  isOpen.value = true;
-
+  isOpen.value = isOpen.value ? false : true; 
   if (reference) {
     await bibleStore.loadReference(reference);
   }

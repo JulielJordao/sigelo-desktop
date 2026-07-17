@@ -4,6 +4,7 @@ import RepertoireSidebar from '../components/projection/RepertoireSidebar.vue';
 import SongSidebar from '../components/projection/SongSidebar.vue';
 import PresentationEditor from '../components/projection/PresentationEditor.vue';
 import EventSidebar from '../components/event/EventSidebar.vue';
+import ProgramSidebar from '../components/program/ProgramSidebar.vue';
 import MediaSidebar from '../components/media/MediaSidebar.vue';
 
 import { useMenuStore } from '../stores/menuStore';
@@ -54,6 +55,12 @@ onMounted(async () => {
       <template v-else-if="presentationStore.showSidebarLists && menuStore.menuOpened === 'Events'">
         <v-col cols="5" class="border-e bg-white transition-all d-flex flex-column h-100">
           <EventSidebar ref="eventSidebarRef" />
+        </v-col>
+      </template>
+
+      <template v-else-if="presentationStore.showSidebarLists && menuStore.menuOpened === 'Program'">
+        <v-col cols="5" class="border-e bg-white transition-all d-flex flex-column h-100">
+          <ProgramSidebar ref="programSidebarRef" />
         </v-col>
       </template>
 

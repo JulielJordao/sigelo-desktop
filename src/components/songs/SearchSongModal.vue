@@ -10,10 +10,16 @@ const props = defineProps({
   modelValue: {
     type: Boolean,
     required: true
+  },
+  // Quando true, apenas emite 'select' e NÃO altera a música selecionada global.
+  // Usado, por exemplo, para adicionar músicas a uma programação.
+  emitOnly: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'select'])
 
 const songStore = useSongCacheStore()
 const searchQuery = ref('')
@@ -44,7 +50,13 @@ const searchResults = computed(() => {
 
 // Função para quando o usuário clicar em uma música da lista
 const selectSong = (song: any) => {
-  songStore.setSelectedSong(song)
+  // Sempre avisa quem escuta o evento (ex.: a programação)
+  emit('select', song)
+
+  // Comportamento original (definir música global) só quando NÃO for emitOnly
+  if (!props.emitOnly) {
+    songStore.setSelectedSong(song)
+  }
 
   // Limpa a busca e fecha a modal
   searchQuery.value = ''

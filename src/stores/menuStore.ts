@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
-export type MenuOptions = 'Media' | 'Songs' | 'Events' | 'PdfPresenter' | 'Login' | 'Onboarding';
+export type MenuOptions = 'Media' | 'Songs' | 'Events' | 'Program' | 'PdfPresenter' | 'Login' | 'Onboarding';
 
 export const useMenuStore = defineStore('menu', () => {
     const menuOpened = ref('Login' as MenuOptions);

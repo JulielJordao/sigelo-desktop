@@ -12,6 +12,7 @@ mod stream;
 mod timer;
 mod transmission;
 mod youtube;
+mod bible;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -138,6 +139,7 @@ pub fn run() {
             crate::transmission::transmission::stop_broadcast_server,
             crate::transmission::transmission::update_broadcast_config,
             crate::transmission::transmission::get_broadcast_info,
+            crate::bible::bible::scrape_bible_passage,
             is_online,
         ])
         .on_window_event(|window, event| {
