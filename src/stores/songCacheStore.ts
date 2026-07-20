@@ -6,6 +6,8 @@ import { api } from '../routes/index';
 import CryptoJS from 'crypto-js'; // Importando a lib de criptografia
 import type { SongFile } from '../types/songFile';
 import type { BibleRef } from "../types/bibleRef";
+import { useConnectionStore } from './statusConnectionStore';
+import type { Song } from '../types/song';
 
 export interface SongGroupCache {
     id: string,
@@ -34,14 +36,16 @@ export type LastUpdateMap = Record<string, Date | string>;
 
 export const useSongCacheStore = defineStore('songCache', () => {
 
+    const connectionStore = useConnectionStore()
+
     let tauriStore: Store | null = null;
     let tauriStoreConfig: Store | null;
     const listSongGroups = ref<SongGroupCache[]>([]);
     const isLoaded = ref(false);
-    const selectedSong = ref<SongCache>({ 
-        songGroupId: '', 
-        id: '', 
-        fullName: '', 
+    const selectedSong = ref<SongCache>({
+        songGroupId: '',
+        id: '',
+        fullName: '',
         lyric: '',
         writerBy: undefined,
         melodyBy: undefined
@@ -95,8 +99,8 @@ export const useSongCacheStore = defineStore('songCache', () => {
                 cacheSongsIsClean = false
             }
 
-            tauriStoreConfig = await load('updateGroupSong.json', { autoSave: false , defaults: { data: [] }});
-      
+            tauriStoreConfig = await load('updateGroupSong.json', { autoSave: false, defaults: { data: [] } });
+
             const savedData = await tauriStoreConfig.get<LastUpdateMap>('data');
 
             if (savedData) {
@@ -107,8 +111,8 @@ export const useSongCacheStore = defineStore('songCache', () => {
                 }
                 listLastDataUpdated.value = parsedMap;
 
-                if(cacheSongsIsClean)listLastDataUpdated.value = {}
-            }         
+                if (cacheSongsIsClean) listLastDataUpdated.value = {}
+            }
 
         } catch (error) {
             console.error("Erro ao carregar ou descriptografar o cache:", error);
@@ -132,11 +136,11 @@ export const useSongCacheStore = defineStore('songCache', () => {
     const getCacheLyrics = async (songGroupId: string) => {
         try {
             const lyrics = await api.songGroup().getOfflineLyrics(songGroupId) as Record<string, string>;
-            
+
 
             if (!lyrics) {
                 console.warn("Nenhuma letra retornada da API.");
-                return; 
+                return;
             }
 
             const indexOf = listSongGroups.value.findIndex(it => it.id === songGroupId);
@@ -148,9 +152,9 @@ export const useSongCacheStore = defineStore('songCache', () => {
                         it.songGroupId = songGroupId;
                     }
                 });
-                
 
-               await saveInfo(listSongGroups.value)
+
+                await saveInfo(listSongGroups.value)
             }
 
         } catch (error) {
@@ -192,7 +196,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
         listLastDataUpdated,
         async (newValue) => {
             if (!isLoaded.value || !tauriStoreConfig) return;
-            
+
             // toRaw funciona perfeitamente com objetos simples
             await tauriStoreConfig.set('data', toRaw(newValue));
             await tauriStoreConfig.save();
@@ -200,11 +204,48 @@ export const useSongCacheStore = defineStore('songCache', () => {
         { deep: true }
     );
 
+    const getFilesFromSongs = async (songs: Song[]) => {
+        if (!Array.isArray(songs) || songs.length === 0) return songs;
+
+        // ONLINE: busca os arquivos reais pela API
+        if (connectionStore.isNetworkConnected) {
+            try {
+                const listId = songs.map(s => s._id);
+                console.log(listId)
+                const response = await api.files().getListBySongId(listId);
+
+                if (response?.response) {
+                    const files = response.response as SongFile[];
+                    songs.forEach(song => {
+                        song.files = files.filter((f: any) => f.songIdObj === song._id);
+                    });
+                }
+            } catch (error) {
+                console.error("Erro ao carregar arquivos (online):", error);
+            }
+            return songs;
+        }
+
+        // OFFLINE: puxa os files do próprio cache
+        songs.forEach(song => {
+            for (const group of listSongGroups.value) {
+                const cached = group.songs.find(s => s.id === song._id);
+                if (cached?.files) {
+                    song.files = cached.files;
+                    break;
+                }
+            }
+        });
+
+        return songs;
+    };
+
     return {
         listSongGroups,
         selectedSong,
         isLoaded,
         listLastDataUpdated,
+        getFilesFromSongs,
         setSelectedSong,
         setLastUpdate,
         loadData,

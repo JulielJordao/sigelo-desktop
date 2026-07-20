@@ -207,7 +207,7 @@ export const useBibleStore = defineStore('bible', () => {
                 bibleLayout: conf.bibleLayout,
                 showVerseNumbers: conf.showVerseNumbers,
                 chromaKey: conf.chromaKey,
-                bgOpacity: conf.bgOpacity, 
+                bgOpacity: conf.bgOpacity,
                 transitionType: conf.transitionType,
                 marginTop: conf.marginTop,
                 marginBottom: conf.marginBottom,
@@ -222,13 +222,64 @@ export const useBibleStore = defineStore('bible', () => {
 
         try {
             // Enviamos como string, o frontend vai dar o JSON.parse
-            await invoke('update_projection', { 
-                html: JSON.stringify(payload), 
-                targetMonitor: conf.selectedMonitor || null 
+            await invoke('update_projection', {
+                html: JSON.stringify(payload),
+                targetMonitor: conf.selectedMonitor || null
             });
         } catch (error) {
             console.error("Erro ao projetar a bíblia:", error);
         }
+    };
+
+    const parseManualVerses = (text: string): { verses: string[]; firstNumber: number | null } => {
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        const verses: string[] = [];
+        let firstNumber: number | null = null;
+
+        for (const line of lines) {
+            // captura: número no início, seguido de espaço, ponto ou hífen
+            const match = line.match(/^(\d+)\s*[\s.\-]\s*(.+)$/);
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (firstNumber === null) firstNumber = num;
+                verses.push(match[2].trim());
+            } else {
+                // linha sem número → continua o versículo anterior (ou entra sozinha)
+                if (verses.length > 0) {
+                    verses[verses.length - 1] += ' ' + line;
+                } else {
+                    verses.push(line);
+                }
+            }
+        }
+
+        return { verses, firstNumber };
+    };
+
+    const loadManualText = (reference: { abbr: string; chapter: number; verses?: string }, text: string) => {
+        const abbr = reference.abbr;
+        selectedBook.value = { name: getBookByAbbr(abbr), abbr, chapters: getBookChapters(abbr) };
+        selectedChapter.value = reference.chapter;
+
+        const { verses, firstNumber } = parseManualVerses(text);
+
+        // define o início da numeração: usa o número do texto, senão o da referência, senão 1
+        if (firstNumber !== null) {
+            verseStart.value = firstNumber;
+        } else if (reference.verses) {
+            verseStart.value = parseInt(reference.verses.split('-')[0], 10) || 1;
+        } else {
+            verseStart.value = 1;
+        }
+        verseEnd.value = verseStart.value + Math.max(verses.length - 1, 0);
+
+        fetchedData.value = {
+            book: selectedBook.value.name,
+            chapter: String(reference.chapter),
+            verses: verses.length > 0 ? verses : [text],
+        };
+
+        step.value = 'view';
     };
 
     const startProjection = async () => {
@@ -250,7 +301,7 @@ export const useBibleStore = defineStore('bible', () => {
     // Exportar loadSettings para ser acionado na UI
     return {
         step, selectedBook, selectedChapter, verseStart, verseEnd, fetchedData, searchQuery, currentSlideIndex, projectionSettings,
-        filteredBooks, totalVersesInChapter, availableVerses, bibleSlides, maxBibleFontSize,
+        filteredBooks, totalVersesInChapter, availableVerses, bibleSlides, maxBibleFontSize, loadManualText,
         fetchBibleText, loadReference, resetSelection, startProjection, stopProjection, nextSlide, prevSlide, loadSettings
     };
 });

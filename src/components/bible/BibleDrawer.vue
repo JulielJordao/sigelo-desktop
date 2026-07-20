@@ -37,11 +37,22 @@ const bibleMedia = computed(() => {
 });
 
 // ABRIR O DRAWER (Inteligente)
-const open = async (reference?: { abbr: string, chapter: number, verses?: string }) => {
-  isOpen.value = isOpen.value ? false : true; 
-  if (reference) {
-    await bibleStore.loadReference(reference);
+const open = async (payload?: { abbr: string; chapter: number; verses?: string; text?: string }) => {
+  if (payload) {
+    if (payload.text && payload.text.trim()) {
+      bibleStore.loadManualText(
+        { abbr: payload.abbr, chapter: payload.chapter, verses: payload.verses },
+        payload.text
+      );
+    } else {
+      await bibleStore.loadReference({
+        abbr: payload.abbr,
+        chapter: payload.chapter,
+        verses: payload.verses,
+      });
+    }
   }
+  isOpen.value = true; // sempre abre — sem o toggle que fechava
 };
 
 const close = () => {
@@ -82,7 +93,7 @@ const selectLocalMedia = (mediaFile: MediaFile) => {
 const handleKeydown = (e: KeyboardEvent) => {
   if (step.value !== 'projecting' && statusPresStore.status.isPresentation !== 'Biblia') return;
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-    e.preventDefault(); 
+    e.preventDefault();
     bibleStore.nextSlide();
   }
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
@@ -96,7 +107,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 watch(isOpen, (newVal) => {
   window.removeEventListener('keydown', handleKeydown);
-  
+
   // 2. Só adiciona novamente se a gaveta estiver aberta
   if (newVal) {
     window.addEventListener('keydown', handleKeydown);
@@ -191,7 +202,7 @@ onUnmounted(() => {
               <div class="d-flex align-center">
                 <v-btn icon="mdi-arrow-left" variant="text" size="small" class="mr-1" @click="step = 'verse'"></v-btn>
                 <span class="text-h6 font-weight-bold text-primary">{{ fetchedData.book }} {{ fetchedData.chapter
-                  }}</span>
+                }}</span>
               </div>
               <v-tooltip text="Nova Busca" location="bottom">
                 <template v-slot:activator="{ props }">
@@ -363,10 +374,10 @@ onUnmounted(() => {
             class="pa-3 mb-4 text-center border-primary border-opacity-100 flex-shrink-0"
             style="border-width: 2px !important;">
             <div class="text-caption text-primary font-weight-bold text-uppercase mb-1">Slide {{ currentSlideIndex + 1
-              }} de {{
+            }} de {{
                 bibleSlides.length }}</div>
             <div class="text-subtitle-1 font-weight-medium text-truncate">{{ bibleSlides[currentSlideIndex]?.reference
-              }}</div>
+            }}</div>
           </v-card>
 
           <v-card

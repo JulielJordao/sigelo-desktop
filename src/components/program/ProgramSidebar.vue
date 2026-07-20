@@ -7,17 +7,22 @@ import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // presets/temas
 import type { BibleRef } from '../../types/bibleRef';
 
+import MediaPickerModal from '../media/MediaPickerModal.vue';
+import ModalSelectPreset from '../presets/modalSelectPreset.vue';
+
 import SearchSongModal from '../songs/SearchSongModal.vue';   // ajuste o caminho se necessário
 import AddBibleModal from '../bible/AddBibleModal.vue';        // ajuste o caminho se necessário
+
+import { useSongCacheStore } from '../../stores/songCacheStore';
+import { emit as tauriEmit } from '@tauri-apps/api/event';
+
+const songCacheStore = useSongCacheStore();
 
 const programStore = useProgramStore();
 const eventStore = useEventStore();
 const mediaStore = useMediaStore();
 const musicStore = useMusicPresentationStore();
 const presentationStore = usePresentationStore();
-
-// Item 4: pede ao componente pai para abrir o BibleDrawer com a referência.
-const emit = defineEmits<{ (e: 'open-bible', ref: { abbr: string; chapter: number; verses?: string }): void }>();
 
 // ===== abas =====
 const tab = computed<'future' | 'past'>({
@@ -26,6 +31,10 @@ const tab = computed<'future' | 'past'>({
 });
 const shownPrograms = computed(() =>
     programStore.showPast ? programStore.pastPrograms : programStore.futurePrograms,
+);
+
+const currentPresetForItem = computed(() =>
+    programStore.currentProgram?.items.find(i => i.id === presetItemId.value)?.presetId ?? null
 );
 
 // ===== diálogos =====
@@ -39,7 +48,6 @@ const showPresetPicker = ref(false);
 
 const importing = ref(false);
 const importShowPast = ref(false);
-const mediaSearch = ref('');
 
 // contexto de edição (item 2)
 const songEditItemId = ref<string | null>(null);
@@ -154,13 +162,6 @@ const onAddBible = (payload: {
         origin: payload.origin,
     });
 
-const filteredMedia = computed(() => {
-    const q = mediaSearch.value.trim().toLowerCase();
-    const list = mediaStore.mediaFiles || [];
-    if (!q) return list;
-    return list.filter((m) => m.name.toLowerCase().includes(q));
-});
-
 // ===== EDITAR item (item 2) =====
 const onEditItem = async (item: ProgramItem) => {
     if (item.type === 'song') {
@@ -203,16 +204,28 @@ const buildBibleReference = (item: ProgramItem) => {
     return { abbr: r.book, chapter: r.chapter, verses };
 };
 
-const presentItem = (item: ProgramItem) => {
+const presentItem = async (item: ProgramItem) => {
     if (item.type === 'song') {
-        // Item 3: aplica o tema escolhido antes de mandar a música.
+        // Garante que a payload tenha os arquivos (online busca da API, offline do cache)
+        await songCacheStore.getFilesFromSongs([item.payload]);
+
+        // Carrega a letra e monta o customSong (dispara o preview)
+        await musicStore.setCustomSong(item.payload);
+
+        // Item 3: aplica o tema DEPOIS de carregar, senão o watcher de rawLyric
+        // (savedPresetBySong) sobrescreve o tema do item
         if (item.presetId) presentationStore.applyPreset(item.presetId);
-        musicStore.setCustomSong(item.payload);
     } else if (item.type === 'media') {
         mediaStore.setFixedMedia(item.payload);
     } else if (item.type === 'bible') {
-        // Item 4: abre o BibleDrawer já com a referência (carrega o texto, pronto p/ projetar).
-        emit('open-bible', buildBibleReference(item));
+        const r = item.payload?.ref || {};
+        tauriEmit('open-bible', {
+            book: r.book,
+            chapter: r.chapter,
+            verseStart: r.verseStart,
+            verseEnd: r.verseEnd,
+            text: item.payload?.text?.trim() || undefined, // texto manual
+        });
     }
 };
 
@@ -556,36 +569,11 @@ onMounted(async () => {
         </v-dialog>
 
         <!-- Escolher tema/preset da música (item 3) -->
-        <v-dialog v-model="showPresetPicker" max-width="560">
-            <v-card rounded="lg">
-                <v-toolbar color="deep-purple" density="compact">
-                    <v-icon start class="ml-3">mdi-palette</v-icon>
-                    <v-toolbar-title class="text-subtitle-1 font-weight-bold">Tema da música</v-toolbar-title>
-                    <v-spacer></v-spacer>
-                    <v-btn icon="mdi-close" variant="text" @click="showPresetPicker = false"></v-btn>
-                </v-toolbar>
-                <v-card-text class="pa-3">
-                    <v-list class="border rounded-lg" density="compact" style="max-height: 400px; overflow-y: auto;">
-                        <v-list-item @click="choosePreset(null)" prepend-icon="mdi-close-circle-outline"
-                            title="Nenhum (tema padrão)"></v-list-item>
-                        <v-divider></v-divider>
-                        <v-list-item v-for="preset in presentationStore.presets" :key="preset.id"
-                            @click="choosePreset(preset.id)" class="cursor-pointer" hover>
-                            <template v-slot:prepend><v-icon color="deep-purple">mdi-palette-outline</v-icon></template>
-                            <v-list-item-title class="text-subtitle-2">{{ preset.name }}</v-list-item-title>
-                            <template v-slot:append>
-                                <v-icon v-if="presentationStore.currentPresetId === preset.id" size="small"
-                                    color="primary">mdi-check</v-icon>
-                            </template>
-                        </v-list-item>
-                    </v-list>
-                    <p v-if="!presentationStore.presets || presentationStore.presets.length === 0"
-                        class="text-caption text-grey text-center py-4">
-                        Nenhum tema salvo ainda. Crie temas na Galeria de Temas.
-                    </p>
-                </v-card-text>
-            </v-card>
-        </v-dialog>
+        <ModalSelectPreset
+            v-model="showPresetPicker"
+            select-mode
+            :selected-preset-id="currentPresetForItem"
+            @select="choosePreset" />
 
         <!-- Criar / Editar programação -->
         <v-dialog v-model="showProgramDialog" max-width="420">
@@ -624,40 +612,7 @@ onMounted(async () => {
         </v-dialog>
 
         <!-- Seletor de mídia (adicionar ou substituir) -->
-        <v-dialog v-model="showMediaPicker" max-width="600">
-            <v-card rounded="lg">
-                <v-toolbar color="deep-purple" density="compact">
-                    <v-toolbar-title class="text-subtitle-1 font-weight-bold">{{ mediaEditItemId ? 'Trocar mídia' :
-                        'Adicionar Mídia' }}</v-toolbar-title>
-                    <v-spacer></v-spacer>
-                    <v-btn icon="mdi-close" variant="text" @click="showMediaPicker = false"></v-btn>
-                </v-toolbar>
-                <v-card-text class="pa-3">
-                    <v-text-field v-model="mediaSearch" label="Buscar mídia..." variant="outlined" density="comfortable"
-                        hide-details clearable prepend-inner-icon="mdi-magnify" class="mb-3"></v-text-field>
-                    <v-list v-if="filteredMedia.length > 0" class="border rounded-lg" density="compact"
-                        style="max-height: 400px; overflow-y: auto;">
-                        <v-list-item v-for="media in filteredMedia" :key="media.id" @click="onAddMedia(media)" hover
-                            class="cursor-pointer">
-                            <template v-slot:prepend>
-                                <v-avatar rounded="lg" size="40" class="mr-2">
-                                    <v-img v-if="!media.isVideo" :src="media.url" cover></v-img>
-                                    <v-icon v-else color="deep-purple">mdi-play-box</v-icon>
-                                </v-avatar>
-                            </template>
-                            <v-list-item-title class="text-subtitle-2 text-truncate">{{ media.name
-                                }}</v-list-item-title>
-                            <v-list-item-subtitle class="text-caption">{{ media.isVideo ? 'Vídeo' : 'Imagem' }} • {{
-                                media.category }}</v-list-item-subtitle>
-                        </v-list-item>
-                    </v-list>
-                    <div v-else class="text-center py-8 text-grey">
-                        <v-icon size="40" color="grey-lighten-2" class="mb-2">mdi-image-off</v-icon>
-                        <p class="text-caption">Nenhuma mídia encontrada.</p>
-                    </div>
-                </v-card-text>
-            </v-card>
-        </v-dialog>
+        <MediaPickerModal v-model="showMediaPicker" :replacing="!!mediaEditItemId" @select="onAddMedia" />
 
         <!-- Importar de evento -->
         <v-dialog v-model="showImportDialog" max-width="450">

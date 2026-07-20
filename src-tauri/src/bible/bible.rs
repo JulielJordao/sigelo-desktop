@@ -68,19 +68,21 @@ fn digits_to_u32(s: &str) -> Option<u32> {
 }
 
 /// Parse SÍNCRONO (scraper::Html não é Send): retorna (rótulo da versão, versículos).
-/// Chaveia por VERSÍCULO (atributo data-v=".N.") e não por <p>, porque o Bíblia Online
-/// usa o modo "texto corrido", onde vários versículos ficam dentro do mesmo <p>.
+///
+/// Estratégia: varre os nós em ORDEM DE DOCUMENTO. Cada marcador [data-vn] define o
+/// versículo "atual"; todo texto seguinte é acumulado nele, até o próximo [data-vn].
+/// Ignoramos texto dentro de headings <h1..h6> (títulos de seção, ex.: "A missão do
+/// Filho") e dentro do próprio [data-vn] (o número). Assim funciona para:
+///   - texto corrido (vários versículos no mesmo <p>);
+///   - versículos partidos por elementos internos (ex.: o Nome divino "SENHOR"), que
+///     antes cortavam o texto no meio;
+///   - títulos de seção que compartilham o data-v do versículo seguinte.
 fn parse_verses(html: &str) -> (String, Vec<ScrapedVerse>) {
-    use std::collections::{HashMap, HashSet};
+    use scraper::node::Node;
+    use std::collections::BTreeMap;
 
     let doc = Html::parse_document(html);
-
     let article_sel = Selector::parse("article[data-fragment-root]").unwrap();
-    let vn_sel = Selector::parse("[data-vn]").unwrap();
-    let role_sel = Selector::parse(r#"[role="text"]"#).unwrap();
-    let p_sel = Selector::parse("p[data-v]").unwrap();
-    let t_sel = Selector::parse("[data-t]").unwrap();
-    let heading_sel = Selector::parse("h1,h2,h3,h4,h5,h6").unwrap();
 
     let article = match doc.select(&article_sel).next() {
         Some(a) => a,
@@ -89,82 +91,61 @@ fn parse_verses(html: &str) -> (String, Vec<ScrapedVerse>) {
 
     let label = clean(article.value().attr("aria-label").unwrap_or(""));
 
-    // 1) mapa data-v (".8.") -> número do versículo (8), a partir dos marcadores [data-vn]
-    let mut num_by_dv: HashMap<String, u32> = HashMap::new();
-    for vn in article.select(&vn_sel) {
-        let dv = vn.value().attr("data-v").unwrap_or("").to_string();
-        let n = digits_to_u32(&vn.text().collect::<String>()).or_else(|| digits_to_u32(&dv));
-        if let Some(n) = n {
-            num_by_dv.entry(dv).or_insert(n);
-        }
-    }
+    let is_heading = |n: &str| matches!(n, "h1" | "h2" | "h3" | "h4" | "h5" | "h6");
 
-    // Títulos de seção (perícopes, ex.: "A missão do Filho") ficam dentro de <h2>/<h3>,
-    // têm tokens [data-t] e COMPARTILHAM o data-v do versículo seguinte. Coletamos os
-    // [role="text"] que estão dentro de headings para IGNORÁ-LOS.
-    let mut heading_ids = HashSet::new();
-    for h in article.select(&heading_sel) {
-        for rt in h.select(&role_sel) {
-            heading_ids.insert(rt.id());
-        }
-    }
+    let mut order: Vec<u32> = Vec::new(); // ordem de aparição dos versículos
+    let mut texts: BTreeMap<u32, String> = BTreeMap::new();
+    let mut current: Option<u32> = None;
 
-    // 2) um versículo por [role="text"] (fora de headings), chaveado pelo data-v.
-    //    O texto vem SÓ dos tokens [data-t] (palavras da Escritura).
-    let mut verses: Vec<ScrapedVerse> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for rt in article.select(&role_sel) {
-        if heading_ids.contains(&rt.id()) {
-            continue; // título de seção, não é versículo
-        }
-        let dv = rt.value().attr("data-v").unwrap_or("").to_string();
-        if dv.is_empty() || seen.contains(&dv) {
-            continue;
-        }
-        let mut text = String::new();
-        for t in rt.select(&t_sel) {
-            text.push_str(&t.text().collect::<String>());
-        }
-        let text = clean(&text);
-        if text.is_empty() {
-            continue; // sem tokens de Escritura → provável título de seção
-        }
-        let number = num_by_dv.get(&dv).copied().or_else(|| digits_to_u32(&dv));
-        let number = match number {
-            Some(n) => n,
-            None => continue,
-        };
-        seen.insert(dv);
-        verses.push(ScrapedVerse { number, text });
-    }
-
-    // 3) fallback: sem [role="text"] → parse verso a verso por <p>
-    if verses.is_empty() {
-        for p in article.select(&p_sel) {
-            let mut number = p
-                .select(&vn_sel)
-                .next()
-                .map(|el| el.text().collect::<String>())
-                .and_then(|s| digits_to_u32(&s));
-            if number.is_none() {
-                number = digits_to_u32(p.value().attr("data-v").unwrap_or(""));
+    for node in article.descendants() {
+        match node.value() {
+            Node::Element(el) => {
+                // marcador de número de versículo → define o versículo atual
+                if el.attr("data-vn").is_some() {
+                    if let Some(n) = digits_to_u32(el.attr("data-v").unwrap_or("")) {
+                        current = Some(n);
+                        if !texts.contains_key(&n) {
+                            order.push(n);
+                            texts.insert(n, String::new());
+                        }
+                    }
+                }
             }
-            let number = match number {
-                Some(n) => n,
-                None => continue,
-            };
-            let mut text = String::new();
-            for t in p.select(&t_sel) {
-                text.push_str(&t.text().collect::<String>());
+            Node::Text(t) => {
+                if let Some(n) = current {
+                    // pula texto dentro de heading (título) ou do próprio número [data-vn]
+                    let mut skip = false;
+                    for anc in node.ancestors() {
+                        if let Some(a) = anc.value().as_element() {
+                            if is_heading(a.name()) || a.attr("data-vn").is_some() {
+                                skip = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !skip {
+                        if let Some(buf) = texts.get_mut(&n) {
+                            buf.push_str(&t.to_string());
+                        }
+                    }
+                }
             }
-            let text = clean(&text);
-            if !text.is_empty() {
-                verses.push(ScrapedVerse { number, text });
-            }
+            _ => {}
         }
     }
 
-    // ordena por número (garante referência first/last correta)
+    let mut verses: Vec<ScrapedVerse> = order
+        .into_iter()
+        .filter_map(|n| {
+            let t = clean(texts.get(&n).map(|s| s.as_str()).unwrap_or(""));
+            if t.is_empty() {
+                None
+            } else {
+                Some(ScrapedVerse { number: n, text: t })
+            }
+        })
+        .collect();
+
     verses.sort_by_key(|v| v.number);
     (label, verses)
 }

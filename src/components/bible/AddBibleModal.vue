@@ -19,7 +19,7 @@ const props = withDefaults(
         defaultSource?: string;
     }>(),
     {
-        sources: () => ['NVI', 'ACF', 'ARA', 'ARC', 'NTLH', 'KJV'],
+        sources: () => ['ARA', 'NAA', 'NVI', 'NTLH', 'ACF', 'ARC', 'KJV'],
         defaultSource: 'ARA',
     },
 );

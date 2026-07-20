@@ -13,10 +13,26 @@ const props = defineProps({
     modelValue: {
         type: Boolean,
         required: true
-    }
+    },
+    selectMode: { type: Boolean, default: false },
+    selectedPresetId: { type: String as () => string | null, default: null },
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'select'])
+
+const activeId = computed(() =>
+    props.selectMode ? props.selectedPresetId : presentationStore.currentPresetId
+);
+
+const onCardClick = (preset: any) => {
+    if (isDeleteMode.value) return;
+    if (props.selectMode) {
+        emit('select', preset.id);
+    } else {
+        presentationStore.applyPreset(preset.id);
+    }
+    isPresetModalOpen.value = false;
+};
 
 const isPresetModalOpen = computed({
     get: () => props.modelValue,
@@ -68,7 +84,7 @@ const confirmDeletion = () => {
     if (presetToDelete.value) {
         presentationStore.deletePreset(presetToDelete.value.id);
     }
-    
+
     confirmDeleteModal.value = false;
     presetToDelete.value = null;
 
@@ -189,49 +205,32 @@ watch(isPresetModalOpen, (newVal) => {
                 <v-icon icon="mdi-palette" class="mr-2" color="primary"></v-icon>
                 Galeria de Temas
                 <v-spacer></v-spacer>
+                <v-btn v-if="selectMode" variant="text" size="small" class="mr-2"
+                    prepend-icon="mdi-close-circle-outline"
+                    @click="emit('select', null); isPresetModalOpen = false">
+                    Sem tema
+                </v-btn>
 
                 <!-- Campo de busca expansível (à esquerda da lupa) -->
                 <div class="search-wrapper" :class="{ 'is-open': isSearchOpen }">
-                    <v-text-field
-                        v-show="isSearchOpen"
-                        ref="searchInputRef"
-                        v-model="searchQuery"
-                        density="compact"
-                        variant="solo-filled"
-                        flat
-                        hide-details
-                        placeholder="Buscar tema..."
-                        clearable
-                        class="search-field"
-                        @keyup.esc.stop="closeSearch"
-                        @click:clear="closeSearch"
-                    ></v-text-field>
+                    <v-text-field v-show="isSearchOpen" ref="searchInputRef" v-model="searchQuery" density="compact"
+                        variant="solo-filled" flat hide-details placeholder="Buscar tema..." clearable
+                        class="search-field" @keyup.esc.stop="closeSearch" @click:clear="closeSearch"></v-text-field>
                 </div>
 
                 <v-tooltip :text="isSearchOpen ? 'Fechar busca' : 'Buscar tema'" location="bottom">
                     <template v-slot:activator="{ props }">
-                        <v-btn
-                            v-bind="props"
-                            :icon="isSearchOpen ? 'mdi-magnify-close' : 'mdi-magnify'"
-                            variant="text"
-                            :color="isSearchOpen ? 'primary' : 'medium-emphasis'"
-                            class="mr-1"
-                            :disabled="isDeleteMode"
-                            @click="isSearchOpen ? closeSearch() : openSearch()"
-                        ></v-btn>
+                        <v-btn v-bind="props" :icon="isSearchOpen ? 'mdi-magnify-close' : 'mdi-magnify'" variant="text"
+                            :color="isSearchOpen ? 'primary' : 'medium-emphasis'" class="mr-1" :disabled="isDeleteMode"
+                            @click="isSearchOpen ? closeSearch() : openSearch()"></v-btn>
                     </template>
                 </v-tooltip>
-                
+
                 <v-tooltip :text="isDeleteMode ? 'Sair do modo de exclusão' : 'Excluir temas'" location="bottom">
                     <template v-slot:activator="{ props }">
-                        <v-btn 
-                            v-bind="props" 
-                            icon="mdi-trash-can-outline" 
-                            :variant="isDeleteMode ? 'tonal' : 'text'" 
-                            :color="isDeleteMode ? 'error' : 'medium-emphasis'"
-                            class="mr-2"
-                            @click="toggleDeleteMode"
-                        ></v-btn>
+                        <v-btn v-bind="props" icon="mdi-trash-can-outline" :variant="isDeleteMode ? 'tonal' : 'text'"
+                            :color="isDeleteMode ? 'error' : 'medium-emphasis'" class="mr-2"
+                            @click="toggleDeleteMode"></v-btn>
                     </template>
                 </v-tooltip>
 
@@ -244,28 +243,27 @@ watch(isPresetModalOpen, (newVal) => {
                     <div>Nenhum tema encontrado para "{{ searchQuery }}"</div>
                 </div>
 
-                <div v-else style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
+                <div v-else
+                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px;">
 
                     <v-card v-for="preset in filteredPresets" :key="preset.id" hover
-                        class="d-flex flex-column rounded-lg overflow-hidden border"
-                        :class="{ 
-                            'border-primary border-md': presentationStore.currentPresetId === preset.id && !isDeleteMode,
-                            'border-error': isDeleteMode 
+                        class="d-flex flex-column rounded-lg overflow-hidden border" :class="{
+                            'border-primary border-md': activeId === preset.id && !isDeleteMode,
+                            'border-error': isDeleteMode
                         }">
-                        
-                        <div @click="!isDeleteMode && (presentationStore.applyPreset(preset.id), isPresetModalOpen = false)"
-                             :style="{ cursor: isDeleteMode ? 'default' : 'pointer' }">
+
+                        <div @click="onCardClick(preset)" :style="{ cursor: isDeleteMode ? 'default' : 'pointer' }">
+
                             <SlidePreview :design="preset.design"
                                 :textStyle="preset.textStyles[songInfo.getCurrentSlideType]"
-                                :text="songInfo.currentSlide.text" :screenRatio="configStore.screenRatio" :editable="false"
-                                style="border-radius: 0;" 
-                                :isFixedPreview="true"
-                                :class="{ 'opacity-50': isDeleteMode }"
-                                :pauseVideo="true"
-                                :isCoverSlide="songInfo.getCurrentSlideType === 'titulo'"/>
+                                :text="songInfo.currentSlide.text" :screenRatio="configStore.screenRatio"
+                                :editable="false" style="border-radius: 0;" :isFixedPreview="true"
+                                :class="{ 'opacity-50': isDeleteMode }" :pauseVideo="true"
+                                :isCoverSlide="songInfo.getCurrentSlideType === 'titulo'" />
                         </div>
 
-                        <div class="pa-2 bg-surface d-flex align-center justify-space-between" style="min-height: 52px;">
+                        <div class="pa-2 bg-surface d-flex align-center justify-space-between"
+                            style="min-height: 52px;">
 
                             <template v-if="editingPresetId === preset.id">
                                 <v-text-field v-model="renameBuffer" density="compact" variant="underlined" hide-details
@@ -287,9 +285,9 @@ watch(isPresetModalOpen, (newVal) => {
 
                                 <v-btn v-if="isDeleteMode" icon="mdi-delete" variant="text" size="small" color="error"
                                     @click.stop="promptDelete(preset)"></v-btn>
-                                
-                                <v-btn v-else icon="mdi-pencil-outline" variant="text" size="small" color="medium-emphasis"
-                                    @click.stop="startEditing(preset)"></v-btn>
+
+                                <v-btn v-else icon="mdi-pencil-outline" variant="text" size="small"
+                                    color="medium-emphasis" @click.stop="startEditing(preset)"></v-btn>
                             </template>
 
                         </div>
@@ -305,9 +303,11 @@ watch(isPresetModalOpen, (newVal) => {
             <v-card-title class="text-h6 font-weight-bold text-error pt-4 px-4 pb-2">
                 Excluir Tema
             </v-card-title>
-            
+
             <v-card-text class="px-4 py-2">
-                Tem certeza que deseja excluir o tema <strong>{{ presetToDelete?.name }}</strong>? Esta ação não pode ser desfeita.
+                Tem certeza que deseja excluir o tema <strong>{{ presetToDelete?.name }}</strong>? Esta ação não pode
+                ser
+                desfeita.
             </v-card-text>
 
             <v-card-actions class="pa-4 pt-2">

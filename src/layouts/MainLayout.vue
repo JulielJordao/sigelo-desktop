@@ -30,19 +30,23 @@ const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filh
 // const configStore = useConfigStore();
 
 // Essa função agora chama o método open() exposto pelo BibleDrawer
-const toggleBible = (hasBibleRef: boolean, bibleRef: BibleRef | undefined) => {
-  bibleDrawerRef.value?.open();
+const toggleBible = (hasBibleRef: boolean, bibleRef: BibleRef | undefined, text?: string) => {
+    // Sem referência: só abre/alterna o drawer vazio
+    if (!hasBibleRef || !bibleRef) {
+        bibleDrawerRef.value?.open();
+        return;
+    }
 
-  if (hasBibleRef && bibleRef) {
-    console.log("bibleRef", bibleRef)
-    const verses = bibleRef.verseStart ? (
-      bibleRef.verseEnd ? `${bibleRef.verseStart}-${bibleRef.verseEnd}` : bibleRef.verseStart) :
-      undefined
-    bibleDrawerRef.value?.open({ abbr: bibleRef.book, chapter: bibleRef.chapter, verses })
-  }
+    const verses = bibleRef.verseStart
+        ? (bibleRef.verseEnd ? `${bibleRef.verseStart}-${bibleRef.verseEnd}` : `${bibleRef.verseStart}`)
+        : undefined;
 
-  // Exemplo de como você poderia abri-lo já buscando um texto de outro lugar do app:
-  // bibleDrawerRef.value?.open({ abbr: 'Rm', chapter: 3, verses: '10-12' });
+    bibleDrawerRef.value?.open({
+        abbr: bibleRef.book,
+        chapter: bibleRef.chapter,
+        verses,
+        text, // <-- repassa o texto manual quando existir
+    });
 };
 
 const toogleMediaSidebar = () => {
@@ -92,8 +96,9 @@ const toggleEventsSidebar = () => {
 onMounted(async () => {
   menuStore.toggleMenu('Songs')
 
-  unlistenBible = await listen<BibleRef>('open-bible', async (event) => {
-    toggleBible(true, event.payload)
+  unlistenBible = await listen<BibleRef & { text?: string }>('open-bible', async (event) => {
+      const { text, ...bibleRef } = event.payload as any;
+      toggleBible(true, bibleRef, text);
   });
 });
 

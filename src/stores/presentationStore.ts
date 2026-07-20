@@ -237,6 +237,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
 
   const setCustomSong = async (song: Song) => {
 
+    console.log("setCustomSong", song)
     if (Array.isArray(song.files)) {
       const list: SongFile[] = song.files;
       const lyricFile = list.find(it => it.type == "Letra");
