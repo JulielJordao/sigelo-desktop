@@ -114,7 +114,7 @@ watch(isOpen, (newVal) => {
   }
 });
 
-defineExpose({ open, close });
+defineExpose({ open, close, isOpen });
 
 const handleBlur = () => menuStore.setShiftShortcutLocked(false);
 const handleFocus = () => menuStore.setShiftShortcutLocked(true);

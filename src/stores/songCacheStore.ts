@@ -205,6 +205,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
     );
 
     const getFilesFromSongs = async (songs: Song[]) => {
+        
         if (!Array.isArray(songs) || songs.length === 0) return songs;
 
         // ONLINE: busca os arquivos reais pela API

@@ -32,6 +32,10 @@ const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filh
 // Essa função agora chama o método open() exposto pelo BibleDrawer
 const toggleBible = (hasBibleRef: boolean, bibleRef: BibleRef | undefined, text?: string) => {
     // Sem referência: só abre/alterna o drawer vazio
+    if(!bibleRef && bibleDrawerRef.value?.isOpen) {
+        bibleDrawerRef.value?.close();
+        return;
+    }
     if (!hasBibleRef || !bibleRef) {
         bibleDrawerRef.value?.open();
         return;
@@ -41,6 +45,7 @@ const toggleBible = (hasBibleRef: boolean, bibleRef: BibleRef | undefined, text?
         ? (bibleRef.verseEnd ? `${bibleRef.verseStart}-${bibleRef.verseEnd}` : `${bibleRef.verseStart}`)
         : undefined;
 
+    
     bibleDrawerRef.value?.open({
         abbr: bibleRef.book,
         chapter: bibleRef.chapter,

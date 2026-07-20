@@ -16,6 +16,17 @@ import AddBibleModal from '../bible/AddBibleModal.vue';        // ajuste o camin
 import { useSongCacheStore } from '../../stores/songCacheStore';
 import { emit as tauriEmit } from '@tauri-apps/api/event';
 
+import MediaPreviewModal from '../media/MediaPreviewModal.vue';
+import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
+import { useConfigStore } from '../../stores/useConfigStore';
+
+const statusStore = useStatusPresentationStore();
+const configStore = useConfigStore();
+
+// estado do preview
+const showMediaPreview = ref(false);
+const mediaPreviewFile = ref<any>(null)
+
 const songCacheStore = useSongCacheStore();
 
 const programStore = useProgramStore();
@@ -206,6 +217,9 @@ const buildBibleReference = (item: ProgramItem) => {
 
 const presentItem = async (item: ProgramItem) => {
     if (item.type === 'song') {
+        // Garante que o item tenha o _id
+        if(!item.payload?._id) item.payload._id = item.payload?.id;
+
         // Garante que a payload tenha os arquivos (online busca da API, offline do cache)
         await songCacheStore.getFilesFromSongs([item.payload]);
 
@@ -216,7 +230,8 @@ const presentItem = async (item: ProgramItem) => {
         // (savedPresetBySong) sobrescreve o tema do item
         if (item.presetId) presentationStore.applyPreset(item.presetId);
     } else if (item.type === 'media') {
-        mediaStore.setFixedMedia(item.payload);
+        mediaPreviewFile.value = item.payload;
+        showMediaPreview.value = true;
     } else if (item.type === 'bible') {
         const r = item.payload?.ref || {};
         tauriEmit('open-bible', {
@@ -242,6 +257,15 @@ const listWrap = ref<HTMLElement | null>(null);
 const dragIndex = ref<number | null>(null);
 const dragActive = ref(false);
 let dragFrom = -1;
+
+// quando confirma no preview → projeta de fato
+const onProjectMedia = async (file: any) => {
+    console.log('projecting media', file)
+    await statusStore.setNewPresentation('Media', configStore.settings.selectedMonitor);
+    tauriEmit('project-media', file);
+    statusStore.setProjectedMedia(file);
+
+};
 
 const startDrag = (index: number, e: PointerEvent) => {
     e.preventDefault();
@@ -477,7 +501,7 @@ onMounted(async () => {
                                                 class="mr-2"><v-icon size="small">{{ item.icon }}</v-icon></v-avatar>
                                         </template>
 
-                                        <v-list-item-title class="font-weight-bold text-subtitle-2 text-truncate">{{
+                                        <v-list-item-title class="font-weight-bold text-subtitle-2 text-truncate text-high-emphasis">{{
                                             item.title
                                             }}</v-list-item-title>
                                         <v-list-item-subtitle class="text-caption text-truncate">{{ item.subtitle
@@ -691,6 +715,8 @@ onMounted(async () => {
                 </v-card-actions>
             </v-card>
         </v-dialog>
+
+        <MediaPreviewModal v-model="showMediaPreview" :file="mediaPreviewFile" @project="onProjectMedia" />
 
     </div>
 </template>

@@ -1,7 +1,7 @@
 {
   "name": "sigelo-app",
   "private": true,
-  "version": "0.8.5",
+  "version": "1.0.0beta",
   "type": "module",
   "scripts": {
     "build-premium": "bun --env-file=.env build-premium.ts",

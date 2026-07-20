@@ -32,6 +32,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
 ---
 
+## [0.9.25] - 2026-07-20
+
+- Adicionado a aba de programação para organizar arquivos de mídia, versículos bíblicos e músicas a serem usados.
+- Adicionado suporte para outras versões da bíblia apenas na tela de adicionar bíblia na programação.
+- Ajustado o sistema de download das dependências para importar do youtube evitando o travamento da aplicação.
+- Melhoria do funcionamento do motor FFMPEG para melhor reprodução e funcionamento do sistema de busca no vídeo. 
+
 ## [0.9.19] - 2026-05-22
 
 #### Correções
