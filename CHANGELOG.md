@@ -32,7 +32,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
 ---
 
-## [0.9.25] - 2026-07-20
+## [0.9.25] - 2026-07-21
 
 - Adicionado a aba de programação para organizar arquivos de mídia, versículos bíblicos e músicas a serem usados.
 - Adicionado suporte para outras versões da bíblia apenas na tela de adicionar bíblia na programação.

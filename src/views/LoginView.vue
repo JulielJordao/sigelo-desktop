@@ -114,11 +114,11 @@ onMounted(() => {})
 
           <v-text-field v-model="password" label="Senha" placeholder="••••••••" prepend-inner-icon="mdi-lock-outline"
             :type="showPassword ? 'text' : 'password'" :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
-            @click:append-inner="showPassword = !showPassword" variant="outlined" color="primary"
+            @click:append-inner="showPassword = !showPassword" variant="outlined" color="primary" @keyup.enter="login"
             base-color="grey-lighten-1" density="comfortable" class="rounded-lg" hide-details="auto"></v-text-field>
 
           <v-expand-transition>
-            <v-alert v-if="errLogin" type="error" variant="flat" color="error"
+            <v-alert v-if="errLogin && errLogin !== ''" type="error" variant="flat" color="error"
               class="mt-5 text-body-2 rounded-lg bg-red-lighten-5 text-red-darken-3" icon="mdi-alert-circle">
               {{ errLogin }}
             </v-alert>

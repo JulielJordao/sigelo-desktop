@@ -122,6 +122,34 @@ export const useSongCacheStore = defineStore('songCache', () => {
         }
     }
 
+    const syncSongGroups = async (serverGroups: SongGroupCache[]) => {
+        const serverIds = new Set(serverGroups.map(g => g.id));
+
+        // 1. Remove grupos que não vieram na listagem atual
+        listSongGroups.value = listSongGroups.value.filter(g => serverIds.has(g.id));
+
+        // 2. Upsert dos grupos da conta atual
+        serverGroups.forEach(group => {
+            const index = listSongGroups.value.findIndex(it => it.id === group.id);
+            if (index !== -1) {
+                listSongGroups.value[index].label = group.label;
+                if (group.songs?.length) {
+                    listSongGroups.value[index].songs = group.songs;
+                }
+            } else {
+                listSongGroups.value.push(group);
+            }
+        });
+
+        // 3. Limpa o mapa de última atualização dos grupos removidos
+        Object.keys(listLastDataUpdated.value).forEach(id => {
+            if (!serverIds.has(id)) delete listLastDataUpdated.value[id];
+        });
+
+        // 4. Persiste o cache reconciliado
+        await saveInfo(listSongGroups.value);
+    };
+    
     const changeCacheInfo = async (songGroups: SongGroupCache) => {
         const index = listSongGroups.value.findIndex(it => it.id === songGroups.id);
 
@@ -205,7 +233,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
     );
 
     const getFilesFromSongs = async (songs: Song[]) => {
-        
+
         if (!Array.isArray(songs) || songs.length === 0) return songs;
 
         // ONLINE: busca os arquivos reais pela API
@@ -246,6 +274,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
         selectedSong,
         isLoaded,
         listLastDataUpdated,
+        syncSongGroups,
         getFilesFromSongs,
         setSelectedSong,
         setLastUpdate,

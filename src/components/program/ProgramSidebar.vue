@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useProgramStore, type ProgramItem } from '../../stores/programStore';
 import { useEventStore } from '../../stores/eventStore';
-import { useMediaStore } from '../../stores/mediaStore';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // presets/temas
 import type { BibleRef } from '../../types/bibleRef';
@@ -31,7 +30,6 @@ const songCacheStore = useSongCacheStore();
 
 const programStore = useProgramStore();
 const eventStore = useEventStore();
-const mediaStore = useMediaStore();
 const musicStore = useMusicPresentationStore();
 const presentationStore = usePresentationStore();
 
@@ -205,15 +203,6 @@ const choosePreset = (presetId: string | null) => {
 };
 const presetName = (id?: string | null) =>
     (presentationStore.presets || []).find((p: any) => p.id === id)?.name || '';
-
-// ===== apresentar item =====
-const buildBibleReference = (item: ProgramItem) => {
-    const r = item.payload?.ref || {};
-    const vs = r.verseStart ?? null;
-    const ve = r.verseEnd ?? vs;
-    const verses = vs == null ? undefined : vs === ve ? `${vs}` : `${vs}-${ve}`;
-    return { abbr: r.book, chapter: r.chapter, verses };
-};
 
 const presentItem = async (item: ProgramItem) => {
     if (item.type === 'song') {
