@@ -10,10 +10,12 @@ import MediaSidebar from '../components/media/MediaSidebar.vue';
 import { useMenuStore } from '../stores/menuStore';
 import { useMusicPresentationStore } from '../stores/presentationStore';
 import { useSongCacheStore } from '../stores/songCacheStore' 
+import { useLocalGroupStore } from '../stores/localGroupStore';
 
 const menuStore = useMenuStore();
 const presentationStore = useMusicPresentationStore();
 const songCacheStore = useSongCacheStore()
+const localGroupStore = useLocalGroupStore();
 
 watch(() => songCacheStore.selectedSong, (newValue) => {
   if(newValue.songGroupId !== presentationStore.selectedGroupId){
@@ -28,6 +30,7 @@ watch(() => songCacheStore.selectedSong, (newValue) => {
 onMounted(async () => {
   await presentationStore.fetchGroups();  
   await songCacheStore.loadData()
+  await localGroupStore.loadData();
 }); 
 </script>
  
@@ -38,7 +41,7 @@ onMounted(async () => {
       <template v-if="presentationStore.showSidebarLists && menuStore.menuOpened === 'Songs'">
         <v-col cols="2" class="border-e bg-white transition-all d-flex flex-column h-100">
           <RepertoireSidebar 
-            :groups="songCacheStore.listSongGroups" 
+            :groups="presentationStore.displayGroups" 
             :selected-id="presentationStore.selectedGroupId" 
             @select="presentationStore.selectGroup" 
           />

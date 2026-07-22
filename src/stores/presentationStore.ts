@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import routes from '../routes/index';
 import { getLinkFiles } from '../utils/convertData';
 import type { Song } from '../types/song';
@@ -7,6 +7,7 @@ import type { SongFile } from '../types/songFile';
 import { useSongCacheStore } from './songCacheStore';
 import type { SongCache } from './songCacheStore';
 import { useConnectionStore } from './statusConnectionStore';
+import { useLocalGroupStore } from './localGroupStore';
 
 export interface Slide {
   label: string;
@@ -43,6 +44,7 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   // --- ESTADOS ---
   const connectionStore = useConnectionStore()
   const songCacheStore = useSongCacheStore()
+  const localGroupStore = useLocalGroupStore()
   const showSidebarLists = ref(true);
   const isLoading = ref(false);
   const selectedGroupId = ref<string>("68f8be456569689b456edd83");
@@ -53,6 +55,19 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   const songs = ref<SongCache[]>([]);
   const rawLyric = ref<string>(""); // Substitui a chamada da ref updateLyric
   const customSong = ref<SongCache | null>(null);
+
+  // Lista que a UI de repertórios consome: LOCAIS PRIMEIRO
+  const displayGroups = computed(() => {
+    const locais = localGroupStore.groups.map(g => ({
+      id: g.id, label: g.label, songs: g.songs, isLocal: true,
+    }));
+    const remotos = songCacheStore.listSongGroups.map(g => ({
+      id: g.id, label: g.label, songs: g.songs, isLocal: false,
+    }));
+    return [...locais, ...remotos];
+  });
+
+  const isCurrentGroupLocal = computed(() => localGroupStore.isLocalId(selectedGroupId.value));
 
   // --- COMPUTED ---
   const filteredSongs = computed(() => songs.value);
@@ -145,6 +160,15 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
 
   const fetchSongs = async () => {
     if (!selectedGroupId.value) return;
+
+    // GRUPO LOCAL: nada de API, nada de cache criptografado
+    if (localGroupStore.isLocalId(selectedGroupId.value)) {
+      const localGroup = localGroupStore.getGroup(selectedGroupId.value);
+      // referência direta ao array reativo → adicionar música já reflete na tela
+      songs.value = localGroup ? localGroup.songs : [];
+      return;
+    }
+
 
     // Sempre resolve o grupo pelo id, nunca por índice guardado
     const getGroup = () =>
@@ -268,6 +292,13 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       return;
     }
 
+    if (localGroupStore.isLocalId(selectedGroupId.value)) {
+      const song = localGroupStore.getGroup(selectedGroupId.value)
+        ?.songs.find(s => s.id === selectedSongId.value);
+      rawLyric.value = song?.lyric ?? '';
+      return;
+    }
+
     // 1. OFFLINE-FIRST: Verifica se a letra já existe no cache e devolve na hora
     const groupCache = songCacheStore.listSongGroups.find(g => g.id === selectedGroupId.value);
     const songInCache = groupCache?.songs.find(s => s.id === selectedSongId.value);
@@ -310,11 +341,21 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
     }
   };
 
+  watch(
+    () => localGroupStore.groups,
+    () => {
+      if (!isCurrentGroupLocal.value) return;
+      const g = localGroupStore.getGroup(selectedGroupId.value);
+      songs.value = g ? [...g.songs] : []; 
+    },
+    { deep: true }
+  );
+
   return {
     // Estados
-    listSlides, showSidebarLists, isLoading, selectedGroupId, selectedSongId, rawGroups, songs, rawLyric,
+    listSlides, showSidebarLists, isLoading, isCurrentGroupLocal, selectedGroupId, selectedSongId, rawGroups, songs, rawLyric,
     // Getters
-    filteredSongs, activeSong, setCustomSong, setCurrentSlide, currentSlide, getCurrentSlideType,
+    filteredSongs, activeSong, setCustomSong, setCurrentSlide, displayGroups, currentSlide, getCurrentSlideType,
     // Ações
     getSlideTypeByLabel, toggleSidebar, fetchGroups, selectGroup, fetchSongs, selectSong, fetchLyric
   };

@@ -8,6 +8,7 @@ import type { SongFile } from '../types/songFile';
 import type { BibleRef } from "../types/bibleRef";
 import { useConnectionStore } from './statusConnectionStore';
 import type { Song } from '../types/song';
+import { useLocalGroupStore } from './localGroupStore';
 
 export interface SongGroupCache {
     id: string,
@@ -34,6 +35,20 @@ export interface SongCache {
 
 export type LastUpdateMap = Record<string, Date | string>;
 
+export type SearchMode = 'name' | 'lyric';
+
+export interface SongSearchMatch extends SongCache {
+    /** Só no modo letra: trecho ao redor do termo, já fatiado para destaque */
+    snippet?: { before: string; match: string; after: string };
+}
+
+export interface SearchResultGroup {
+    id: string;
+    label: string;
+    isLocal: boolean;
+    songs: SongSearchMatch[];
+}
+
 export const useSongCacheStore = defineStore('songCache', () => {
 
     const connectionStore = useConnectionStore()
@@ -57,18 +72,6 @@ export const useSongCacheStore = defineStore('songCache', () => {
 
     const setSelectedSong = (songCache: SongCache) => {
         selectedSong.value = songCache
-    }
-
-    const getSearchResult = (search: string) => {
-        const result: SongGroupCache[] = [];
-        listSongGroups.value.forEach(element => {
-            const filter = element.songs.filter(it => it.fullName.toLowerCase().includes(search.toLowerCase()));
-
-            if (filter.length > 0) {
-                result.push({ label: element.label, id: element.id, songs: filter });
-            }
-        });
-        return result;
     }
 
     const loadData = async () => {
@@ -267,6 +270,77 @@ export const useSongCacheStore = defineStore('songCache', () => {
         });
 
         return songs;
+    };
+
+    // Normaliza acento/caixa MANTENDO o alinhamento de índices com a string
+    // original — necessário para recortar o snippet no lugar certo.
+    const normalize = (value: string) => {
+        let out = '';
+        for (let i = 0; i < value.length; i++) {
+            const ch = value[i];
+            const n = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            out += n.length === 1 ? n : ch; // fallback preserva o 1-para-1
+        }
+        return out;
+    };
+
+    const SNIPPET_WINDOW = 80;
+
+    const buildSnippet = (lyric: string, q: string) => {
+        if (!lyric) return null;
+
+        const idx = normalize(lyric).indexOf(q);
+        if (idx === -1) return null;
+
+        const half = Math.floor(SNIPPET_WINDOW / 2);
+        const start = Math.max(0, idx - half);
+        const end = Math.min(lyric.length, idx + q.length + half);
+
+        // Quebras de linha viram espaço para o trecho caber em uma linha
+        const flat = (s: string) => s.replace(/\s+/g, ' ');
+
+        return {
+            before: (start > 0 ? '…' : '') + flat(lyric.substring(start, idx)).replace(/^ /, ''),
+            match: lyric.substring(idx, idx + q.length),
+            after: flat(lyric.substring(idx + q.length, end)).replace(/ $/, '') + (end < lyric.length ? '…' : ''),
+        };
+    };
+
+    const getSearchResult = (search: string, mode: SearchMode = 'name'): SearchResultGroup[] => {
+        const q = normalize((search ?? '').trim());
+        if (!q) return [];
+
+        const localGroupStore = useLocalGroupStore();
+
+        // Locais primeiro, igual à listagem de repertórios
+        const sources = [
+            ...localGroupStore.groups.map(g => ({ id: g.id, label: g.label, songs: g.songs, isLocal: true })),
+            ...listSongGroups.value.map(g => ({ id: g.id, label: g.label, songs: g.songs, isLocal: false })),
+        ];
+
+        const result: SearchResultGroup[] = [];
+
+        sources.forEach(group => {
+            const matches: SongSearchMatch[] = [];
+
+            (group.songs ?? []).forEach(song => {
+                if (mode === 'name') {
+                    if (normalize(song.fullName ?? '').includes(q)) matches.push({ ...song });
+                    return;
+                }
+                const snippet = buildSnippet(song.lyric ?? '', q);
+                if (snippet) matches.push({ ...song, snippet });
+            });
+
+            if (matches.length > 0) {
+                matches.sort((a, b) =>
+                    a.fullName.localeCompare(b.fullName, 'pt-BR', { sensitivity: 'base' })
+                );
+                result.push({ id: group.id, label: group.label, isLocal: group.isLocal, songs: matches });
+            }
+        });
+
+        return result;
     };
 
     return {
