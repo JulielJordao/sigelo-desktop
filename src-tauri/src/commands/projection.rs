@@ -89,6 +89,40 @@ pub fn get_current_projection(
 }
 
 #[tauri::command]
+pub fn toggle_projection_visibility(app: AppHandle, window_label: Option<String>) -> bool {
+    let label = window_label.unwrap_or_else(|| "projection".to_string());
+
+    let Some(window) = app.get_webview_window(&label) else {
+        return false;
+    };
+
+    let is_visible = window.is_visible().unwrap_or(false);
+    let is_minimized = window.is_minimized().unwrap_or(false);
+
+    if is_visible && !is_minimized {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = window.set_fullscreen(false);
+            let _ = window.hide();
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = window.minimize();
+        }
+        false
+    } else {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_fullscreen(true);
+
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.set_focus();
+        }
+        true
+    }
+}
+
+#[tauri::command]
 pub fn prepare_projection_window(
     app: tauri::AppHandle,
     target_monitor: Option<String>,

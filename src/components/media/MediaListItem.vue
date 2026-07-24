@@ -20,6 +20,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: 'update:editName', value: string): void;
+    (e: 'move', file: MediaFile): void;
     (e: 'open-preview', file: MediaFile): void;
     (e: 'toggle-favorite', file: MediaFile): void;
     (e: 'project', file: MediaFile): void;
@@ -59,7 +60,7 @@ const openTagModal = () => {
         <div class="preview-container mr-3 rounded-lg overflow-hidden cursor-pointer position-relative flex-shrink-0"
             @click.stop="emit('open-preview', file)">
             <SmartVideo v-if="file.isVideo" :src="file.url" class="w-100 h-100 object-cover" preview-only no-audio muted
-                            preload="metadata" @loadedmetadata="emit('video-loaded', $event, file)"></SmartVideo>
+                preload="metadata" @loadedmetadata="emit('video-loaded', $event, file)"></SmartVideo>
             <v-img v-else :src="file.url" cover class="w-100 h-100"></v-img>
 
             <div v-if="file.isVideo" class="duration-badge bg-black text-white text-caption px-1 rounded">
@@ -89,10 +90,30 @@ const openTagModal = () => {
                         :title="file.name" @dblclick.stop="emit('start-edit', file)">
                         {{ file.name }}
                     </span>
-                    <v-btn size="x-small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
+                    <v-btn size="small" variant="text" :icon="file.isFavorite ? 'mdi-heart' : 'mdi-heart-outline'"
                         :color="file.isFavorite ? 'error' : 'medium-emphasis'"
                         @click.stop="emit('toggle-favorite', file)" density="compact"
                         class="flex-shrink-0 ml-1"></v-btn>
+                    <v-menu location="bottom end">
+                        <template v-slot:activator="{ props }">
+                            <v-btn v-bind="props" icon="mdi-dots-vertical" size="small" variant="text"
+                                color="medium-emphasis" density="compact" class="flex-shrink-0 ml-3" @click.stop></v-btn>
+                        </template>
+                        <v-list density="compact" min-width="200">
+                            <v-list-item prepend-icon="mdi-rename-box" title="Renomear"
+                                @click="emit('start-edit', file)"></v-list-item>
+                            <v-list-item prepend-icon="mdi-tag-multiple-outline" title="Gerenciar tags"
+                                @click="openTagModal()"></v-list-item>
+                            <v-divider class="my-1"></v-divider>
+                            <v-list-item
+                                :prepend-icon="file.type === 'Media' ? 'mdi-image-multiple' : 'mdi-play-circle-outline'"
+                                :title="file.type === 'Media' ? 'Mover para Temas' : 'Mover para Reprodução'"
+                                @click="emit('move', file)"></v-list-item>
+                            <v-divider class="my-1"></v-divider>
+                            <v-list-item prepend-icon="mdi-delete" title="Excluir" base-color="error"
+                                @click="emit('delete', file)"></v-list-item>
+                        </v-list>
+                    </v-menu>
                 </template>
             </div>
 
@@ -109,16 +130,10 @@ const openTagModal = () => {
                 <v-divider vertical class="mx-1" style="max-height: 14px; opacity: 0.5;"></v-divider>
 
                 <template v-if="mediaStore.tagsByFiles[file.id] && mediaStore.tagsByFiles[file.id].length > 0">
-                    <v-chip 
-                    v-for="(tag, index) in mediaStore.tagsByFiles[file.id]" 
-                    :key="index"
-                    size="x-small" 
-                    color="secondary" 
-                    variant="flat" 
-                    class="font-weight-medium px-2" 
-                    @dblclick.stop="openTagModal()"
-                    >
-                    {{ tag }}
+                    <v-chip v-for="(tag, index) in mediaStore.tagsByFiles[file.id]" :key="index" size="x-small"
+                        color="secondary" variant="flat" class="font-weight-medium px-2"
+                        @dblclick.stop="openTagModal()">
+                        {{ tag }}
                     </v-chip>
                 </template>
 
@@ -130,10 +145,14 @@ const openTagModal = () => {
             <v-spacer v-if="!isGridExpanded"></v-spacer>
 
             <div class="d-flex gap-2" :class="isGridExpanded ? 'mt-auto' : 'mt-2'">
-                <v-btn size="small" :color="statusStore.projectedFile?.id === file.id  && statusStore.status.isPresentation === 'Media' ? 'success' : 'primary'" variant="tonal"
-                    :prepend-icon="statusStore.projectedFile?.id === file.id  && statusStore.status.isPresentation === 'Media' ? 'mdi-projector-screen' : 'mdi-projector'"
+                <v-btn size="small"
+                    :color="statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation === 'Media' ? 'success' : 'primary'"
+                    variant="tonal"
+                    :prepend-icon="statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation === 'Media' ? 'mdi-projector-screen' : 'mdi-projector'"
                     class="flex-grow-1" :class="{ 'px-0': isGridExpanded }" @click.stop="emit('project', file)">
-                    {{ statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation === 'Media' ? 'Projetando...' : 'Projetar' }}
+                    {{ statusStore.projectedFile?.id === file.id && statusStore.status.isPresentation === 'Media' ?
+                        'Projetando...'
+                        : 'Projetar' }}
                 </v-btn>
                 <v-btn size="small" :icon="fixedMediaId === file.id ? 'mdi-pin-off' : 'mdi-pin'"
                     :color="fixedMediaId === file.id ? 'success' : 'secondary'"

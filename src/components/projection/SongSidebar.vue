@@ -66,17 +66,6 @@ watch(
 );
 
 // --- Dialog de música (criar/editar) ---
-const songDialog = ref({
-  open: false,
-  mode: 'create' as 'create' | 'edit',
-  id: '',
-  fullName: '',
-  lyric: '',
-  tone: '',
-  writerBy: '',
-  melodyBy: '',
-});
-
 const songModalRef = ref<InstanceType<typeof ModalLocalSong> | null>(null);
 
 const openNewSong = () => songModalRef.value?.openDialog(musicStore.selectedGroupId)

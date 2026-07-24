@@ -27,6 +27,8 @@
     "fs:allow-remove",
     "fs:allow-copy-file",
     "fs:allow-stat",
+    "fs:allow-mkdir",
+    "fs:allow-write-file",  
     {
       "identifier": "shell:allow-open",
       "allow": [

@@ -192,11 +192,11 @@ await emitTo('stage', 'stage-preacher-notes', 'Lembrar de citar João 3:16');
 | `F2` | Layout `current_only` |
 | `F3` | Layout `preacher` |
 | `F4` | Layout `musician` |
-| `F5` | Layout `chordpro` |
-| `F6` | Layout `split_verse` |
-| `F7` | Layout `countdown` |
-| `F8` | Layout `clock_focus` |
-| `F9` | Layout `media_info` |
+| `F6` | Layout `chordpro` |
+| `F7` | Layout `split_verse` |
+| `F8` | Layout `countdown` |
+| `F9` | Layout `clock_focus` |
+| `F10` | Layout `media_info` |
 | `Ctrl+Esc` | Para projeção |
 
 ### Específicos do layout ChordPro

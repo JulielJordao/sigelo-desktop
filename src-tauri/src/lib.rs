@@ -109,6 +109,7 @@ pub fn run() {
             crate::commands::projection::stop_projection,
             crate::commands::projection::get_current_projection,
             crate::commands::projection::prepare_projection_window,
+            crate::commands::projection::toggle_projection_visibility,
             crate::commands::projection::close_stage_window,
             crate::directory::directory::get_dir_size,
             crate::directory::directory::open_folder_native,

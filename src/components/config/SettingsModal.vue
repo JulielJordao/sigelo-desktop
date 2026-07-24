@@ -218,6 +218,7 @@ const listShortcuts = [
   { label: "Abertura rápida da bíblia", keys: "Shift + B" },
   { label: "Projetar Letra", keys: "F5" },
   { label: "Projetar Letra do Início", keys: "Shift + F5" },
+  { label: "Minimizar/Maximizar Tela de Projeção", keys: "CTRL + F" },
   { label: "Finalizar Apresentação", keys: "Esc" },
 
 

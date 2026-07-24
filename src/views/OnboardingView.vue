@@ -1,6 +1,6 @@
 <template>
   <v-container fluid class="fill-height bg-background pa-2 pa-md-4">
-    <v-row density="comfortable" align="center" justify="center" class="fill-height ma-0" no-gutters>
+    <v-row density="comfortable" align="center" justify="center" class="fill-height ma-0">
       <v-col cols="12" sm="11" md="10" lg="9" xl="8" class="d-flex justify-center">
         <v-card class="mx-auto pa-2 pa-md-6 rounded-xl elevation-12 d-flex flex-column onboarding-card" border>
           <v-card-text class="flex-grow-1 overflow-y-auto pa-2 pa-md-4">

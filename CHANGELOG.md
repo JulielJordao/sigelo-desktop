@@ -32,6 +32,13 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
 ---
 
+## [0.9.27] - 2026-07-24
+- Configurações da aba mídia ficam salvos.
+- Adicionado função de adicionar arquivos de mídia manualmente ao clicar no botão adicionar.
+- Adicionado o cadastro manual e local de músicas.
+- Adicionado atalho de ocultar e maximizar tela de projeção.
+- Adicionado a pesquisa de música pela letra.
+
 ## [0.9.25] - 2026-07-21
 
 - Adicionado a aba de programação para organizar arquivos de mídia, versículos bíblicos e músicas a serem usados.

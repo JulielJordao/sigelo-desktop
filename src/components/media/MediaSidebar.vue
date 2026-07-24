@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { useMediaStore, type MediaFile, type MediaContext } from '../../stores/mediaStore';
+import { useMediaStore, type MediaFile } from '../../stores/mediaStore';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { useYoutubeStore } from '../../stores/useYoutubeStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from "../../stores/menuStore"
-import { message } from '@tauri-apps/plugin-dialog';
+import { open, message } from '@tauri-apps/plugin-dialog';
 import MediaListItem from './MediaListItem.vue';
 import LiveMediaController from './LiveMediaController.vue';
 import SmartVideo from '../SmartVideo.vue';
 import MediaPlayerControls  from './MediaPlayerControls.vue';
-
+import type { MediaViewPrefs } from '../../stores/mediaStore';
 
 const menuStore = useMenuStore()
 const configStore = useConfigStore();
@@ -22,21 +22,72 @@ const conf = configStore.settings;
 
 const mediaStore = useMediaStore();
 
+const isPicking = ref(false);
+
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov', 'mkv', 'avi'];
+
+const pickAndAddFiles = async () => {
+  try {
+    isPicking.value = true;
+    const selected = await open({
+      multiple: true,
+      title: currentContext.value === 'Media'
+        ? 'Adicionar mídias de reprodução'
+        : 'Adicionar temas de slide',
+      filters: [{ name: 'Mídia', extensions: [...IMAGE_EXTS, ...VIDEO_EXTS] }],
+    });
+
+    if (!selected) return;
+    const paths = Array.isArray(selected) ? selected : [selected];
+    await mediaStore.addDroppedFiles(paths, currentContext.value);
+  } catch (e) {
+    await message('Não foi possível importar os arquivos: ' + e, { title: 'Erro', kind: 'error' });
+  } finally {
+    isPicking.value = false;
+  }
+};
+
+const prefs = <K extends keyof MediaViewPrefs>(key: K) => computed({
+  get: () => mediaStore.viewPrefs[key],
+  set: (v: MediaViewPrefs[K]) => { mediaStore.viewPrefs[key] = v },
+});
+
+const viewMode = prefs('viewMode');
+const activeFilter = prefs('activeFilter');
+const sortBy = prefs('sortBy');
+const sortDesc = prefs('sortDesc');
+const currentContext = prefs('currentContext');
+
+type FeedbackType = 'success' | 'error' | 'info';
+
+const showFeedback = ref(false);
+const feedbackType = ref<FeedbackType>('success');
+const feedbackText = ref('');
+
+const feedbackStyle: Record<FeedbackType, { color: string; icon: string }> = {
+  success: { color: 'success', icon: 'mdi-check-circle' },
+  error:   { color: 'error',   icon: 'mdi-alert-circle' },
+  info:    { color: 'info',    icon: 'mdi-information-outline' },
+};
+
+const notify = (type: FeedbackType, text: string) => {
+  feedbackType.value = type;
+  feedbackText.value = text;
+  // Reinicia o timeout caso já esteja aberto
+  showFeedback.value = false;
+  requestAnimationFrame(() => { showFeedback.value = true });
+};
+
 // --- CONTROLE SEGURO DE EVENTOS GLOBAIS DO TAURI ---
 let isDestroyed = false;
 let activeListeners: UnlistenFn[] = [];
 
 // const isOpen = computed(() => menuStore.menuOpened === 'Media');
-const currentContext = ref<MediaContext>('Media');
 const isDragging = ref(false);
-
-const viewMode = ref<'list' | 'grid'>('grid');
 const expandedId = ref<string | null>(null);
 
 const searchQuery = ref('');
-const activeFilter = ref('all');
-const sortBy = ref('name');
-const sortDesc = ref(false);
 
 const previewDialog = ref(false);
 const previewFile = ref<MediaFile | null>(null);
@@ -145,7 +196,9 @@ const formatDuration = (seconds?: number) => {
 */
 
 onMounted(() => {
+  
   isDestroyed = false;
+  mediaStore.loadViewPrefs();
 
   // 1. Escuta quando o arquivo entra na janela
   listen('tauri://drag-enter', () => {
@@ -181,8 +234,6 @@ onMounted(() => {
 
 const editingId = ref<string | null>(null);
 const editName = ref<string>('');
-const showSaveAlert = ref(false)
-const newNameFile = ref("")
 
 // Inicia a edição ao dar duplo clique
 const startEdit = (file: MediaFile) => {
@@ -211,13 +262,22 @@ const saveEdit = async (file: MediaFile) => {
 
   if (result.success) {
     cancelEdit();
-    newNameFile.value = trimmedName;
-    showSaveAlert.value = true
+    notify('success', `Renomeado para "${trimmedName}" com sucesso!`);
   } else {
-    await message(
-      result.error + "",
-      { title: 'Conflito de Nomes', kind: 'error' }
-    );
+    notify('error', result.error + '');
+  }
+};
+
+const handleMoveFile = async (file: MediaFile) => {
+  const destination = file.type === 'Media' ? 'Theme' : 'Media';
+  const label = destination === 'Media' ? 'Reprodução' : 'Temas';
+  const result = await mediaStore.moveFile(file.id, destination);
+
+  if (result.success) {
+    notify('success', `"${file.name}" movido para ${label}.`);
+    expandedId.value = null;
+  } else {
+    notify('error', result.error);
   }
 };
 
@@ -262,8 +322,9 @@ const handleFocus = () => {
 </script>
 
 <template>
-  <div class="d-flex flex-column fill-height">
-    <div class="fill-height bg-background position-relative">
+  <div class="d-flex flex-column fill-height overflow-hidden">
+    <div class="d-flex flex-column flex-grow-1 bg-background position-relative"
+         style="min-height: 0;">
 
       <div v-show="isDragging" @click="isDragging = false"
         class="position-absolute top-0 left-0 w-100 h-100 d-flex flex-column align-center justify-center text-white cursor-pointer"
@@ -281,6 +342,9 @@ const handleFocus = () => {
             <v-icon start color="primary">mdi-multimedia</v-icon> Gerenciador
           </v-toolbar-title>
           <v-spacer></v-spacer>
+
+          <v-btn icon="mdi-plus" size="small" variant="tonal" color="primary" class="mr-2"
+              :loading="isPicking" title="Adicionar arquivos" @click="pickAndAddFiles"></v-btn>
 
           <v-btn-toggle v-model="viewMode" color="primary" mandatory density="compact" class="mr-2 border"
             variant="text">
@@ -327,7 +391,8 @@ const handleFocus = () => {
         </div>
       </div>
 
-      <div class="flex-grow-1 overflow-y-auto bg-transparent px-2 pb-4" v-if="isReloadEngine">
+      <div class="flex-grow-1 overflow-y-auto bg-transparent px-2 pb-4"
+           style="min-height: 0;" v-if="isReloadEngine">
 
         <v-slide-y-transition>
           <LiveMediaController></LiveMediaController>
@@ -364,7 +429,8 @@ const handleFocus = () => {
                 :editing-id="editingId" v-model:edit-name="editName" :is-grid-expanded="true"
                 @open-preview="openPreview" @toggle-favorite="toggleFavorite" @project="handleProjectFile"
                 @set-fixed="handleSetFixed" @delete="confirmDeletePrompt" @collapse="toggleExpand"
-                @start-edit="startEdit" @save-edit="saveEdit" @cancel-edit="cancelEdit" @video-loaded="onVideoLoaded" />
+                @start-edit="startEdit" @save-edit="saveEdit" @cancel-edit="cancelEdit" @video-loaded="onVideoLoaded"
+                @move="handleMoveFile" />
 
               <div v-else class="d-flex flex-column h-100 position-relative">
                 <div v-if="statusPresStore.projectedFile?.id === file.id"
@@ -475,12 +541,13 @@ const handleFocus = () => {
       </v-card-actions>
     </v-card>
   </v-dialog>
-  <v-snackbar v-model="showSaveAlert" color="success" elevation="24" rounded="pill" :timeout="3000">
-    <v-icon start icon="mdi-check-circle"></v-icon>
-    Renomeado para **{{ newNameFile }}** com sucesso!
+  <v-snackbar v-model="showFeedback" :color="feedbackStyle[feedbackType].color"
+    elevation="24" rounded="pill" :timeout="feedbackType === 'error' ? 6000 : 3000">
+    <v-icon start :icon="feedbackStyle[feedbackType].icon"></v-icon>
+    {{ feedbackText }}
 
     <template v-slot:actions>
-      <v-btn variant="text" @click="showSaveAlert = false">Fechar</v-btn>
+      <v-btn variant="text" @click="showFeedback = false">Fechar</v-btn>
     </template>
   </v-snackbar>
 </template>

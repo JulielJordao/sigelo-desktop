@@ -20,6 +20,18 @@ export const useStatusPresentationStore = defineStore('statusPresentation', () =
   const currentTime = ref<number>(0)
   const updateTime = ref<boolean>(false)
 
+  const isWindowHidden = ref(false)
+
+  const toggleProjectionWindow = async () => {
+    if (status.value.isPresentation === 'none') return
+    try {
+      const visible = await invoke<boolean>('toggle_projection_visibility')
+      isWindowHidden.value = !visible
+    } catch (err) {
+      console.error('Erro ao alternar a janela de projeção:', err)
+    }
+  }
+
   const setNewPresentation = async (type: TypeApresentation, selectedMonitor: string) => {
     if(status.value.isPresentation == 'none') {
       try {
@@ -60,6 +72,7 @@ export const useStatusPresentationStore = defineStore('statusPresentation', () =
     updateTime,
     setNewPresentation,
     setProjectedMedia,
+    toggleProjectionWindow,
     isProjectingMediaFile,
     projectedFile,
     clean

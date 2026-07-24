@@ -40,6 +40,14 @@ export interface MediaFile {
 
 export type TagsByFile = Record<string, string[]>;
 
+export interface MediaViewPrefs {
+  viewMode: 'list' | 'grid';
+  activeFilter: 'all' | 'images' | 'videos' | 'favorites';
+  sortBy: 'name' | 'date' | 'type';
+  sortDesc: boolean;
+  currentContext: 'Media' | 'Theme';
+}
+
 export const useMediaStore = defineStore("media", () => {
   const presentationStore = usePresentationStore();
 
@@ -94,6 +102,40 @@ export const useMediaStore = defineStore("media", () => {
     },
     { deep: true },
   );
+
+  const DEFAULT_PREFS: MediaViewPrefs = {
+    viewMode: 'grid',
+    activeFilter: 'all',
+    sortBy: 'name',
+    sortDesc: false,
+    currentContext: 'Media',
+  };
+
+  const viewPrefs = ref<MediaViewPrefs>({ ...DEFAULT_PREFS });
+  const prefsLoaded = ref(false);
+  let prefsStore: Store | null = null;
+
+  const loadViewPrefs = async () => {
+    if (prefsLoaded.value) return;
+    try {
+      prefsStore = await load('ui_prefs.json', {
+        autoSave: false,
+        defaults: { media_view_prefs: DEFAULT_PREFS },
+      });
+      const saved = await prefsStore.get<Partial<MediaViewPrefs>>('media_view_prefs');
+      if (saved) viewPrefs.value = { ...DEFAULT_PREFS, ...saved };
+    } catch (e) {
+      console.warn('Falha ao carregar preferências de visualização:', e);
+    } finally {
+      prefsLoaded.value = true;
+    }
+  };
+
+  watch(viewPrefs, async (value) => {
+    if (!prefsLoaded.value || !prefsStore) return;
+    await prefsStore.set('media_view_prefs', JSON.parse(JSON.stringify(value)));
+    await prefsStore.save();
+  }, { deep: true });
 
   const applyNewTagsByFiles = (id: string, tags: string[]) => {
     tagsByFiles.value[id] = tags;
@@ -292,6 +334,70 @@ export const useMediaStore = defineStore("media", () => {
     return files;
   };
 
+  const moveFile = async (fileId: string, destination: 'Media' | 'Theme') => {
+    const file = mediaFiles.value.find((f) => f.id === fileId);
+    if (!file) return { success: false, error: 'Arquivo não encontrado.' };
+    if (file.type === destination) return { success: true, error: '' };
+
+    if (file.category === 'YouTube') {
+      return {
+        success: false,
+        error: 'Vídeos baixados do YouTube ficam numa pasta própria e não podem ser movidos entre as abas.',
+      };
+    }
+
+    try {
+      const baseDir = await appLocalDataDir();
+      const targetFolder = destination === 'Media'
+        ? await join(baseDir, 'media', 'reproducao')
+        : await join(baseDir, 'media', 'slides');
+
+      const fileName = await basename(file.path);
+      const newPath = await join(targetFolder, fileName);
+
+      if (await exists(newPath)) {
+        return { success: false, error: `Já existe um arquivo "${fileName}" na aba de destino.` };
+      }
+
+      const dir = await dirname(file.path);
+      const ext = await extname(file.path);
+      const base = await basename(file.path, `.${ext}`);
+
+      await rename(file.path, newPath);
+
+      // Leva junto o áudio extraído e os artefatos do YouTube
+      for (const extra of ['m4a', 'info.json', 'webp']) {
+        const oldExtra = await join(dir, `${base}.${extra}`);
+        if (await exists(oldExtra)) {
+          await rename(oldExtra, await join(targetFolder, `${base}.${extra}`));
+        }
+      }
+
+      const oldId = file.id;
+      file.id = `${fileName}-${destination}`;
+      file.type = destination;
+      file.path = newPath;
+      file.url = convertFileSrc(newPath);
+
+      // Migra favorito e tags para o novo id
+      const favIndex = favoriteFiles.value.indexOf(oldId);
+      if (favIndex !== -1) favoriteFiles.value.splice(favIndex, 1, file.id);
+
+      if (tagsByFiles.value[oldId]) {
+        tagsByFiles.value[file.id] = tagsByFiles.value[oldId];
+        delete tagsByFiles.value[oldId];
+      }
+
+      // Se era o fundo fixo ou estava projetando, o caminho antigo morreu
+      if (fixedMedia.value?.id === oldId) fixedMedia.value = null;
+
+      return { success: true, error: '' };
+    } catch (error) {
+      console.error('[moveFile] Falha ao mover:', error);
+      return { success: false, error: 'Erro ao mover o arquivo: ' + error };
+    }
+  };
+
   const addDroppedFiles = async (
     filePaths: string[],
     context: MediaContext,
@@ -364,14 +470,14 @@ export const useMediaStore = defineStore("media", () => {
         // --- TAMBÉM DELETA O ARQUIVO DE ÁUDIO (.m4a) ---
         if (file.isVideo) {
           const audioPath = await join(dirPath, `${baseNameFile}.m4a`);
-          await remove(audioPath).catch(() => {});
+          await remove(audioPath).catch(() => { });
         }
 
         if (isYoutubeVideo) {
           const jsonPath = await join(dirPath, `${baseNameFile}.info.json`);
           const imagePath = await join(dirPath, `${baseNameFile}.webp`);
-          await remove(jsonPath).catch(() => {});
-          await remove(imagePath).catch(() => {});
+          await remove(jsonPath).catch(() => { });
+          await remove(imagePath).catch(() => { });
         }
 
         mediaFiles.value.splice(index, 1);
@@ -462,6 +568,9 @@ export const useMediaStore = defineStore("media", () => {
     isLoading,
     tagsByFiles,
     allTags,
+    viewPrefs,
+    loadViewPrefs,
+    moveFile,
     applyNewTagsByFiles,
     setFixedMedia,
     loadMedia,
