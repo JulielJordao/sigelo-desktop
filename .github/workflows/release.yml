@@ -40,6 +40,20 @@ jobs:
         with:
           node-version: 20
 
+      # Os arquivos vão para a release v<versão do tauri.conf.json> (tagName:
+      # v__VERSION__). Se a tag que disparou o build for outra, o updater não
+      # acha o latest.json. Falha logo aqui em vez de compilar à toa.
+      - name: conferir tag x versão do app
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          APP_VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$APP_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::A tag é $GITHUB_REF_NAME, mas o src-tauri/tauri.conf.json está na versão $APP_VERSION. Atualize a versão antes de criar a tag."
+            exit 1
+          fi
+          echo "Versão confere: $APP_VERSION"
+
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
