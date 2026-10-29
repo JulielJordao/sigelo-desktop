@@ -46,6 +46,7 @@ const isOpen = computed({
 });
 
 const DONATION_URL = BIBLIA_ONLINE_DONATION;
+const BIBLIA_ONLINE_BASE = 'https://www.bibliaonline.com.br';
 
 // ---- estado ----
 type Phase = 'select' | 'review';
@@ -71,6 +72,21 @@ const referenceLabel = computed(() => {
     const ve = r.verseEnd ?? vs;
     const range = vs == null ? '(capítulo inteiro)' : vs === ve ? `${vs}` : `${vs}-${ve}`;
     return `${r.book} ${r.chapter}${vs == null ? '' : ':' + range}`;
+});
+
+// URL da passagem no Bíblia Online. Disponível SEMPRE (mesmo sem buscar/erro),
+// para o botão "Abrir no site" funcionar como saída manual.
+const siteUrl = computed(() => {
+    const r = reviewRef.value;
+    const v = (selectedSource.value || 'ara').toLowerCase();
+    if (!r) return `${BIBLIA_ONLINE_BASE}/${v}`;
+    const slug = (bookSlug.value || '').toLowerCase();
+    if (!slug) return `${BIBLIA_ONLINE_BASE}/${v}`;
+    let url = `${BIBLIA_ONLINE_BASE}/${v}/${slug}/${r.chapter}`;
+    const vs = r.verseStart ?? null;
+    const ve = r.verseEnd ?? vs;
+    if (vs != null) url += ve && ve !== vs ? `/${vs}-${ve}` : `/${vs}`;
+    return url;
 });
 
 const resetReview = () => {
@@ -191,6 +207,11 @@ watch(isOpen, () => {
                     </v-chip>
                     <v-chip color="secondary" variant="tonal">{{ selectedSource }}</v-chip>
                     <v-spacer></v-spacer>
+                    <!-- Abrir no site: saída sempre disponível -->
+                    <v-btn size="small" variant="text" prepend-icon="mdi-open-in-new" class="text-none"
+                        :href="siteUrl" target="_blank" rel="noopener">
+                        Abrir no site
+                    </v-btn>
                     <v-btn size="small" variant="text" prepend-icon="mdi-arrow-left" class="text-none"
                         @click="backToSelect">
                         Trocar referência
@@ -222,7 +243,17 @@ watch(isOpen, () => {
                     </div>
 
                     <v-alert v-if="errorMsg" type="warning" variant="tonal" density="compact" class="mb-3 text-caption">
-                        {{ errorMsg }}
+                        <div>{{ errorMsg }}</div>
+                        <div class="mt-2 d-flex ga-2">
+                            <v-btn size="x-small" variant="flat" color="warning" prepend-icon="mdi-refresh"
+                                :loading="loading" @click="fetchText">
+                                Tentar de novo
+                            </v-btn>
+                            <v-btn size="x-small" variant="tonal" color="warning" prepend-icon="mdi-open-in-new"
+                                :href="siteUrl" target="_blank" rel="noopener">
+                                Abrir no site
+                            </v-btn>
+                        </div>
                     </v-alert>
                 </template>
 

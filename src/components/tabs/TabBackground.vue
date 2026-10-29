@@ -4,6 +4,7 @@ import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMediaStore, type MediaFile } from '../../stores/mediaStore';
 import { useMenuStore } from "../../stores/menuStore";
 import SmartVideo from '../SmartVideo.vue';
+import StockBackgroundDialog from './StockBackgroundDialog.vue';
 import { useConfigStore } from '../../stores/useConfigStore';
 
 const menuStore = useMenuStore()
@@ -14,6 +15,7 @@ const scrollContainer = ref<HTMLDivElement | null>(null)
 let resizeObserver: ResizeObserver | null = null;
 
 const fileInput = ref<HTMLInputElement | null>(null);
+const isStockOpen = ref(false); // banco de fundos (Pixabay)
 
 const isReloadEngine = ref(true);
 
@@ -341,6 +343,19 @@ watch(() => configStore.settings.videoEngine, (engine) => {
                         </v-card>
                     </template>
                 </v-tooltip>
+
+                <v-tooltip text="Banco de fundos gratuitos (Pixabay)" location="top">
+                    <template v-slot:activator="{ props }">
+                        <v-card v-bind="props" width="100" height="70" color="surface-light"
+                            class="d-flex flex-column align-center justify-center cursor-pointer transition-all border-dashed"
+                            @click="isStockOpen = true">
+                            <v-icon color="primary">mdi-image-search</v-icon>
+                            <span class="text-caption text-medium-emphasis mt-1" style="font-size: 10px !important;">Banco de fundos</span>
+                        </v-card>
+                    </template>
+                </v-tooltip>
+
+                <StockBackgroundDialog v-model="isStockOpen" @selected="selectLocalMedia" />
 
                 <v-card v-if="mediaStore.isLoading" width="100" height="70"
                     class="d-flex align-center justify-center bg-surface-variant border">

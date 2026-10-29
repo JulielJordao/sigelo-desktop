@@ -3,6 +3,8 @@ import iconTheme from '../assets/icon_theme.svg'
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { message } from "@tauri-apps/plugin-dialog"
+import { openUrl } from "@tauri-apps/plugin-opener"
+import { invoke } from "@tauri-apps/api/core"
 import routes from "../routes/index"
 import { useUserStore } from "../stores/userStore";
 import { useMenuStore } from '../stores/menuStore';
@@ -12,12 +14,16 @@ const userRoute = routes.user();
 const userStore = useUserStore();
 const menuStore = useMenuStore();
 
+// URL de cadastro/login no site (abre no navegador do sistema)
+const REGISTER_URL = "https://sigelo.cloud/login?mode=register";
+
 // Estados da Interface
 const isChecking = ref(true); // Começa como true para não piscar o login
 const email = ref("");
 const password = ref("");
 const showPassword = ref(false);
 const errLogin = ref("");
+const isGoogleLoading = ref(false);
 
 // Funções de Navegação
 const redirect = () => {
@@ -34,14 +40,14 @@ const redirect = () => {
 const checkAuthStatus = async () => {
   try {
     await userStore.init();
-    
+
     const token = localStorage.getItem("userToken")
     const isValid = userStore.userId && userStore.userId !== "" && !!token
 
     if (isValid) {
       redirect();
     } else {
-      await userStore.logout()  
+      await userStore.logout()
       isChecking.value = false;
     }
   } catch (error) {
@@ -60,12 +66,44 @@ const login = async () => {
 
   if (response.success) {
     await userStore.syncUserWithApi()
-    
+
     redirect()
   } else {
     errLogin.value = response.msg
   }
 };
+
+// Login com Google: abre o navegador principal, o usuário entra lá e o app
+// recebe o token de volta pelo loopback (comando Rust `google_login`).
+// Usa o mesmo backend do resto do app (routes.defaultUrl).
+const loginWithGoogle = async () => {
+  if (isGoogleLoading.value) return;
+  errLogin.value = "";
+  isGoogleLoading.value = true;
+  try {
+    const token = await invoke<string>("google_login", { backendBase: routes.defaultUrl });
+    localStorage.setItem("userToken", token);
+    await userStore.syncUserWithApi();
+    redirect();
+  } catch (error: any) {
+    errLogin.value = typeof error === "string" ? error : "Falha no login com Google.";
+  } finally {
+    isGoogleLoading.value = false;
+  }
+};
+
+// Abre a página de cadastro/login do site no navegador padrão do sistema.
+const openRegister = async () => {
+  try {
+    await openUrl(REGISTER_URL);
+  } catch (error) {
+    console.error(error);
+    await message(
+      `Não foi possível abrir o navegador. Acesse manualmente:\n${REGISTER_URL}`,
+      { title: 'Criar conta', kind: 'warning' }
+    );
+  }
+}
 
 const goWithoutAccount = async () => {
   await message('Não implementado! Acesse as funções via login!', { title: 'Aviso', kind: 'warning' });
@@ -135,14 +173,39 @@ onMounted(() => {})
           <span class="mx-4 text-caption font-weight-medium text-uppercase tracking-widest text-no-wrap">
             ou continue com
           </span>
-          <v-divider></v-divider> 
+          <v-divider></v-divider>
         </div>
+
+        <v-btn block variant="outlined" color="grey-darken-2" size="large" :loading="isGoogleLoading"
+          @click="loginWithGoogle"
+          class="text-none font-weight-medium rounded-lg no-drag border-opacity-50 hover-bg-light bg-surface-light mb-3">
+          <svg class="mr-3" width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/>
+            <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+            <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/>
+            <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+          </svg>
+          Continuar com Google
+          <template #loader>
+            <v-progress-circular indeterminate size="18" width="2" class="mr-2" />
+            Conclua o login no navegador…
+          </template>
+        </v-btn>
 
         <v-btn block variant="outlined" color="grey-darken-2" @click="goWithoutAccount" size="large"
           class="text-none font-weight-medium rounded-lg no-drag border-opacity-50 hover-bg-light bg-surface-light">
           <v-icon start icon="mdi-server-network" color="primary" class="mr-2"></v-icon>
-           Acesso sem conta
+          Acesso sem conta
         </v-btn>
+
+        <!-- Opção de cadastro: abre sigelo.cloud/login no navegador do sistema -->
+        <div class="text-center mt-6 no-drag">
+          <span class="text-body-2 text-grey-darken-1">Ainda não tem uma conta?</span>
+          <v-btn variant="text" color="primary" @click="openRegister"
+            class="text-none font-weight-bold px-2 ml-1" append-icon="mdi-open-in-new">
+            Criar conta
+          </v-btn>
+        </div>
 
       </v-card>
     </v-fade-transition>

@@ -29,6 +29,7 @@
     "fs:allow-stat",
     "fs:allow-mkdir",
     "fs:allow-write-file",  
+    "opener:allow-open-url",
     {
       "identifier": "shell:allow-open",
       "allow": [

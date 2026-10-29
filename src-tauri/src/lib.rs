@@ -13,6 +13,8 @@ mod timer;
 mod transmission;
 mod youtube;
 mod bible;
+mod google_auth;
+mod stock;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -83,6 +85,7 @@ pub fn run() {
     );
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -114,6 +117,8 @@ pub fn run() {
             crate::directory::directory::get_dir_size,
             crate::directory::directory::open_folder_native,
             crate::directory::directory::clear_directory,
+            crate::directory::cache_cleaner::get_cache_breakdown,
+            crate::directory::cache_cleaner::clear_cache_categories,
             crate::youtube::youtube::update_binaries,
             crate::youtube::youtube::get_youtube_info,
             crate::youtube::youtube::cache_youtube_video,
@@ -141,6 +146,8 @@ pub fn run() {
             crate::transmission::transmission::update_broadcast_config,
             crate::transmission::transmission::get_broadcast_info,
             crate::bible::bible::scrape_bible_passage,
+            crate::google_auth::google_auth::google_login,
+            crate::stock::stock::download_stock_background,
             is_online,
         ])
         .on_window_event(|window, event| {

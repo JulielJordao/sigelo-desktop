@@ -9,6 +9,7 @@ import { useTheme } from 'vuetify';
 import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
 import { emitTo } from '@tauri-apps/api/event';
+import CacheCleanerDialog from './CacheCleanerDialog.vue';
 import type { StageChordRenderMode } from '../../premium-modules/stage-monitor/utils/chordProStage';
 
 const presentationStore = usePresentationStore()
@@ -116,6 +117,7 @@ const storageStats = ref({
   mediaSize: 'Calculando...',
   cacheSize: 'Calculando...'
 });
+const isCacheCleanerOpen = ref(false);
 
 // Funções de interação com o sistema de arquivos (via Tauri)
 const openMediaFolder = async () => {
@@ -141,7 +143,9 @@ const formatBytes = (bytes: number) => {
 const loadStats = async () => {
   try {
     const mediaBytes = await invoke('get_dir_size', { path: mediaFolderPath.value });
-    const cacheBytes = await invoke('get_dir_size', { path: cacheFolderPath.value });
+    // Soma das categorias que a tela "Limpar cache" consegue apagar
+    const breakdown = await invoke<{ id: string; bytes: number }[]>('get_cache_breakdown');
+    const cacheBytes = breakdown.reduce((sum, c) => sum + c.bytes, 0);
 
     storageStats.value = {
       mediaSize: formatBytes(mediaBytes as number),
@@ -154,16 +158,9 @@ const loadStats = async () => {
   }
 };
 
-// Limpa o cache invocando o comando Rust
-const clearCache = async () => {
-  try {
-    // Você pode querer adicionar um v-dialog de confirmação aqui no futuro
-    storageStats.value.cacheSize = 'Limpando...';
-    await invoke('clear_directory', { path: cacheFolderPath.value });
-    await loadStats(); // Recalcula o tamanho após limpar
-  } catch (error) {
-    console.error("Erro ao limpar cache:", error);
-  }
+// Abre a tela de limpeza seletiva (escolher o que limpar + confirmação)
+const clearCache = () => {
+  isCacheCleanerOpen.value = true;
 };
 
 // Inicializa os caminhos e garante que as pastas existem
@@ -1003,7 +1000,7 @@ const engineOptions = [
                     <span class="text-subtitle-1 font-weight-bold">Dados da Internet</span>
                   </div>
                   <p class="text-caption text-medium-emphasis mb-4">
-                    Bíblias em JSON baixadas, fontes, miniaturas e arquivos de atualização.
+                    Vídeos do YouTube, letras offline, áudios extraídos, fontes e componentes baixados.
                   </p>
 
                   <h2 class="text-h3 font-weight-black text-secondary mb-6">
@@ -1013,11 +1010,13 @@ const engineOptions = [
                   <v-spacer></v-spacer>
                   <v-btn variant="outlined" color="error" prepend-icon="mdi-delete-sweep" class="w-100"
                     @click="clearCache">
-                    Limpar Cache Baixado
+                    Escolher o que limpar
                   </v-btn>
                 </v-card>
               </v-col>
             </v-row>
+
+            <CacheCleanerDialog v-model="isCacheCleanerOpen" @cleared="loadStats" />
 
             <v-card variant="tonal" color="info" class="pa-4 mt-6 rounded-lg d-flex align-center">
               <v-icon start>mdi-information-outline</v-icon>

@@ -34,14 +34,22 @@
 import { computed } from 'vue';
 import { useDisplay } from 'vuetify';
 
-const { smAndDown } = useDisplay();
+const { smAndDown, height } = useDisplay();
 
 const props = defineProps<{
     noIcon: boolean
 }>();
 
-// Altura do carrossel
-const carouselHeight = computed(() => (smAndDown.value ? 450 : 550));
+// Altura do carrossel RESPONSIVA à altura da tela.
+//   - teto: 550 (desktop) / 450 (mobile), como antes;
+//   - reserva: espaço do título, da caixa de texto e dos botões ao redor;
+//   - piso: 240, para o GIF nunca sumir de vez.
+const carouselHeight = computed(() => {
+    const vh = height.value || 800;
+    const max = smAndDown.value ? 450 : 550;
+    const reserved = smAndDown.value ? 330 : 300;
+    return Math.max(240, Math.min(max, Math.round(vh - reserved)));
+});
 
 const tutorial = [
     {
@@ -61,22 +69,31 @@ const tutorial = [
         text: 'Use atalhos para alternar rapidamente entre músicas e textos bíblicos.'
     }
 ];
+
 </script>
 
 <style scoped>
 .tutorial-wrapper {
     width: 100%;
 }
-
+ 
 .image-container {
     /* Evita qualquer transbordo do GIF forçando o corte caso o layout seja esmagado */
     overflow: hidden;
 }
-
+ 
+/* Em telas muito baixas, reduz um pouco mais o texto para caber a legenda inteira */
+@media (max-height: 720px) {
+    .tutorial-text {
+        font-size: 0.95rem !important;
+        line-height: 1.3 !important;
+    }
+}
+ 
 .border {
     border: 1px solid rgba(var(--v-border-color), 0.12) !important;
 }
-
+ 
 /* Um leve ajuste nas margens das bolinhas de paginação do carrossel para não sobrepor a nova caixa de texto */
 :deep(.v-carousel__controls) {
     padding-bottom: 4px;

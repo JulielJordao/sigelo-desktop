@@ -31,6 +31,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - Cadastro de músicas locais
 
 ---
+## [0.9.30] - 2026-07-24
+- Adição do login via google e botão de cadastro.
+- Ajustado exibição da tela de instruções em notebooks ou telas pequenas.
+- Adicionado a função de selecionar quais arquivos deletar na página de configuração de armazenamento.
+- Atualizado a página de adicionar texto bíblico numa programação.
+- Aprimoramento de segurança.
 
 ## [0.9.27] - 2026-07-24
 - Configurações da aba mídia ficam salvos.

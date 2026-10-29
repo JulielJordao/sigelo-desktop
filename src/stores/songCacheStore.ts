@@ -219,6 +219,23 @@ export const useSongCacheStore = defineStore('songCache', () => {
         }
     }
 
+    // Apaga as letras salvas offline (chamado pelo "Limpar cache").
+    // Limpa pela própria store: o plugin-store mantém os arquivos abertos e
+    // regravaria o conteúdo se fossem apagados direto no disco. Sem datas de
+    // atualização, a próxima sincronização com internet baixa tudo de novo.
+    const clearCache = async () => {
+        listSongGroups.value = [];
+        listLastDataUpdated.value = {};
+
+        if (!tauriStore) tauriStore = await load('cacheSongs.bin', { autoSave: false, defaults: {} });
+        await tauriStore.clear();
+        await tauriStore.save();
+
+        if (!tauriStoreConfig) tauriStoreConfig = await load('updateGroupSong.json', { autoSave: false, defaults: { data: [] } });
+        await tauriStoreConfig.set('data', {});
+        await tauriStoreConfig.save();
+    }
+
     const setLastUpdate = (songGroupId: string, newDate: string | Date) => {
         listLastDataUpdated.value[songGroupId] = newDate;
     }
@@ -349,6 +366,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
         isLoaded,
         listLastDataUpdated,
         syncSongGroups,
+        clearCache,
         getFilesFromSongs,
         setSelectedSong,
         setLastUpdate,
