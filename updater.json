@@ -1,0 +1,51 @@
+{
+  "version": "0.9.34",
+  "notes": "- Adição da função de controle remoto com seleção de música, controle de apresentação e envio de pdf para apresentação.\n- Adicionado o acesso ao programa sem conta.\n",
+  "pub_date": "2026-11-01T20:10:27.809Z",
+  "platforms": {
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbnhXMVEvTGhOL2JOZXVGTFBUWTZOUFM2dWF6VkVsRzE2Sld6MTVDUmlIOHlNMkg1ajF1VXordDJXYTd4cEM5anZuODNmYmtnV0xjd2t0RWtWWGs4NFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNTIzCWZpbGU6U2lnZWxvIC0gUHJvamVjYW9fMC45LjM0X2FtZDY0LkFwcEltYWdlCXZlcnNpb246MC45LjM0CkdtNm9WOHFqTk4vRTlVZ3duRUJPSEJ1b0N0dzdZT3p4L1A1QWV2eTI1aU9kOXZ2b0Zxc2RHSHdGSHhUdk9HN1pFV1JtK0kyUkJqOUx5WHlldnA1RERBPT0K",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_0.9.34_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbnhXMVEvTGhOL2JOZXVGTFBUWTZOUFM2dWF6VkVsRzE2Sld6MTVDUmlIOHlNMkg1ajF1VXordDJXYTd4cEM5anZuODNmYmtnV0xjd2t0RWtWWGs4NFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNTIzCWZpbGU6U2lnZWxvIC0gUHJvamVjYW9fMC45LjM0X2FtZDY0LkFwcEltYWdlCXZlcnNpb246MC45LjM0CkdtNm9WOHFqTk4vRTlVZ3duRUJPSEJ1b0N0dzdZT3p4L1A1QWV2eTI1aU9kOXZ2b0Zxc2RHSHdGSHhUdk9HN1pFV1JtK0kyUkJqOUx5WHlldnA1RERBPT0K",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_0.9.34_amd64.AppImage"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbnkvb3pqOURreEpWMnNldGZBZEhCZE90ZHVXN0lYbWs1WkFwdERtZHhMT0NiS3lOb3BqYStsK1JIb2ZtZ2V6WjZueXF0aFF3TWE1YnB6YVdFRHhwV0E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNTIzCWZpbGU6U2lnZWxvIC0gUHJvamVjYW9fMC45LjM0X2FtZDY0LmRlYgl2ZXJzaW9uOjAuOS4zNApKczMzMzBZSk5YbS9sY3dHQU4vSVljYS9NbUM2NU8zR1JDK1hiQVBkY1dxRDFVU1hrdE1kNDlyZE02dE1UQ1VJWEhjcXFKTngzWjlwM0NRQTBQV09BUT09Cg==",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_0.9.34_amd64.deb"
+    },
+    "linux-x86_64-rpm": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbnpreHNkYWxHQ29kdUs1OVpZMEFlRmtSRkRsS1FTYi9IQTFubFM4cUxOS1BWeVZSRzdkL29DQ3pJRlZrZ016WDFTT0MvNFB0ZzNiR1VNR1J4WnlyS2d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNTIzCWZpbGU6U2lnZWxvIC0gUHJvamVjYW8tMC45LjM0LTEueDg2XzY0LnJwbQl2ZXJzaW9uOjAuOS4zNAptektROWJYSDRjSTlXUkNVSmQ4VDJhKzF3N3pZS05GN21wTnV2OUJ5RzdjTjhSSVJPTnE5VGoxYWJlYXlVWmJsYkhtaWI1bWRVbzg1eVVFVUlWb1RCQT09Cg==",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao-0.9.34-1.x86_64.rpm"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbjh1MW10cFliTmpiSUZkd3J2Ry9mdTlZdXBIL1BRZzJ3Qnl1Q1owdTMzQ0ZxeDJ0YTEyT2ptWkh2Z3hpeklTck9ZS2pyOXFsVGRvQm9BdHVzdy9aMlFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNjc3CWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojb18wLjkuMzRfeDY0X2VuLVVTLm1zaQl2ZXJzaW9uOjAuOS4zNApxSko1TVBNbi95UXpIZkthOEtFRmxOaXhmRjdXQmx6ZjNrOEZUM3oyR1NZeGVBVnZnL085UVEwdldlaEhYUjMvT1d4a2hpL01ZalFRdnVyd091V1REdz09Cg==",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_0.9.34_x64_en-US.msi"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbjh1MW10cFliTmpiSUZkd3J2Ry9mdTlZdXBIL1BRZzJ3Qnl1Q1owdTMzQ0ZxeDJ0YTEyT2ptWkh2Z3hpeklTck9ZS2pyOXFsVGRvQm9BdHVzdy9aMlFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNjc3CWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojb18wLjkuMzRfeDY0X2VuLVVTLm1zaQl2ZXJzaW9uOjAuOS4zNApxSko1TVBNbi95UXpIZkthOEtFRmxOaXhmRjdXQmx6ZjNrOEZUM3oyR1NZeGVBVnZnL085UVEwdldlaEhYUjMvT1d4a2hpL01ZalFRdnVyd091V1REdz09Cg==",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_0.9.34_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbnpDd3FBTFpKbkgvY0FDdDBGVG5KOCswN2oydmczS3NPMEVrSWY0d0pJMGJOL2orYXMvV0xBbWhmYStQUDZpMGZzVDM2VHlqNFpQRWZ1dmxLWkM0QncwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzNjc3CWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojb18wLjkuMzRfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuOS4zNApyRnMxOWg4ei9NN3hVNis1V0tzNXd1WkhJNU5aYmJkekZuZzNwUW95VHBWbVRrOHdLUnB5MGJEdGZxMDQrWCtsSjZFamFCRlY0WHdUSzZLMDE5NGVEdz09Cg==",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_0.9.34_x64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbjhCZ3ZFRk1YRXA4L0FQaTM5bi85aDZlZENOejBCbUgzSEJDUnE5TzkrVzdZZXVtNmJBNjZncUw3Vi9OL3d4c1pzY09zYisvV2NIbnZCYS9FL295elF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzODEyCWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojby5hcHAudGFyLmd6CXZlcnNpb246MC45LjM0CkVnMDBIVk9hNnVWUTlUaTF4cFVEVHBqUmoyUFR5NHFDcGl6VTVTZDRzL3A4OGlXMWZkVjkrNHgvRDV5RDNFV1kzWjFQbjFVWUl4dkg5SFo2VG5FU0FBPT0K",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_universal.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbjhCZ3ZFRk1YRXA4L0FQaTM5bi85aDZlZENOejBCbUgzSEJDUnE5TzkrVzdZZXVtNmJBNjZncUw3Vi9OL3d4c1pzY09zYisvV2NIbnZCYS9FL295elF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzODEyCWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojby5hcHAudGFyLmd6CXZlcnNpb246MC45LjM0CkVnMDBIVk9hNnVWUTlUaTF4cFVEVHBqUmoyUFR5NHFDcGl6VTVTZDRzL3A4OGlXMWZkVjkrNHgvRDV5RDNFV1kzWjFQbjFVWUl4dkg5SFo2VG5FU0FBPT0K",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_universal.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbjhCZ3ZFRk1YRXA4L0FQaTM5bi85aDZlZENOejBCbUgzSEJDUnE5TzkrVzdZZXVtNmJBNjZncUw3Vi9OL3d4c1pzY09zYisvV2NIbnZCYS9FL295elF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzODEyCWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojby5hcHAudGFyLmd6CXZlcnNpb246MC45LjM0CkVnMDBIVk9hNnVWUTlUaTF4cFVEVHBqUmoyUFR5NHFDcGl6VTVTZDRzL3A4OGlXMWZkVjkrNHgvRDV5RDNFV1kzWjFQbjFVWUl4dkg5SFo2VG5FU0FBPT0K",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_universal.app.tar.gz"
+    },
+    "darwin-x86_64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURnhKT2RLVWtKbjhCZ3ZFRk1YRXA4L0FQaTM5bi85aDZlZENOejBCbUgzSEJDUnE5TzkrVzdZZXVtNmJBNjZncUw3Vi9OL3d4c1pzY09zYisvV2NIbnZCYS9FL295elF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNTYzODEyCWZpbGU6U2lnZWxvIC0gUHJvamXDp8Ojby5hcHAudGFyLmd6CXZlcnNpb246MC45LjM0CkVnMDBIVk9hNnVWUTlUaTF4cFVEVHBqUmoyUFR5NHFDcGl6VTVTZDRzL3A4OGlXMWZkVjkrNHgvRDV5RDNFV1kzWjFQbjFVWUl4dkg5SFo2VG5FU0FBPT0K",
+      "url": "https://github.com/JulielJordao/sigelo-desktop/releases/download/v0.9.34/Sigelo.-.Projecao_universal.app.tar.gz"
+    }
+  }
+}
