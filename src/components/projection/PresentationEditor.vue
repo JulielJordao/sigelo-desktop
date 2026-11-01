@@ -15,6 +15,7 @@ import ModalSelectPreset from '../presets/modalSelectPreset.vue';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
+import { useRemoteControlStore } from '../../stores/remoteControlStore';
 import type { Slide } from '../../stores/presentationStore';
 import { formatAuthorCredits } from '../../utils/formatCredits';
 
@@ -564,7 +565,47 @@ const isSavePresetOpen = ref(false)
 
 let unlistenHandleKeydown: UnlistenFn | null = null;
 
+// ── Controle remoto (celular): o editor se registra para ser comandado ──
+const remoteStore = useRemoteControlStore();
+
+watch(
+    () => [songSlides.value, currentSlideIndex.value, songInfo.activeSong?.fullName] as const,
+    () => {
+        remoteStore.setSongSlides(
+            songInfo.activeSong?.fullName || '',
+            (songSlides.value || []).map((s: any) => ({ label: s.label || '', text: s.text || '' })),
+            currentSlideIndex.value
+        );
+    },
+    { immediate: true }
+);
+
 onMounted(async () => {
+    remoteStore.registerSlideController({
+        // Navegar troca o slide da prévia; se já estiver projetando, o watch
+        // de currentSlideIndex atualiza o telão.
+        next: () => {
+            if (currentSlideIndex.value < songSlides.value.length - 1) currentSlideIndex.value++;
+        },
+        prev: () => {
+            if (currentSlideIndex.value > 0) currentSlideIndex.value--;
+        },
+        goto: (index: number) => {
+            if (index < 0 || index >= songSlides.value.length) return;
+            if (index === currentSlideIndex.value) {
+                if (isProjecting.value) projectCurrentSlide();
+            } else {
+                currentSlideIndex.value = index;
+            }
+        },
+        start: () => {
+            if (!isClean.value) projectCurrentSlide();
+        },
+        stop: () => {
+            stopProjection();
+        },
+    });
+
     await infoPresentationStore.loadPresets()
     window.addEventListener('keydown', handleKeydown);
 
@@ -574,6 +615,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+    remoteStore.registerSlideController(null);
     window.removeEventListener('keydown', handleKeydown);
 
     if (unlistenHandleKeydown) unlistenHandleKeydown()

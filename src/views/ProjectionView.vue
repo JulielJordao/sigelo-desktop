@@ -292,7 +292,7 @@ onMounted(async () => {
         debugLog.value = `Projetando mídia: ${event.payload.name}`;
         try {
             const appWindow = getCurrentWindow();
-            await appWindow.show();
+            if (!(await appWindow.isVisible())) await appWindow.show(); // show() numa janela já visível traz o app para a frente (rouba o foco)
         } catch (err) {
             console.error("Erro ao exibir janela de projeção:", err);
         }
@@ -306,7 +306,7 @@ onMounted(async () => {
             projectionType.value = 'fixed';
             try {
                 const appWindow = getCurrentWindow();
-                await appWindow.show();
+                if (!(await appWindow.isVisible())) await appWindow.show(); // show() numa janela já visível traz o app para a frente (rouba o foco)
             } catch (err) {
                 console.error("Erro ao exibir janela de projeção:", err);
             }
@@ -373,7 +373,7 @@ onMounted(async () => {
         if (isActive) {
             try {
                 const appWindow = getCurrentWindow();
-                appWindow.show();
+                appWindow.isVisible().then((v) => { if (!v) appWindow.show(); });
             } catch (err) { }
         }
     });
@@ -417,7 +417,7 @@ onMounted(async () => {
             }, 1000);
             try {
                 const appWindow = getCurrentWindow();
-                await appWindow.show();
+                if (!(await appWindow.isVisible())) await appWindow.show(); // show() numa janela já visível traz o app para a frente (rouba o foco)
             } catch (err) { }
         } else if (action === 'pause') {
             timerStore.isPaused = true;
@@ -621,7 +621,7 @@ onUnmounted(() => {
                         :style="{ objectFit: bibleDataPayload.settings.bgFit, width: '100%', height: '100%' }" />
                 </div>
                 <div class="dark-overlay"
-                    :style="{ backgroundColor: `rgba(0, 0, 0, ${bibleDataPayload.config.bgOpacity / 100})` }"></div>
+                    :style="{ backgroundColor: `rgba(0, 0, 0, ${(configStore.settings.bgOpacity ?? bibleDataPayload.config.bgOpacity) / 100})` }"></div>
                 <div class="content-layer" :class="{ 'hide-verses': !bibleDataPayload.config.showVerseNumbers }"
                     :style="{ padding: `${bibleDataPayload.config.marginTop}% ${bibleDataPayload.config.marginRight}% ${bibleDataPayload.config.marginBottom}% ${bibleDataPayload.config.marginLeft}%` }">
                     <div style="position: relative; width: 100%; height: 100%; container-type: inline-size;">

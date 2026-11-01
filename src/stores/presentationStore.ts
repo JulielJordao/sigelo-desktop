@@ -8,6 +8,7 @@ import { useSongCacheStore } from './songCacheStore';
 import type { SongCache } from './songCacheStore';
 import { useConnectionStore } from './statusConnectionStore';
 import { useLocalGroupStore } from './localGroupStore';
+import { useUserStore } from './userStore';
 
 export interface Slide {
   label: string;
@@ -113,6 +114,12 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
   };
 
   const fetchGroups = async () => {
+    // Acesso sem conta: só grupos locais (nada da nuvem).
+    if (useUserStore().isGuest) {
+      rawGroups.value = [];
+      return;
+    }
+
     // 1. OFFLINE-FIRST: preenche a UI na hora com o cache
     if (songCacheStore.listSongGroups.length > 0) {
       rawGroups.value = songCacheStore.listSongGroups.map(it => ({
@@ -169,6 +176,12 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       return;
     }
 
+
+    // Acesso sem conta: grupos da nuvem não são carregados.
+    if (useUserStore().isGuest) {
+      songs.value = [];
+      return;
+    }
 
     // Sempre resolve o grupo pelo id, nunca por índice guardado
     const getGroup = () =>
@@ -296,6 +309,11 @@ export const useMusicPresentationStore = defineStore('musicPresentation', () => 
       const song = localGroupStore.getGroup(selectedGroupId.value)
         ?.songs.find(s => s.id === selectedSongId.value);
       rawLyric.value = song?.lyric ?? '';
+      return;
+    }
+
+    if (useUserStore().isGuest) {
+      rawLyric.value = "";
       return;
     }
 

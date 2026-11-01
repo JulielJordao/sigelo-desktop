@@ -302,6 +302,7 @@ export const useBibleStore = defineStore('bible', () => {
     return {
         step, selectedBook, selectedChapter, verseStart, verseEnd, fetchedData, searchQuery, currentSlideIndex, projectionSettings,
         filteredBooks, totalVersesInChapter, availableVerses, bibleSlides, maxBibleFontSize, loadManualText,
-        fetchBibleText, loadReference, resetSelection, startProjection, stopProjection, nextSlide, prevSlide, loadSettings
+        fetchBibleText, loadReference, resetSelection, startProjection, stopProjection, nextSlide, prevSlide, loadSettings,
+        projectCurrentSlide // usado pelo controle remoto (ir direto a um versículo)
     };
 });

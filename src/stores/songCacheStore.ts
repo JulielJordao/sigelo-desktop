@@ -9,6 +9,7 @@ import type { BibleRef } from "../types/bibleRef";
 import { useConnectionStore } from './statusConnectionStore';
 import type { Song } from '../types/song';
 import { useLocalGroupStore } from './localGroupStore';
+import { useUserStore } from './userStore';
 
 export interface SongGroupCache {
     id: string,
@@ -75,6 +76,18 @@ export const useSongCacheStore = defineStore('songCache', () => {
     }
 
     const loadData = async () => {
+        // Acesso sem conta: não carrega as músicas da nuvem guardadas no
+        // computador (são da conta que estava logada). Sem tauriStore, nada
+        // é gravado por cima do cache — ao entrar com a conta, ele volta.
+        if (useUserStore().isGuest) {
+            listSongGroups.value = [];
+            listLastDataUpdated.value = {};
+            tauriStore = null;
+            tauriStoreConfig = null;
+            isLoaded.value = true;
+            return;
+        }
+
         try {
             if (!import.meta.env.VITE_SIGELO_DECRYPT_KEY) {
                 console.warn("Chave de criptografia não encontrada. Usando chave de fallback.");
@@ -165,6 +178,7 @@ export const useSongCacheStore = defineStore('songCache', () => {
     }
 
     const getCacheLyrics = async (songGroupId: string) => {
+        if (useUserStore().isGuest) return;
         try {
             const lyrics = await api.songGroup().getOfflineLyrics(songGroupId) as Record<string, string>;
 

@@ -3,6 +3,8 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { ask } from '@tauri-apps/plugin-dialog';
 import SettingsModal from '../components/config/SettingsModal.vue';
+import RemoteControlDialog from '../components/remote/RemoteControlDialog.vue';
+import { useRemoteControlStore } from '../stores/remoteControlStore';
 
 import BibleDrawer from '../components/bible/BibleDrawer.vue'; // <-- Importe o novo componente
 // import { useConfigStore } from '../stores/useConfigStore';
@@ -25,6 +27,8 @@ const isDark = computed(() => configStore.getTheme() === 'dark');
 const router = useRouter();
 
 const settingsModalRef = ref<any>(null);
+const remoteStore = useRemoteControlStore();
+const showRemoteDialog = ref(false);
 const bibleDrawerRef = ref<any>(null); // <-- Ref para acessar o componente filho
 
 // const configStore = useConfigStore();
@@ -71,6 +75,13 @@ const openSettingsModal = () => {
 };
 
 const logout = async () => {
+  // Acesso sem conta: "Entrar com conta" volta para o login.
+  if (userStore.isGuest) {
+    menuStore.toggleMenu('Login')
+    await userStore.goToLogin()
+    return
+  }
+
   const confirmed = await ask('Deseja realmente sair da conta?', {
     title: 'Sigelo',
     kind: 'warning',
@@ -101,6 +112,9 @@ const toggleEventsSidebar = () => {
 onMounted(async () => {
   menuStore.toggleMenu('Songs')
 
+  // Controle remoto pelo celular (religa sozinho se estava ligado).
+  await remoteStore.init();
+
   unlistenBible = await listen<BibleRef & { text?: string }>('open-bible', async (event) => {
       const { text, ...bibleRef } = event.payload as any;
       toggleBible(true, bibleRef, text);
@@ -109,6 +123,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (unlistenBible) unlistenBible();
+  remoteStore.dispose();
 })
 
 </script>
@@ -136,9 +151,18 @@ onUnmounted(() => {
 
       <template v-slot:append>
         <v-list density="compact" nav>
+          <v-list-item prepend-icon="mdi-cellphone-link" title="Controle remoto" value="remote"
+            @click="showRemoteDialog = true" :color="isDark ? 'primary' : 'secondary'">
+            <template v-slot:append>
+              <v-badge v-if="remoteStore.isRunning" dot inline
+                :color="remoteStore.connectedClients > 0 ? 'success' : 'grey'"></v-badge>
+            </template>
+          </v-list-item>
           <v-list-item prepend-icon="mdi-cog" title="Configurações" @click="openSettingsModal"
             value="config"></v-list-item>
-          <v-list-item prepend-icon="mdi-logout" title="Sair" value="logout" @click="logout"></v-list-item>
+          <v-list-item v-if="userStore.isGuest" prepend-icon="mdi-login" title="Entrar com conta" subtitle="Acesso sem conta"
+            value="logout" @click="logout"></v-list-item>
+          <v-list-item v-else prepend-icon="mdi-logout" title="Sair" value="logout" @click="logout"></v-list-item>
         </v-list>
       </template>
     </v-navigation-drawer>
@@ -154,6 +178,7 @@ onUnmounted(() => {
     </v-main>
 
     <SettingsModal ref="settingsModalRef" />
+    <RemoteControlDialog v-model="showRemoteDialog" />
 
   </v-layout>
 </template>

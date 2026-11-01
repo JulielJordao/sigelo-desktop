@@ -6,6 +6,7 @@ import { useMenuStore } from "../../stores/menuStore";
 import SmartVideo from '../SmartVideo.vue';
 import StockBackgroundDialog from './StockBackgroundDialog.vue';
 import { useConfigStore } from '../../stores/useConfigStore';
+import { useUserStore } from '../../stores/userStore';
 
 const menuStore = useMenuStore()
 const store = usePresentationStore();
@@ -16,6 +17,12 @@ let resizeObserver: ResizeObserver | null = null;
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const isStockOpen = ref(false); // banco de fundos (Pixabay)
+const userStore = useUserStore();
+/** O banco de fundos passa pelo servidor do Sigelo e exige conta. */
+const openStock = async () => {
+    if (!(await userStore.requireAccount('O banco de fundos online'))) return;
+    isStockOpen.value = true;
+};
 
 const isReloadEngine = ref(true);
 
@@ -348,7 +355,7 @@ watch(() => configStore.settings.videoEngine, (engine) => {
                     <template v-slot:activator="{ props }">
                         <v-card v-bind="props" width="100" height="70" color="surface-light"
                             class="d-flex flex-column align-center justify-center cursor-pointer transition-all border-dashed"
-                            @click="isStockOpen = true">
+                            @click="openStock">
                             <v-icon color="primary">mdi-image-search</v-icon>
                             <span class="text-caption text-medium-emphasis mt-1" style="font-size: 10px !important;">Banco de fundos</span>
                         </v-card>

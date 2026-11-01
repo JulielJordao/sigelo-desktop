@@ -10,6 +10,7 @@ import { useFontStore } from './stores/useFontStore';
 import { useRoute } from 'vue-router';
 import { useTheme } from 'vuetify';
 import { useConfigStore } from './stores/useConfigStore';
+import { useUserStore } from './stores/userStore';
 
 const refPdfPresenter = ref<InstanceType<typeof PdfPresenter> | null>(null);
 const windowLabel = ref('');
@@ -36,8 +37,12 @@ const showToolbar = computed(() => {
 const isYoutubeModalOpen = ref(false)
 
 // Aqui você conecta com a sua função do PDF!
-const handleImportAction = (type: string) => {
+const userStore = useUserStore()
+
+const handleImportAction = async (type: string) => {
   if (type === 'youtube') {
+    // Bloqueado no acesso sem conta.
+    if (!(await userStore.requireAccount('Importar do YouTube'))) return;
     isYoutubeModalOpen.value = true;
   } else if (type === 'pdf') {
     refPdfPresenter.value?.openPdfFile()

@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Sigelo · Controle</title>
+<!--
+  Controle remoto do Sigelo (servido pelo app desktop na rede local).
+  Conversa por WebSocket com src-tauri/src/remote/remote.rs; os comandos são
+  executados em src/stores/remoteControlStore.ts.
+-->
+<style>
+  :root {
+    --bg: #0f1115; --surface: #191c22; --surface-2: #232730; --line: #2d323c;
+    --text: #f2f4f8; --muted: #99a1b0; --primary: #4f8cff; --primary-ink: #fff;
+    --live: #2fbf71; --danger: #ef5350; --warn: #f5a524;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) 0 0; overscroll-behavior: none; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  .hidden { display: none !important; }
+
+  /* Cabeçalho */
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--live); box-shadow: 0 0 0 4px rgba(47,191,113,.18); }
+  .conn { font-size: 13px; color: var(--muted); }
+
+  main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 16px 24px; }
+
+  /* Abas inferiores */
+  nav { display: flex; border-top: 1px solid var(--line); background: var(--surface);
+    padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex: 1; padding: 10px 4px 9px; font-size: 12px; color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  nav button svg { width: 22px; height: 22px; }
+  nav button.active { color: var(--primary); }
+
+  /* Blocos */
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+  .eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+  .title { font-size: 19px; font-weight: 650; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    padding: 3px 9px; border-radius: 99px; background: var(--surface-2); color: var(--muted); }
+  .badge.live { background: rgba(47,191,113,.15); color: var(--live); }
+
+  .navrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+  .big { height: 86px; border-radius: var(--radius); background: var(--surface-2); font-size: 17px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); }
+  .big:active, .row:active, .btn:active { transform: scale(.98); opacity: .85; }
+  .big.next { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+  .big svg { width: 26px; height: 26px; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { flex: 1 1 auto; min-height: 46px; padding: 10px 14px; border-radius: 12px; background: var(--surface-2);
+    border: 1px solid var(--line); font-weight: 600; font-size: 15px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
+  .btn.danger { color: var(--danger); }
+  .btn svg { width: 20px; height: 20px; }
+
+  .list { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; align-items: center; gap: 12px; text-align: left; width: 100%; padding: 12px;
+    border-radius: 12px; background: var(--surface); border: 1px solid var(--line); }
+  .row.current { border-color: var(--primary); background: rgba(79,140,255,.12); }
+  .row .main { flex: 1; min-width: 0; }
+  .row .label { font-weight: 600; font-size: 15px; }
+  .row .sub { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .idx { width: 28px; height: 28px; flex: none; border-radius: 8px; background: var(--surface-2);
+    font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .row.current .idx { background: var(--primary); color: #fff; }
+  .row .icon { width: 34px; height: 34px; flex: none; border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; background: var(--surface-2); }
+  .row .icon svg { width: 18px; height: 18px; }
+  .chev { color: var(--muted); }
+  .iconbtn { width: 42px; height: 42px; flex: none; border-radius: 11px; background: var(--primary); color: #fff;
+    display: flex; align-items: center; justify-content: center; }
+  .iconbtn svg { width: 20px; height: 20px; }
+
+  .section-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 18px 4px 8px; }
+  .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+  .back { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); font-weight: 600; margin-bottom: 10px; }
+  input[type=search], input[type=text] { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font: inherit; margin-bottom: 10px; outline: none; }
+  input:focus { border-color: var(--primary); }
+
+  .progress { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 12px 0 6px; }
+  .progress div { height: 100%; background: var(--primary); width: 0; transition: width .4s linear; }
+  .time { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* Modo retorno: o texto do slide no lugar do título */
+  /* Linha de cima: rótulo + botão Retorno. O texto vem abaixo, na largura toda. */
+  .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .card-head .eyebrow { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toggle-ret { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600;
+    padding: 6px 10px; border-radius: 99px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+  .toggle-ret.on { background: rgba(79,140,255,.18); color: var(--primary); border-color: rgba(79,140,255,.45); }
+  .toggle-ret svg { width: 15px; height: 15px; }
+  .ret-text { font-size: clamp(20px, 6vw, 28px); line-height: 1.35; font-weight: 600; white-space: pre-line;
+    margin-top: 8px; word-break: break-word; width: 100%; }
+  .ret-next { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 15px;
+    color: var(--muted); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .ret-next .eyebrow { margin-bottom: 2px; }
+  .ret-empty { color: var(--muted); font-style: italic; }
+
+  /* PDF */
+  .pdf-current { width: 100%; border-radius: 10px; background: #fff; display: block; margin-top: 12px;
+    border: 1px solid var(--line); min-height: 120px; object-fit: contain; max-height: 46vh; }
+  .pdf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+  .pdf-thumb { position: relative; border-radius: 10px; overflow: hidden; background: var(--surface);
+    border: 2px solid var(--line); aspect-ratio: 3 / 4; padding: 0; }
+  .pdf-thumb img { width: 100%; height: 100%; object-fit: contain; background: #fff; display: block; }
+  .pdf-thumb .num { position: absolute; left: 6px; bottom: 6px; font-size: 12px; font-weight: 700;
+    background: rgba(0,0,0,.65); color: #fff; padding: 1px 7px; border-radius: 99px; }
+  .pdf-thumb.current { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(79,140,255,.35); }
+  .pdf-thumb.placeholder { display: flex; align-items: center; justify-content: center; color: var(--muted); font-weight: 700; }
+
+  /* Pesquisa de músicas (igual à pesquisa rápida do desktop) */
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--line); margin-bottom: 10px; }
+  .seg button { padding: 9px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--muted); }
+  .seg button.on { background: var(--surface-2); color: var(--text); }
+  .group-head { font-size: 13px; font-weight: 700; color: var(--muted); margin: 14px 4px 6px; display: flex; gap: 6px; align-items: center; }
+  .snippet { font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .snippet b { color: var(--primary); font-weight: 700; }
+  .count { font-size: 13px; color: var(--muted); margin: 0 4px 4px; }
+
+  /* Pareamento */
+  #pair { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 24px; max-width: 420px; margin: 0 auto; width: 100%; }
+  #pair h2 { margin: 0 0 6px; font-size: 22px; }
+  #pair p { color: var(--muted); margin: 0 0 20px; }
+  #pin { text-align: center; font-size: 30px; letter-spacing: .3em; font-weight: 700; padding: 14px; }
+  .err { color: var(--danger); font-size: 14px; min-height: 20px; margin: 4px 0 10px; }
+
+  /* Filtro escurecedor de fundo */
+  .dim-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .dim-value { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 48px; text-align: right; }
+  .dim-row { display: flex; align-items: center; gap: 10px; margin: 14px 0 12px; }
+  .dim-row svg { width: 20px; height: 20px; color: var(--muted); flex: none; }
+  input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; height: 32px; background: transparent; margin: 0; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 99px;
+    background: linear-gradient(90deg, var(--primary) var(--fill, 0%), var(--surface-2) var(--fill, 0%)); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%;
+    background: #fff; margin-top: -10px; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  input[type=range]::-moz-range-track { height: 6px; border-radius: 99px; background: var(--surface-2); }
+  input[type=range]::-moz-range-progress { height: 6px; border-radius: 99px; background: var(--primary); }
+  input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; }
+  .chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .chip { padding: 8px 0; border-radius: 10px; background: var(--surface-2); font-size: 13px; font-weight: 600; color: var(--muted); }
+  .chip.on { background: var(--primary); color: var(--primary-ink); }
+
+  /* Envio de PDF do celular */
+  #upload { position: fixed; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 5;
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+  #upload .name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #upload .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  #upload .progress { margin: 10px 0 0; }
+  #upload .progress div { transition: width .15s linear; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: var(--surface-2); border: 1px solid var(--line); padding: 10px 16px; border-radius: 99px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90%; text-align: center; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- Pareamento -->
+<section id="pair" class="hidden">
+  <h2>Conectar ao Sigelo</h2>
+  <p>Digite o código de 6 dígitos que aparece em <strong>Controle remoto</strong> no computador da projeção.</p>
+  <input id="pin" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+  <div class="err" id="pairErr"></div>
+  <button class="btn primary" id="pairBtn">Conectar</button>
+</section>
+
+<!-- App -->
+<section id="app" class="hidden" style="flex:1; display:flex; flex-direction:column; min-height:0">
+  <header>
+    <span class="dot" id="connDot"></span>
+    <h1>Sigelo</h1>
+    <span class="conn" id="connText">Conectando…</span>
+  </header>
+  <main id="main"></main>
+  <input type="file" id="pdfFile" accept="application/pdf,.pdf" hidden>
+  <div id="upload" class="hidden">
+    <div class="name" id="uploadName"></div>
+    <div class="sub" id="uploadText">Enviando…</div>
+    <div class="progress"><div id="uploadBar"></div></div>
+  </div>
+  <nav>
+    <button data-tab="live" class="active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+      Ao vivo</button>
+    <button data-tab="program">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      Programação</button>
+    <button data-tab="songs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      Músicas</button>
+  </nav>
+</section>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ─── Ícones ─────────────────────────────────────────────────────────────
+  const I = {
+    prev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+    next: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+    restart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+    mute: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>',
+    volume: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>',
+    stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+    clear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 8l6 6M15 8l-6 6"/></svg>',
+    eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+    song: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>',
+    bible: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14z"/><path d="M12 6v6M9 9h6"/></svg>',
+    media: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/></svg>',
+    ret: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+    pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+    chev: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>',
+    back: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg>',
+    upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15l3-3 3 3"/></svg>',
+    sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+    moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
+  };
+
+  // ─── Estado ─────────────────────────────────────────────────────────────
+  const TOKEN_KEY = "sigelo.remote.token";
+  let token = null;
+  let ws = null;
+  let retry = 0;
+  let state = null;
+  let tab = "live";
+  let groups = null;            // [{id,label,count}]
+  let openGroup = null;         // {id,label}
+  let songsByGroup = {};        // groupId -> [{id,fullName,tone}]
+  let songFilter = "";
+  let openProgramId = null;
+  let pdfThumbs = { key: "", pages: [] };   // miniaturas das páginas do PDF
+  let pdfRequestedKey = "";
+  let searchQuery = "";
+  let searchMode = "name";                  // "name" | "lyric"
+  let searchResults = null;                 // { query, mode, total, groups }
+  let searchTimer = null;
+  const RET_KEY = "sigelo.remote.returnMode";
+  let returnMode = false;                   // modo retorno (texto do slide no lugar do título)
+  try { returnMode = localStorage.getItem(RET_KEY) === "1"; } catch (e) {}
+  let dimDragging = false;                  // arrastando o filtro: não re-renderiza
+  let dimLocal = null;                      // valor escolhido aqui até o computador confirmar
+  let dimSendTimer = null;
+  let uploading = false;
+  const MAX_PDF_MB = 150;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const haptic = () => { try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} };
+
+  function toast(msg) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 2200);
+  }
+
+  function getToken() { try { return localStorage.getItem(TOKEN_KEY); } catch (e) { return token; } }
+  function setToken(t) {
+    token = t;
+    try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+  }
+
+  // ─── Pareamento ─────────────────────────────────────────────────────────
+  function showPair(message) {
+    $("app").classList.add("hidden");
+    $("pair").classList.remove("hidden");
+    $("pairErr").textContent = message || "";
+    $("pin").value = "";
+    setTimeout(() => $("pin").focus(), 50);
+  }
+
+  function showApp() {
+    $("pair").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    render();
+  }
+
+  async function pair() {
+    const pin = $("pin").value.replace(/\D/g, "");
+    if (pin.length !== 6) { $("pairErr").textContent = "O código tem 6 dígitos."; return; }
+    $("pairBtn").disabled = true;
+    try {
+      const res = await fetch("/pair?pin=" + encodeURIComponent(pin));
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.token) {
+        setToken(data.token);
+        showApp();
+        connect();
+      } else {
+        $("pairErr").textContent = data.error || "Não foi possível conectar.";
+      }
+    } catch (e) {
+      $("pairErr").textContent = "O computador não respondeu. Confira se está no mesmo Wi-Fi.";
+    } finally {
+      $("pairBtn").disabled = false;
+    }
+  }
+
+  $("pairBtn").addEventListener("click", pair);
+  $("pin").addEventListener("input", (e) => {
+    e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6);
+    if (e.target.value.length === 6) pair();
+  });
+
+  // ─── Conexão ────────────────────────────────────────────────────────────
+  function setConn(on, text) {
+    $("connDot").classList.toggle("on", on);
+    $("connText").textContent = text;
+  }
+
+  function connect() {
+    if (!token) return showPair();
+    try { ws && ws.close(); } catch (e) {}
+    setConn(false, "Conectando…");
+    const proto = location.protocol === "https:" ? "wss://" : "ws://";
+    ws = new WebSocket(proto + location.host + "/ws?token=" + encodeURIComponent(token));
+
+    ws.onopen = () => { retry = 0; setConn(true, "Conectado"); };
+    ws.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      handleMessage(msg);
+    };
+    ws.onclose = () => {
+      ws = null;
+      if (!token) return;
+      setConn(false, "Reconectando…");
+      // Token pode ter sido trocado no computador: confere antes de insistir.
+      fetch("/check?token=" + encodeURIComponent(token))
+        .then((r) => r.json())
+        .then((d) => {
+          if (!d.valid) { setToken(null); showPair("O código mudou no computador. Digite o novo código."); }
+          else scheduleReconnect();
+        })
+        .catch(() => { setConn(false, "Computador indisponível"); scheduleReconnect(); });
+    };
+  }
+
+  function scheduleReconnect() {
+    retry = Math.min(retry + 1, 6);
+    setTimeout(connect, Math.min(1000 * retry, 5000));
+  }
+
+  function send(action, extra) {
+    if (!ws || ws.readyState !== 1) { toast("Sem conexão com o computador"); return; }
+    if (!(extra && extra.silent)) haptic();
+    ws.send(JSON.stringify(Object.assign({ type: "command", action: action }, extra || {})));
+  }
+
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case "state":
+        state = msg;
+        if (!openProgramId && state.program) openProgramId = state.program.currentId;
+        // PDF novo aberto no computador: pede as miniaturas uma vez.
+        if (state.pdf && state.pdf.total > 0 && !state.pdf.isLoading &&
+            state.pdf.key !== pdfThumbs.key && state.pdf.key !== pdfRequestedKey) {
+          pdfRequestedKey = state.pdf.key;
+          send("pdf.pages", { silent: true });
+        }
+        if (dimLocal != null && state.settings && state.settings.bgOpacity === dimLocal) dimLocal = null;
+        // Na aba Músicas não re-renderiza (perderia o foco da busca enquanto digita).
+        // Arrastando o filtro também não (o controle seria recriado no meio do gesto).
+        if (tab !== "songs" && !dimDragging) render();
+        break;
+      case "pdfPages":
+        pdfThumbs = { key: msg.key, pages: msg.pages || [] };
+        if (tab === "live") render();
+        break;
+      case "searchResults":
+        // Ignora respostas de buscas antigas (digitação rápida).
+        if (msg.query === searchQuery.trim() && msg.mode === searchMode) {
+          searchResults = msg;
+          const box = $("searchBox");
+          if (box) box.innerHTML = songsBodyHtml(); else if (tab === "songs") render();
+        }
+        break;
+      case "groups":
+        groups = msg.groups || [];
+        if (tab === "songs") {
+          const box = $("searchBox");
+          if (box) { if (!searchQuery.trim()) box.innerHTML = songsBodyHtml(); }
+          else render();
+        }
+        break;
+      case "songs":
+        songsByGroup[msg.groupId] = msg.songs || [];
+        if (tab === "songs") render();
+        break;
+      case "error":
+        toast(msg.message || "Erro no computador");
+        break;
+      case "revoked":
+        setToken(null);
+        showPair("O código mudou no computador. Digite o novo código.");
+        break;
+      case "server-stopped":
+        setConn(false, "Desligado no computador");
+        break;
+    }
+  }
+
+  // ─── Navegação ──────────────────────────────────────────────────────────
+  function goTab(name) {
+    tab = name;
+    document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
+    if (tab === "songs" && !groups) send("groups.list", { silent: true });
+    $("main").scrollTop = 0;
+    render();
+  }
+  document.querySelectorAll("nav button").forEach((b) => {
+    b.addEventListener("click", () => goTab(b.dataset.tab));
+  });
+
+  // Delegação: data-cmd="acao" data-index / data-* extras
+  $("main").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-cmd],[data-nav]");
+    if (!el) return;
+    const d = el.dataset;
+    if (d.nav === "group") {
+      openGroup = { id: d.id, label: d.label };
+      songFilter = "";
+      if (!songsByGroup[d.id]) send("songs.list", { groupId: d.id });
+      render(); $("main").scrollTop = 0; return;
+    }
+    if (d.nav === "groups") { openGroup = null; render(); return; }
+    if (d.nav === "program") {
+      openProgramId = d.id; send("program.open", { programId: d.id }); render(); $("main").scrollTop = 0; return;
+    }
+    if (d.nav === "programs") { openProgramId = null; render(); return; }
+    if (d.nav === "returnMode") {
+      returnMode = !returnMode;
+      try { localStorage.setItem(RET_KEY, returnMode ? "1" : "0"); } catch (e) {}
+      haptic(); render(); return;
+    }
+    if (d.nav === "pickPdf") {
+      if (uploading) { toast("Aguarde o envio terminar"); return; }
+      const input = $("pdfFile");
+      input.value = "";
+      input.click();
+      return;
+    }
+    if (d.nav === "dim") {
+      setDim(Number(d.value), true);
+      haptic(); render(); return;
+    }
+    if (d.nav === "searchMode") {
+      searchMode = d.mode; searchResults = null;
+      document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === searchMode));
+      runSearch(true); return;
+    }
+
+    const extra = {};
+    if (d.index != null) extra.index = Number(d.index);
+    if (d.page != null) extra.page = Number(d.page);
+    if (d.groupId) extra.groupId = d.groupId;
+    if (d.songId) extra.songId = d.songId;
+    if (d.programId) extra.programId = d.programId;
+    if (d.itemId) extra.itemId = d.itemId;
+    if (d.project != null) extra.project = d.project === "1";
+    send(d.cmd, extra);
+    if (d.toast) toast(d.toast);
+    // Projetar uma música ou item da programação leva para a aba Ao vivo.
+    if (d.project === "1" && (d.cmd === "song.select" || d.cmd === "program.present")) goTab("live");
+  });
+
+  // ─── Renderização ───────────────────────────────────────────────────────
+  function render() {
+    if ($("app").classList.contains("hidden")) return;
+    const main = $("main");
+    if (!state) { main.innerHTML = '<div class="empty">Aguardando o computador…</div>'; return; }
+    if (tab === "live") main.innerHTML = renderLive();
+    else if (tab === "program") main.innerHTML = renderPrograms();
+    else main.innerHTML = renderSongs();
+
+    // pesquisa rápida (aba Músicas)
+    const q = $("songSearch");
+    if (q) {
+      q.value = searchQuery;
+      q.addEventListener("input", (e) => { searchQuery = e.target.value; runSearch(false); });
+    }
+
+    // mantém o filtro de músicas com foco/valor
+    const f = $("songFilter");
+    if (f) {
+      f.value = songFilter;
+      f.addEventListener("input", (e) => {
+        songFilter = e.target.value;
+        const list = $("songList");
+        if (list) list.innerHTML = songRows();
+      });
+    }
+  }
+
+  function liveKind() {
+    if (state.mode === "Media") return "media";
+    if (state.mode === "Biblia" || (state.bible && state.bible.active)) return "bible";
+    const pdf = state.pdf || {};
+    if (state.mode === "Pdf" || (pdf.isOpen && (!state.mode || state.mode === "none"))) return "pdf";
+    return "song";
+  }
+
+  function fmt(sec) {
+    sec = Math.max(0, sec | 0);
+    return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  }
+
+  function renderLive() {
+    const kind = liveKind();
+    const projecting = state.mode && state.mode !== "none";
+    let html = "";
+
+    if (kind === "media") {
+      const m = state.media || {};
+      const pct = m.duration ? Math.min(100, (m.currentTime / m.duration) * 100) : 0;
+      html += '<div class="card"><div class="eyebrow">Vídeo / mídia</div>' +
+        '<div class="title">' + esc(m.name || "Mídia") + '</div>' +
+        '<div style="margin-top:8px"><span class="badge live">● No ar</span></div>' +
+        (m.isVideo ? '<div class="progress"><div style="width:' + pct + '%"></div></div>' +
+          '<div class="time"><span>' + fmt(m.currentTime) + '</span><span>' + fmt(m.duration) + '</span></div>' : '') +
+        '</div>';
+      if (m.isVideo) {
+        html += '<div class="navrow">' +
+          (m.isPlaying
+            ? '<button class="big next" data-cmd="media.pause">' + I.pause + 'Pausar</button>'
+            : '<button class="big next" data-cmd="media.play">' + I.play + 'Reproduzir</button>') +
+          '<button class="big" data-cmd="media.restart">' + I.restart + 'Reiniciar</button></div>' +
+          '<div class="actions" style="margin-bottom:12px">' +
+          (m.isMuted
+            ? '<button class="btn" data-cmd="media.unmute">' + I.volume + 'Ativar som</button>'
+            : '<button class="btn" data-cmd="media.mute">' + I.mute + 'Silenciar</button>') +
+          '</div>';
+      }
+    } else if (kind === "pdf") {
+      const p = state.pdf || {};
+      const live = state.mode === "Pdf";
+      const thumbsOk = pdfThumbs.key === p.key && pdfThumbs.pages.length > 0;
+      const cur = thumbsOk ? pdfThumbs.pages[p.page - 1] : "";
+      html += '<div class="card"><div class="eyebrow">PDF</div>' +
+        '<div class="title" style="word-break:break-word">' + esc(p.fileName || "Documento") + '</div>' +
+        '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        (live ? '<span class="badge live">● No ar</span>' : '<span class="badge">Prévia — não projetando</span>') +
+        (p.isLoading ? '<span class="badge">Carregando páginas…</span>' : '<span class="badge">Página ' + p.page + ' de ' + p.total + '</span>') +
+        '</div>' +
+        (cur ? '<img class="pdf-current" alt="Página ' + p.page + '" src="' + cur + '">' : '') +
+        '</div>';
+      html += '<div class="navrow"><button class="big" data-cmd="pdf.prev"' + (p.page <= 1 ? ' disabled style="opacity:.5"' : '') + '>' + I.prev + 'Anterior</button>' +
+        '<button class="big next" data-cmd="pdf.next"' + (p.page >= p.total ? ' disabled style="opacity:.5"' : '') + '>Próxima' + I.next + '</button></div>';
+      html += '<div class="actions" style="margin-bottom:12px">' +
+        (live ? '<button class="btn danger" data-cmd="pdf.stop">' + I.stop + 'Parar PDF</button>'
+              : '<button class="btn primary" data-cmd="pdf.start"' + (p.total ? '' : ' disabled style="opacity:.5"') + '>' + I.play + 'Projetar</button>') + '</div>';
+      if (p.total) {
+        html += '<div class="section-title">Páginas</div><div class="pdf-grid">';
+        for (let i = 1; i <= p.total; i++) {
+          const t = thumbsOk ? pdfThumbs.pages[i - 1] : "";
+          html += t
+            ? '<button class="pdf-thumb' + (i === p.page ? ' current' : '') + '" data-cmd="pdf.goto" data-page="' + i + '" aria-label="Página ' + i + '">' +
+              '<img loading="lazy" alt="" src="' + t + '"><span class="num">' + i + '</span></button>'
+            : '<button class="pdf-thumb placeholder' + (i === p.page ? ' current' : '') + '" data-cmd="pdf.goto" data-page="' + i + '">' + i + '</button>';
+        }
+        html += '</div>';
+      }
+    } else if (kind === "bible") {
+      const b = state.bible || { slides: [] };
+      const cur = b.slides[b.index] || {};
+      html += '<div class="card"><div class="card-head"><div class="eyebrow">Bíblia' +
+        (returnMode && cur.reference ? ' · ' + esc(cur.reference) : '') + '</div>' + retToggle() + '</div>' +
+        (returnMode
+          ? retHtml(b.currentText, b.nextText)
+          : '<div class="title">' + esc(cur.reference || "—") + '</div>') +
+        '<div style="margin-top:8px">' + (b.active ? '<span class="badge live">● No ar</span>' : '<span class="badge">Pronto para projetar</span>') + '</div></div>';
+      html += '<div class="navrow"><button class="big" data-cmd="bible.prev">' + I.prev + 'Anterior</button>' +
+        '<button class="big next" data-cmd="bible.next">Próximo' + I.next + '</button></div>';
+      html += '<div class="actions" style="margin-bottom:12px">' +
+        (b.active ? '<button class="btn danger" data-cmd="bible.stop">' + I.stop + 'Parar Bíblia</button>'
+                  : '<button class="btn primary" data-cmd="bible.start">' + I.play + 'Projetar</button>') + '</div>';
+      html += '<div class="section-title">Versículos</div><div class="list">' +
+        b.slides.map((s, i) =>
+          '<button class="row' + (i === b.index ? ' current' : '') + '" data-cmd="bible.goto" data-index="' + i + '">' +
+          '<span class="idx">' + (i + 1) + '</span><span class="main"><div class="label">' + esc(s.reference) + '</div>' +
+          '<div class="sub">' + esc(s.preview) + '</div></span></button>').join("") + '</div>';
+    } else {
+      const s = state.song || { slides: [] };
+      const live = state.mode === "Slides";
+      if (!s.title) {
+        html += '<div class="card"><div class="eyebrow">Música</div><div class="title">Nenhuma música carregada</div>' +
+          '<div class="sub" style="color:var(--muted);margin-top:6px">Escolha uma música em <strong>Músicas</strong> ou um item da <strong>Programação</strong>.</div></div>';
+      } else {
+        const curSlide = s.slides[s.index] || {};
+        html += '<div class="card"><div class="card-head"><div class="eyebrow">' +
+          (returnMode ? esc(s.title) + (curSlide.label ? ' · ' + esc(curSlide.label) : '') : 'Música') + '</div>' +
+          retToggle() + '</div>' +
+          (returnMode
+            ? retHtml(s.currentText, s.nextText)
+            : '<div class="title">' + esc(s.title) + '</div>') +
+          '<div style="margin-top:8px">' + (live ? '<span class="badge live">● No ar</span>' : '<span class="badge">Prévia — não projetando</span>') + '</div></div>';
+        html += '<div class="navrow"><button class="big" data-cmd="slide.prev">' + I.prev + 'Anterior</button>' +
+          '<button class="big next" data-cmd="slide.next">Próximo' + I.next + '</button></div>';
+        html += '<div class="actions" style="margin-bottom:12px">' +
+          (live ? '<button class="btn danger" data-cmd="slide.stop">' + I.stop + 'Parar música</button>'
+                : '<button class="btn primary" data-cmd="slide.start">' + I.play + 'Projetar</button>') + '</div>';
+        html += '<div class="section-title">Slides</div><div class="list">' +
+          s.slides.map((sl, i) =>
+            '<button class="row' + (i === s.index ? ' current' : '') + '" data-cmd="slide.goto" data-index="' + i + '">' +
+            '<span class="idx">' + (i + 1) + '</span><span class="main"><div class="label">' + esc(sl.label || ("Slide " + (i + 1))) + '</div>' +
+            '<div class="sub">' + esc(sl.preview) + '</div></span></button>').join("") + '</div>';
+      }
+    }
+
+    // Controles gerais da tela
+    html += '<div class="section-title">Tela de projeção</div><div class="actions">' +
+      '<button class="btn" data-cmd="projection.clear" ' + (projecting ? '' : 'disabled style="opacity:.5"') + '>' + I.clear + 'Limpar tela</button>' +
+      '<button class="btn" data-cmd="projection.toggleWindow" ' + (projecting ? '' : 'disabled style="opacity:.5"') + '>' + I.eye +
+      (state.windowHidden ? 'Mostrar janela' : 'Ocultar janela') + '</button></div>';
+
+    html += '<div class="actions" style="margin-top:10px">' +
+      '<button class="btn" data-nav="pickPdf">' + I.upload + 'Enviar PDF do celular</button></div>';
+
+    html += dimHtml();
+    return html;
+  }
+
+  // ─── Filtro Escurecedor de Fundo ───────────────────────────────────────
+  function currentDim() {
+    if (dimLocal != null) return dimLocal;
+    const v = state && state.settings ? Number(state.settings.bgOpacity) : 0;
+    return Number.isFinite(v) ? v : 0;
+  }
+
+  function dimHtml() {
+    const v = currentDim();
+    const presets = [0, 30, 50, 70, 90];
+    return '<div class="section-title">Filtro escurecedor de fundo</div>' +
+      '<div class="card"><div class="dim-head"><div class="sub" style="color:var(--muted);font-size:13px">' +
+      'Escurece imagens e vídeos de fundo para destacar o texto.</div>' +
+      '<span class="dim-value" id="dimValue">' + v + '%</span></div>' +
+      '<div class="dim-row">' + I.sun +
+      '<input type="range" id="dimRange" min="0" max="100" step="5" value="' + v + '" style="--fill:' + v + '%" aria-label="Filtro escurecedor de fundo">' +
+      I.moon + '</div>' +
+      '<div class="chips">' + presets.map((p) =>
+        '<button class="chip' + (p === v ? ' on' : '') + '" data-nav="dim" data-value="' + p + '">' + (p === 0 ? 'Sem' : p + '%') + '</button>'
+      ).join("") + '</div></div>';
+  }
+
+  /** Atualiza o valor local e manda ao computador (com folga enquanto arrasta). */
+  function setDim(value, immediate) {
+    value = Math.max(0, Math.min(100, Math.round(value / 5) * 5));
+    dimLocal = value;
+    clearTimeout(dimSendTimer);
+    if (immediate) send("settings.bgOpacity", { value: value, silent: true });
+    else dimSendTimer = setTimeout(() => send("settings.bgOpacity", { value: value, silent: true }), 120);
+  }
+
+  $("main").addEventListener("input", (e) => {
+    if (e.target.id !== "dimRange") return;
+    dimDragging = true;
+    // Segurança: se o "change" não vier (gesto cancelado), volta a atualizar.
+    clearTimeout(window.__dimIdle);
+    window.__dimIdle = setTimeout(() => { if (dimDragging) { dimDragging = false; render(); } }, 2000);
+    const v = Number(e.target.value);
+    e.target.style.setProperty("--fill", v + "%");
+    const label = $("dimValue");
+    if (label) label.textContent = v + "%";
+    document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", Number(c.dataset.value) === v));
+    setDim(v, false);
+  });
+  $("main").addEventListener("change", (e) => {
+    if (e.target.id !== "dimRange") return;
+    dimDragging = false;
+    setDim(Number(e.target.value), true);
+    haptic();
+  });
+
+  // ─── Enviar PDF do celular ─────────────────────────────────────────────
+  $("pdfFile").addEventListener("change", (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (file) uploadPdf(file);
+  });
+
+  function uploadPdf(file) {
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+    if (!isPdf) { toast("Escolha um arquivo PDF"); return; }
+    if (file.size > MAX_PDF_MB * 1024 * 1024) { toast("PDF muito grande (máx. " + MAX_PDF_MB + " MB)"); return; }
+    if (!token) { toast("Sem pareamento com o computador"); return; }
+
+    uploading = true;
+    $("upload").classList.remove("hidden");
+    $("uploadName").textContent = file.name || "PDF";
+    $("uploadText").textContent = "Enviando para o computador…";
+    $("uploadBar").style.width = "0%";
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload-pdf?token=" + encodeURIComponent(token) + "&name=" + encodeURIComponent(file.name || "PDF do celular.pdf"));
+    xhr.setRequestHeader("Content-Type", "application/pdf");
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      const pct = Math.round((ev.loaded / ev.total) * 100);
+      $("uploadBar").style.width = pct + "%";
+      $("uploadText").textContent = "Enviando… " + pct + "%";
+    };
+    const finish = (msg) => {
+      uploading = false;
+      setTimeout(() => $("upload").classList.add("hidden"), msg ? 0 : 900);
+      if (msg) toast(msg);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        $("uploadBar").style.width = "100%";
+        $("uploadText").textContent = "Enviado. Abrindo no computador…";
+        finish(null);
+        goTab("live");
+      } else {
+        let msg = "Não foi possível enviar o PDF";
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch (err) {}
+        finish(msg);
+      }
+    };
+    xhr.onerror = () => finish("Falha na conexão ao enviar o PDF");
+    xhr.send(file);
+  }
+
+  // Botão do modo retorno e o bloco de texto que substitui o título.
+  function retToggle() {
+    return '<button class="toggle-ret' + (returnMode ? ' on' : '') + '" data-nav="returnMode" aria-pressed="' + returnMode + '">' +
+      I.ret + 'Retorno</button>';
+  }
+  function retHtml(current, next) {
+    return (current ? '<div class="ret-text">' + esc(current) + '</div>' : '<div class="ret-text ret-empty">Slide sem texto</div>') +
+      (next ? '<div class="ret-next"><div class="eyebrow">Próximo</div>' + esc(next) + '</div>' : '');
+  }
+
+  function typeIcon(t) { return t === "bible" ? I.bible : t === "media" ? I.media : I.song; }
+
+  function renderPrograms() {
+    const p = state.program || { list: [] };
+    if (!p.list.length) return '<div class="empty">Nenhuma programação futura.<br>Crie uma em <strong>Programação</strong> no computador.</div>';
+
+    const open = p.list.find((x) => x._id === openProgramId);
+    if (!open) {
+      return '<div class="section-title">Programações</div><div class="list">' +
+        p.list.map((x) => {
+          const d = new Date(x.date);
+          const when = isNaN(d) ? "" : d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "short" }) +
+            " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          return '<button class="row' + (x._id === p.currentId ? ' current' : '') + '" data-nav="program" data-id="' + esc(x._id) + '">' +
+            '<span class="main"><div class="label">' + esc(x.name) + '</div><div class="sub">' + esc(when) + ' · ' + x.items.length + ' itens</div></span>' +
+            '<span class="chev">' + I.chev + '</span></button>';
+        }).join("") + '</div>';
+    }
+
+    return '<button class="back" data-nav="programs">' + I.back + 'Programações</button>' +
+      '<div class="card"><div class="eyebrow">Programação</div><div class="title">' + esc(open.name) + '</div></div>' +
+      (open.items.length ? '<div class="list">' + open.items.map((it, i) =>
+        '<div class="row"><span class="icon">' + typeIcon(it.type) + '</span>' +
+        '<span class="main"><div class="label">' + (i + 1) + '. ' + esc(it.title) + '</div>' +
+        '<div class="sub">' + esc([it.subtitle, it.tone ? "Tom " + it.tone : ""].filter(Boolean).join(" · ")) + '</div></span>' +
+        '<button class="iconbtn" aria-label="Projetar" data-cmd="program.present" data-project="1" data-program-id="' + esc(open._id) +
+        '" data-item-id="' + esc(it.id) + '" data-toast="Projetando…">' + I.play + '</button></div>').join("") + '</div>'
+        : '<div class="empty">Programação sem itens.</div>');
+  }
+
+  function songRows() {
+    if (!openGroup) return "";
+    const list = songsByGroup[openGroup.id];
+    if (!list) return '<div class="empty">Carregando…</div>';
+    const q = songFilter.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+    const filtered = q ? list.filter((s) => (s.fullName || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().includes(q)) : list;
+    if (!filtered.length) return '<div class="empty">Nenhuma música encontrada.</div>';
+    const current = state.song && state.song.title;
+    return filtered.map((s) =>
+      '<div class="row' + (s.fullName === current ? ' current' : '') + '">' +
+      '<button class="main" style="text-align:left" data-cmd="song.select" data-project="0" data-group-id="' + esc(openGroup.id) +
+      '" data-song-id="' + esc(s.id) + '" data-toast="Música carregada">' +
+      '<div class="label">' + esc(s.fullName) + '</div><div class="sub">' + (s.tone ? "Tom " + esc(s.tone) : "Toque para carregar") + '</div></button>' +
+      '<button class="iconbtn" aria-label="Projetar" data-cmd="song.select" data-project="1" data-group-id="' + esc(openGroup.id) +
+      '" data-song-id="' + esc(s.id) + '" data-toast="Projetando…">' + I.play + '</button></div>').join("");
+  }
+
+  // Pesquisa rápida: mesma busca do desktop (por nome ou trecho da letra).
+  function runSearch(immediate) {
+    clearTimeout(searchTimer);
+    const q = searchQuery.trim();
+    const box = $("searchBox");
+    if (!q) {
+      searchResults = null;
+      if (box) box.innerHTML = songsBodyHtml();   // volta para a lista de grupos
+      return;
+    }
+    // Só a área de resultados muda: o campo de busca mantém o foco.
+    if (box && (!searchResults || searchResults.mode !== searchMode)) box.innerHTML = '<div class="empty">Buscando…</div>';
+    searchTimer = setTimeout(() => send("songs.search", { query: q, mode: searchMode, silent: true }),
+      immediate ? 0 : (searchMode === "lyric" ? 300 : 150));
+  }
+
+  function searchResultsHtml() {
+    const r = searchResults;
+    if (!r) return '<div class="empty">Buscando…</div>';
+    if (!r.groups.length) return '<div class="empty">Nenhuma música encontrada.</div>';
+    const current = state && state.song && state.song.title;
+    const shown = r.groups.reduce((a, g) => a + g.songs.length, 0);
+    let html = '<div class="count">' + r.total + ' música' + (r.total === 1 ? '' : 's') +
+      (shown < r.total ? ' · mostrando ' + shown : '') + '</div>';
+    r.groups.forEach((g) => {
+      html += '<div class="group-head">' + I.song.replace('<svg ', '<svg width="14" height="14" ') + esc(g.label) + (g.isLocal ? ' · local' : '') + '</div><div class="list">';
+      g.songs.forEach((s) => {
+        const sub = s.snippet
+          ? '<div class="snippet">' + esc(s.snippet.before) + '<b>' + esc(s.snippet.match) + '</b>' + esc(s.snippet.after) + '</div>'
+          : '<div class="sub">' + (s.tone ? "Tom " + esc(s.tone) : "Toque para carregar") + '</div>';
+        html += '<div class="row' + (s.fullName === current ? ' current' : '') + '">' +
+          '<button class="main" style="text-align:left" data-cmd="song.select" data-project="0" data-group-id="' + esc(g.id) +
+          '" data-song-id="' + esc(s.id) + '" data-toast="Música carregada"><div class="label">' + esc(s.fullName) + '</div>' + sub + '</button>' +
+          '<button class="iconbtn" aria-label="Projetar" data-cmd="song.select" data-project="1" data-group-id="' + esc(g.id) +
+          '" data-song-id="' + esc(s.id) + '" data-toast="Projetando…">' + I.play + '</button></div>';
+      });
+      html += '</div>';
+    });
+    return html;
+  }
+
+  function renderSongs() {
+    if (!openGroup) {
+      let html = '<input type="search" id="songSearch" placeholder="Pesquisar música" autocomplete="off" enterkeyhint="search">' +
+        '<div class="seg">' +
+        '<button data-nav="searchMode" data-mode="name" class="' + (searchMode === "name" ? "on" : "") + '">Nome</button>' +
+        '<button data-nav="searchMode" data-mode="lyric" class="' + (searchMode === "lyric" ? "on" : "") + '">Letra</button></div>';
+      return html + '<div id="searchBox">' + songsBodyHtml() + '</div>';
+    }
+    return '<button class="back" data-nav="groups">' + I.back + 'Grupos</button>' +
+      '<div class="title" style="margin-bottom:10px">' + esc(openGroup.label) + '</div>' +
+      '<input type="search" id="songFilter" placeholder="Buscar música" autocomplete="off">' +
+      '<div class="list" id="songList">' + songRows() + '</div>';
+  }
+
+  // Resultado da busca (com texto digitado) ou lista de grupos.
+  function songsBodyHtml() {
+    if (searchQuery.trim()) return searchResultsHtml();
+    if (!groups) return '<div class="empty">Carregando grupos…</div>';
+    if (!groups.length) return '<div class="empty">Nenhum grupo de músicas.</div>';
+    {
+      return '<div class="section-title">Grupos de músicas</div><div class="list">' +
+        groups.map((g) =>
+          '<button class="row" data-nav="group" data-id="' + esc(g.id) + '" data-label="' + esc(g.label) + '">' +
+          '<span class="icon">' + I.song + '</span><span class="main"><div class="label">' + esc(g.label) + '</div>' +
+          '<div class="sub">' + g.count + ' músicas' + (g.isLocal ? ' · local' : '') + '</div></span><span class="chev">' + I.chev + '</span></button>'
+        ).join("") + '</div>';
+    }
+  }
+
+  // ─── Início ─────────────────────────────────────────────────────────────
+  (function start() {
+    const params = new URLSearchParams(location.search);
+    const fromQr = params.get("k");
+    if (fromQr) {
+      setToken(fromQr);
+      // Tira o token da barra de endereço (não fica em histórico/compartilhamento).
+      history.replaceState(null, "", location.pathname);
+    } else {
+      token = getToken();
+    }
+    if (!token) return showPair();
+    showApp();
+    connect();
+  })();
+
+  // Reconecta ao voltar para a aba (celulares suspendem o WebSocket).
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && token && (!ws || ws.readyState > 1)) connect();
+  });
+})();
+</script>
+</body>
+</html>

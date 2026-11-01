@@ -11,6 +11,7 @@ mod state;
 mod stream;
 mod timer;
 mod transmission;
+mod remote;
 mod youtube;
 mod bible;
 mod google_auth;
@@ -99,6 +100,10 @@ pub fn run() {
         .manage(Arc::new(Mutex::new(
             None::<crate::transmission::transmission::ServerHandle>,
         )))
+        // Controle remoto pelo celular (rede local)
+        .manage(Arc::new(Mutex::new(
+            None::<crate::remote::remote::RemoteServerHandle>,
+        )))
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -145,6 +150,12 @@ pub fn run() {
             crate::transmission::transmission::stop_broadcast_server,
             crate::transmission::transmission::update_broadcast_config,
             crate::transmission::transmission::get_broadcast_info,
+            crate::remote::remote::start_remote_server,
+            crate::remote::remote::stop_remote_server,
+            crate::remote::remote::get_remote_info,
+            crate::remote::remote::regenerate_remote_pairing,
+            crate::remote::remote::publish_remote_message,
+            crate::remote::remote::take_remote_pdf,
             crate::bible::bible::scrape_bible_passage,
             crate::google_auth::google_auth::google_login,
             crate::stock::stock::download_stock_background,

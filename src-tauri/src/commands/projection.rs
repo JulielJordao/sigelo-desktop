@@ -1,12 +1,34 @@
 use crate::projection::renderer::render_html;
 use tauri::{AppHandle, Manager, Position}; // Mantemos o import para usar a função mais abaixo
 
+/// O Sigelo (janela principal) está em primeiro plano agora?
+/// Só devolvemos o foco a ele quando ele já o tinha: se o operador está em
+/// outro programa (ex.: usando o controle remoto pelo celular), o Sigelo não
+/// deve pular para a frente a cada slide.
+fn main_has_focus(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false)
+}
+
+fn restore_main_focus(app: &AppHandle, had_focus: bool) {
+    if !had_focus {
+        return;
+    }
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
+}
+
 #[tauri::command]
 pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<String>) {
     // 1. Atualiza o conteúdo HTML
     render_html(&app, html);
 
-    // 2. Manipulação da janela
+    let main_had_focus = main_has_focus(&app);
+
+    // 2. Manipulação da janela — só quando algo precisa mudar. Antes isto
+    //    rodava a cada slide (fullscreen + set_focus), roubando o foco.
     if let Some(window) = app.get_webview_window("projection") {
         let is_visible = window.is_visible().unwrap_or(false);
 
@@ -17,9 +39,7 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
             let _ = window.set_fullscreen(true);
 
             // Devolve o foco ao principal ao abrir pela primeira vez
-            if let Some(main_window) = app.get_webview_window("main") {
-                let _ = main_window.set_focus();
-            }
+            restore_main_focus(&app, main_had_focus);
         }
 
         // B. Lógica dinâmica de Monitor (Funciona mesmo com ela já aberta)
@@ -61,20 +81,23 @@ pub fn update_projection(app: AppHandle, html: String, target_monitor: Option<St
             }
 
             // --- LÓGICA CONDICIONAL DE FULLSCREEN ---
+            // Só reaplica se mudou de monitor ou se o estado da janela não é o
+            // esperado (ex.: o usuário saiu do fullscreen) — não a cada slide.
+            let is_fullscreen = window.is_fullscreen().unwrap_or(false);
             if is_same_as_main {
                 // Se for a mesma tela do controle, apenas maximiza (Modo Janela Segura)
                 // Isso evita o "sequestro" e permite usar Alt+Tab ou a barra de tarefas facilmente
-                let _ = window.set_fullscreen(false);
-                let _ = window.maximize();
-            } else {
+                let is_maximized = window.is_maximized().unwrap_or(false);
+                if needs_move || is_fullscreen || !is_maximized {
+                    let _ = window.set_fullscreen(false);
+                    let _ = window.maximize();
+                }
+            } else if needs_move || !is_fullscreen {
                 // Se for uma tela separada, força o Fullscreen verdadeiro
                 let _ = window.set_fullscreen(true);
 
-                // Só tentamos roubar o foco de volta se a projeção estiver em OUTRA tela.
-                // Tentar roubar o foco de uma janela fullscreen na MESMA tela do Windows não funciona.
-                if let Some(main_window) = app.get_webview_window("main") {
-                    let _ = main_window.set_focus();
-                }
+                // Só devolve o foco se o Sigelo já estava em primeiro plano.
+                restore_main_focus(&app, main_had_focus);
             }
         }
     }
@@ -98,6 +121,7 @@ pub fn toggle_projection_visibility(app: AppHandle, window_label: Option<String>
 
     let is_visible = window.is_visible().unwrap_or(false);
     let is_minimized = window.is_minimized().unwrap_or(false);
+    let main_had_focus = main_has_focus(&app);
 
     if is_visible && !is_minimized {
         #[cfg(target_os = "macos")]
@@ -115,9 +139,7 @@ pub fn toggle_projection_visibility(app: AppHandle, window_label: Option<String>
         let _ = window.show();
         let _ = window.set_fullscreen(true);
 
-        if let Some(main_window) = app.get_webview_window("main") {
-            let _ = main_window.set_focus();
-        }
+        restore_main_focus(&app, main_had_focus);
         true
     }
 }
@@ -129,6 +151,8 @@ pub fn prepare_projection_window(
     window_label: Option<String>, // ← ADICIONADO
 ) {
     let label = window_label.unwrap_or_else(|| "projection".to_string());
+
+    let main_had_focus = main_has_focus(&app);
 
     if let Some(window) = app.get_webview_window(&label) {
         let is_visible = window.is_visible().unwrap_or(false);
@@ -152,10 +176,8 @@ pub fn prepare_projection_window(
 
             let _ = window.set_fullscreen(true);
 
-            // Devolve o foco para o editor principal imediatamente
-            if let Some(main_window) = app.get_webview_window("main") {
-                let _ = main_window.set_focus();
-            }
+            // Devolve o foco para o editor principal (se ele estava em primeiro plano)
+            restore_main_focus(&app, main_had_focus);
         }
     }
 }

@@ -5,6 +5,12 @@ import { getLinkImageByName } from '../utils/convertData'
 import type { Store } from '@tauri-apps/plugin-store';
 import { load } from '@tauri-apps/plugin-store';
 import { useConnectionStore } from './statusConnectionStore';
+import { ask } from '@tauri-apps/plugin-dialog';
+import router from '../router';
+import { useMenuStore } from './menuStore';
+
+/** Acesso sem conta: fica salvo para abrir direto no próximo início. */
+const GUEST_KEY = 'sigelo.guestMode';
 
 interface UserProfile {
     _id: string;
@@ -33,6 +39,10 @@ export const useUserStore = defineStore('user', () => {
     const isAdmin = ref(false)
     const permissions = ref({})
 
+    // Acesso sem conta: músicas locais, Bíblia, mídias, PDF e programações
+    // locais funcionam; o que depende da conta (nuvem, eventos, YouTube…) não.
+    const isGuest = ref(localStorage.getItem(GUEST_KEY) === '1')
+
     let tauriStore: Store | null = null;
 
     const init = async () => {
@@ -46,6 +56,12 @@ export const useUserStore = defineStore('user', () => {
             // 1. Inicializa o banco de dados local
             tauriStore = await load('user.json', { autoSave: false, defaults: { user_profile: null } });
             
+            // Sem conta: nada de perfil em cache nem sincronização com a API.
+            if (isGuest.value) {
+                isLoaded.value = true;
+                return;
+            }
+
             // 2. CARREGAMENTO OFFLINE-FIRST (Prioridade Máxima)
             const cachedUser = await tauriStore.get<UserProfile>('user_profile');
             
@@ -130,9 +146,53 @@ export const useUserStore = defineStore('user', () => {
         isAdmin.value = false
         settings.value = {}
         
+        // Apaga o perfil salvo em disco (antes ficava gravado após o logout).
         if (tauriStore) {
-            await saveUser()
+            await tauriStore.set('user_profile', null);
+            await tauriStore.save();
         }
+    }
+
+    /** Entra no acesso sem conta (botão "Acesso sem conta" do login). */
+    const enterGuestMode = async () => {
+        localStorage.removeItem("userToken");
+        if (!tauriStore) {
+            try { tauriStore = await load('user.json', { autoSave: false, defaults: { user_profile: null } }); } catch { /* ignora */ }
+        }
+        await clearUser();
+        isGuest.value = true;
+        localStorage.setItem(GUEST_KEY, '1');
+        isLoaded.value = true;
+    }
+
+    /** Sai do acesso sem conta (ao entrar com uma conta). */
+    const exitGuestMode = () => {
+        if (!isGuest.value) return;
+        isGuest.value = false;
+        localStorage.removeItem(GUEST_KEY);
+        isLoaded.value = false;
+    }
+
+    /** Volta para a tela de login (sai do acesso sem conta). */
+    const goToLogin = async () => {
+        exitGuestMode();
+        useMenuStore().toggleMenu('Login');
+        await router.push('/');
+    }
+
+    /**
+     * Bloqueia funções que precisam de conta. Devolve true se pode seguir.
+     * No acesso sem conta, avisa e oferece entrar com uma conta.
+     */
+    const requireAccount = async (feature: string): Promise<boolean> => {
+        if (!isGuest.value) return true;
+        const goLogin = await ask(
+            `${feature} precisa de uma conta Sigelo.\n\n` +
+            'No acesso sem conta você pode usar músicas locais, Bíblia, mídias, PDF e programações.',
+            { title: 'Disponível com conta', kind: 'info', okLabel: 'Entrar com conta', cancelLabel: 'Agora não' }
+        );
+        if (goLogin) await goToLogin();
+        return false;
     }
 
     const logout = async () => {
@@ -151,6 +211,7 @@ export const useUserStore = defineStore('user', () => {
     }
 
     const loadSettings = async () => {
+        if (isGuest.value) return;
         try {
             const response = await settingsRoute.get();
             settings.value = response.response;
@@ -165,8 +226,13 @@ export const useUserStore = defineStore('user', () => {
         isLoaded,     // Exponha o isLoaded para a tela de Splash
         profileImage, // Sempre bom expor o que vai ser usado na UI
         fullName,
+        isGuest,
         syncUserWithApi,
         init,
-        logout
+        logout,
+        enterGuestMode,
+        exitGuestMode,
+        goToLogin,
+        requireAccount
     }
 })

@@ -4,6 +4,7 @@ import routes from '../routes/index';
 import type { Event } from '../types/event';
 import type { Song } from '../types/song';
 import type { SongFile } from '../types/songFile';
+import { useUserStore } from './userStore';
 
 export const useEventStore = defineStore('event', () => {
     const isLoading = ref(false);
@@ -17,6 +18,12 @@ export const useEventStore = defineStore('event', () => {
     const events = ref<Event[]>([]);
 
     const loadEvents = async () => {
+        // Acesso sem conta: eventos são da conta — não busca na internet.
+        if (useUserStore().isGuest) {
+            events.value = [];
+            isLoaded.value = true;
+            return;
+        }
         const isLoading = ref(true)
         try {
             const response = await eventRoute.list();
@@ -33,6 +40,10 @@ export const useEventStore = defineStore('event', () => {
     };
 
     const getSongsForEvent = async (event: Event) => {
+        if (useUserStore().isGuest) {
+            songsByEvent.value = [];
+            return;
+        }
         try {
             console.log(event.songs)
             const response = await songsRoute.getByListId(event.songs || [])

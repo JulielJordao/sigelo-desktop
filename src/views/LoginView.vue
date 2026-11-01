@@ -2,7 +2,7 @@
 import iconTheme from '../assets/icon_theme.svg'
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { message } from "@tauri-apps/plugin-dialog"
+import { ask, message } from "@tauri-apps/plugin-dialog"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { invoke } from "@tauri-apps/api/core"
 import routes from "../routes/index"
@@ -41,6 +41,12 @@ const checkAuthStatus = async () => {
   try {
     await userStore.init();
 
+    // Acesso sem conta escolhido antes: entra direto.
+    if (userStore.isGuest) {
+      redirect();
+      return;
+    }
+
     const token = localStorage.getItem("userToken")
     const isValid = userStore.userId && userStore.userId !== "" && !!token
 
@@ -65,6 +71,7 @@ const login = async () => {
   const response = await userRoute.login(email.value, password.value)
 
   if (response.success) {
+    userStore.exitGuestMode()
     await userStore.syncUserWithApi()
 
     redirect()
@@ -83,6 +90,7 @@ const loginWithGoogle = async () => {
   try {
     const token = await invoke<string>("google_login", { backendBase: routes.defaultUrl });
     localStorage.setItem("userToken", token);
+    userStore.exitGuestMode();
     await userStore.syncUserWithApi();
     redirect();
   } catch (error: any) {
@@ -105,8 +113,18 @@ const openRegister = async () => {
   }
 }
 
+// Acesso sem conta: projeção, músicas locais, Bíblia, mídias e PDF funcionam.
+// O que depende da conta (músicas da nuvem, eventos, YouTube) fica de fora.
 const goWithoutAccount = async () => {
-  await message('Não implementado! Acesse as funções via login!', { title: 'Aviso', kind: 'warning' });
+  const confirmed = await ask(
+    'Sem conta você pode projetar músicas locais, Bíblia, mídias, PDF e montar programações.\n\n' +
+    'Ficam indisponíveis: músicas e eventos da sua conta (nuvem), importar do YouTube e a galeria de fundos online.\n\n' +
+    'Você pode entrar com uma conta a qualquer momento pelo menu lateral.',
+    { title: 'Acesso sem conta', kind: 'info', okLabel: 'Continuar sem conta', cancelLabel: 'Voltar' }
+  );
+  if (!confirmed) return;
+  await userStore.enterGuestMode();
+  redirect();
 }
 
 onMounted(() => {})

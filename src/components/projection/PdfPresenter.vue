@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue';
+import { ref, computed, nextTick, watch, onUnmounted } from 'vue';
+import { useRemoteControlStore } from '../../stores/remoteControlStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
@@ -67,6 +68,20 @@ const openPdfFile = async () => {
     fileName.value = selectedPath.split(/[\\/]/).pop() || 'Arquivo.pdf';
 
     const fileData = await readFile(selectedPath);
+    await renderPdf(fileData);
+  } catch (error) {
+    console.error("Erro ao ler o PDF:", error);
+    alert("Falha ao abrir o PDF.");
+    menuStore.toggleMenu(menuStore.oldMenuOpened);
+    isOpen.value = false;
+  } finally {
+
+    isLoading.value = false;
+  }
+};
+
+/** Converte as páginas do PDF em imagens (miniaturas e projeção). */
+const renderPdf = async (fileData: Uint8Array) => {
     const loadingTask = pdfjsLib.getDocument({ data: fileData });
     const pdf = await loadingTask.promise;
 
@@ -102,13 +117,34 @@ const openPdfFile = async () => {
     currentPage.value = 1;
     displayMode.value = 'normal';
     zoomLevel.value = 100;
+};
+
+/**
+ * PDF enviado pelo celular (controle remoto): abre aqui e, se pedido,
+ * já projeta a primeira página. Devolve false se o arquivo não abrir.
+ */
+const openPdfData = async (fileData: Uint8Array, name: string, project = true): Promise<boolean> => {
+  try {
+    isLoading.value = true;
+    if (!isOpen.value) {
+      menuStore.toggleMenu('PdfPresenter');
+      isOpen.value = true;
+    }
+    pages.value = [];
+    fileName.value = name || 'PDF do celular.pdf';
+    await renderPdf(fileData);
+    isLoading.value = false;
+    if (project && pages.value.length) {
+      await nextTick();
+      await projectCurrentPage();
+    }
+    return true;
   } catch (error) {
-    console.error("Erro ao ler o PDF:", error);
-    alert("Falha ao abrir o PDF.");
+    console.error("Erro ao abrir o PDF do celular:", error);
     menuStore.toggleMenu(menuStore.oldMenuOpened);
     isOpen.value = false;
+    return false;
   } finally {
-
     isLoading.value = false;
   }
 };
@@ -210,6 +246,42 @@ watch(currentPage, () => {
 watch([displayMode, zoomLevel], () => {
   if (isProjecting.value) projectCurrentPage();
 });
+
+// ── Controle remoto (celular): passar as páginas e ver as miniaturas ──
+const remoteStore = useRemoteControlStore();
+
+watch(
+  () => [isOpen.value, isLoading.value, fileName.value, currentPage.value, pages.value.length] as const,
+  () => {
+    remoteStore.setPdfState({
+      isOpen: isOpen.value,
+      isLoading: isLoading.value,
+      fileName: fileName.value,
+      page: currentPage.value,
+      total: pages.value.length,
+      pages: pages.value.map((p) => p.dataUrl),
+    });
+  },
+  { immediate: true }
+);
+
+remoteStore.registerPdfController({
+  next: () => { if (currentPage.value < pages.value.length) currentPage.value++; },
+  prev: () => { if (currentPage.value > 1) currentPage.value--; },
+  goto: (page: number) => {
+    if (page < 1 || page > pages.value.length) return;
+    if (page === currentPage.value) {
+      if (isProjecting.value) projectCurrentPage();
+    } else {
+      currentPage.value = page; // o watch de currentPage projeta se estiver no ar
+    }
+  },
+  start: () => { if (isOpen.value && pages.value.length) projectCurrentPage(); },
+  stop: () => { stopProjection(); },
+  openData: (data: Uint8Array, name: string, project: boolean) => openPdfData(data, name, project),
+});
+
+onUnmounted(() => remoteStore.registerPdfController(null));
 
 watch(isOpen, () => {
   menuStore.setShiftShortcutLocked(isOpen.value)

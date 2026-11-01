@@ -31,7 +31,12 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - Cadastro de músicas locais
 
 ---
-## [0.9.30] - 2026-07-24
+
+## [0.9.34] - 2026-11-01
+- Adição da função de controle remoto com seleção de música, controle de apresentação e envio de pdf para apresentação.
+- Adicionado o acesso ao programa sem conta.
+
+## [0.9.30] - 2026-10-28
 - Adição do login via google e botão de cadastro.
 - Ajustado exibição da tela de instruções em notebooks ou telas pequenas.
 - Adicionado a função de selecionar quais arquivos deletar na página de configuração de armazenamento.

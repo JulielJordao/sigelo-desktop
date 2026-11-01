@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useProgramStore, type ProgramItem } from '../../stores/programStore';
 import { useEventStore } from '../../stores/eventStore';
+import { useUserStore } from '../../stores/userStore';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { usePresentationStore } from '../../stores/usePresentationStore'; // presets/temas
 import type { BibleRef } from '../../types/bibleRef';
@@ -111,7 +112,9 @@ const saveProgram = () => {
 };
 
 // ===== importar de evento =====
+const userStore = useUserStore();
 const openImportDialog = async () => {
+    if (!(await userStore.requireAccount('Importar de um evento'))) return;
     if (!eventStore.events || eventStore.events.length === 0) await eventStore.loadEvents();
     importShowPast.value = false;
     showImportDialog.value = true;

@@ -75,6 +75,7 @@ export const useStatusPresentationStore = defineStore('statusPresentation', () =
     toggleProjectionWindow,
     isProjectingMediaFile,
     projectedFile,
+    isWindowHidden,
     clean
   }
 });

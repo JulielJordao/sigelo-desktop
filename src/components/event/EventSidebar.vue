@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useEventStore } from '../../stores/eventStore';
+import { useUserStore } from '../../stores/userStore';
 
 import type { Event } from '../../types/event'; 
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 
 const eventStore = useEventStore();
+const userStore = useUserStore();
 const musicStore = useMusicPresentationStore();
 
 //const isOpen = computed(() => menuStore.menuOpened === 'Events'); 
@@ -129,6 +131,21 @@ onMounted(async () => {
             Voltar ao Calendário
           </v-btn>
         </v-toolbar>
+      </div>
+
+      <!-- Acesso sem conta: eventos ficam na conta Sigelo -->
+      <div v-if="userStore.isGuest"
+        class="position-absolute w-100 bg-surface-light d-flex flex-column align-center justify-center text-center pa-6"
+        style="top: 48px; bottom: 0; z-index: 5;">
+        <v-icon size="48" color="medium-emphasis" class="mb-3">mdi-calendar-lock-outline</v-icon>
+        <div class="text-subtitle-1 font-weight-bold mb-1">Eventos ficam na sua conta</div>
+        <div class="text-body-2 text-medium-emphasis mb-4" style="max-width: 320px;">
+          No acesso sem conta os eventos não são buscados na internet. Use a Programação para montar o culto
+          com músicas locais, Bíblia e mídias.
+        </div>
+        <v-btn color="primary" variant="flat" prepend-icon="mdi-login" class="text-none" @click="userStore.goToLogin()">
+          Entrar com conta
+        </v-btn>
       </div>
 
       <div class="bg-surface-light border-b px-4 py-3 d-flex justify-center" style="min-height: 350px;">
