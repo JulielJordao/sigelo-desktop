@@ -5,7 +5,7 @@ import { useRouter } from "vue-router";
 import { ask, message } from "@tauri-apps/plugin-dialog"
 import { openUrl } from "@tauri-apps/plugin-opener"
 import { invoke } from "@tauri-apps/api/core"
-import routes from "../routes/index"
+import routes, { exchangeLegacyToken, migrateLegacySession } from "../routes/index"
 import { useUserStore } from "../stores/userStore";
 import { useMenuStore } from '../stores/menuStore';
 
@@ -51,6 +51,9 @@ const checkAuthStatus = async () => {
     const isValid = userStore.userId && userStore.userId !== "" && !!token
 
     if (isValid) {
+      // Quem entrou numa versão anterior só tem o token antigo: troca por uma
+      // sessão com renovação (sem pedir login de novo). Não bloqueia a entrada.
+      migrateLegacySession();
       redirect();
     } else {
       await userStore.logout()
@@ -90,6 +93,8 @@ const loginWithGoogle = async () => {
   try {
     const token = await invoke<string>("google_login", { backendBase: routes.defaultUrl });
     localStorage.setItem("userToken", token);
+    // O retorno do navegador só traz o token de login: troca pelos tokens da sessão.
+    await exchangeLegacyToken(token);
     userStore.exitGuestMode();
     await userStore.syncUserWithApi();
     redirect();

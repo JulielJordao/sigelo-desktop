@@ -31,6 +31,11 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 - Cadastro de músicas locais
 
 ---
+## [0.9.35] - 2026-11-01
+- Ajuste para funcionar o controle de sessão na web.
+- Ajustes nos atalhos.
+- Adicionado o editor de atalhos.
+- Adicionado pesquisa de música ao adicionar manualmente.
 
 ## [0.9.34] - 2026-11-01
 - Adição da função de controle remoto com seleção de música, controle de apresentação e envio de pdf para apresentação.

@@ -10,6 +10,7 @@ import { usePresentationStore } from '../../stores/usePresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
 import { emitTo } from '@tauri-apps/api/event';
 import CacheCleanerDialog from './CacheCleanerDialog.vue';
+import ShortcutEditor from './ShortcutEditor.vue';
 import type { StageChordRenderMode } from '../../premium-modules/stage-monitor/utils/chordProStage';
 
 const presentationStore = usePresentationStore()
@@ -209,20 +210,6 @@ const saveAndClose = () => {
   configStore.closeDialog();
 }
 
-const listShortcuts = [
-  { label: "Avançar / Voltar Slide", keys: "Setas (← / →)" },
-  { label: "Pesquisa rápida de músicas", keys: "Shift + F" },
-  { label: "Abertura rápida da bíblia", keys: "Shift + B" },
-  { label: "Projetar Letra", keys: "F5" },
-  { label: "Projetar Letra do Início", keys: "Shift + F5" },
-  { label: "Minimizar/Maximizar Tela de Projeção", keys: "CTRL + F" },
-  { label: "Finalizar Apresentação", keys: "Esc" },
-
-
-  // { label: "Limpar Fundo", keys: "F2"},
-  //{ label: "Tela Preta", keys: "F3"},
-  //{ label: "Exibir Logo", keys: "F4"},
-]
 
 // ─── Toggle de visualização (simplificado/completo) ────────────────────────
 const isStageLayoutSimplified = ref(true);
@@ -946,20 +933,7 @@ const engineOptions = [
             <h3 class="text-h6 font-weight-bold mb-2 text-primary"><v-icon start>mdi-keyboard</v-icon> Atalhos de
               Teclado
               (Hotkeys)</h3>
-            <v-table density="compact" class="border rounded-lg">
-              <thead>
-                <tr>
-                  <th class="text-left font-weight-bold">Ação</th>
-                  <th class="text-left font-weight-bold">Atalho Padrão</th>
-                </tr>
-              </thead>
-              <tbody v-for="shortcut in listShortcuts">
-                <tr>
-                  <td>{{ shortcut.label }}</td>
-                  <td><v-chip size="small" variant="outlined">{{ shortcut.keys }}</v-chip></td>
-                </tr>
-              </tbody>
-            </v-table>
+            <ShortcutEditor />
           </v-window-item>
 
           <v-window-item value="armazenamento" class="pa-6">

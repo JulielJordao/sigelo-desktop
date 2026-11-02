@@ -32,6 +32,7 @@ export interface SongCache {
     audioLink?: string[];
     bibleRefs?: BibleRef[];
     tags?: string[];
+    coverUrl?: string;
 }
 
 export type LastUpdateMap = Record<string, Date | string>;

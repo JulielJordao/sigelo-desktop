@@ -35,3 +35,5 @@ src/premium-modules/**/*
 src/premium-modules/.git/
 
 .premium-build-history
+
+*.fuse_hidden*

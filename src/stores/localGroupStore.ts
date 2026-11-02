@@ -101,8 +101,12 @@ export const useLocalGroupStore = defineStore('localGroup', () => {
             fullName: data.fullName.trim(),
             lyric: data.lyric ?? '',
             writerBy: data.writerBy,
+            versionBy: data.versionBy,
             melodyBy: data.melodyBy,
             tone: data.tone,
+            youtubeLink: data.youtubeLink,
+            tags: data.tags,
+            coverUrl: data.coverUrl,
         };
         group.songs.push(song);
         sortSongs(group);

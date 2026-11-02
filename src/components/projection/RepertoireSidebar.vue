@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue'
+import { ref } from 'vue'
 import SearchSongModal from '../songs/SearchSongModal.vue';
 import { useMenuStore } from '../../stores/menuStore';
+import { onShortcut, useShortcutStore } from '../../stores/shortcutStore';
 import { useLocalGroupStore } from '../../stores/localGroupStore';
 import type { SongCache } from '../../stores/songCacheStore';
 
@@ -81,18 +82,13 @@ const doDelete = async () => {
   confirmDelete.value.open = false;
 };
 
-// --- Atalho Shift+F ---
-const handleKeydown = (e: KeyboardEvent) => {
-  if (menuStore.isShiftShortcutLocked) return;
+// --- Pesquisa rápida (atalho configurável: Ctrl/⌘+K por padrão) ---
+const shortcutStore = useShortcutStore();
+onShortcut('songs.quickSearch', () => {
   if (menuStore.menuOpened === 'Media' || menuStore.menuOpened === 'Songs') {
-    if (e.shiftKey && e.key.toUpperCase() === 'F') {
-      setTimeout(() => { isSearchModalOpen.value = true }, 50);
-    }
+    isSearchModalOpen.value = true;
   }
-};
-
-onMounted(() => window.addEventListener('keydown', handleKeydown));
-onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
+});
 </script>
 
 <template>
@@ -107,6 +103,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown));
 
       <v-btn icon density="comfortable" @click="isSearchModalOpen = true">
         <v-icon>mdi-magnify</v-icon>
+        <v-tooltip activator="parent" location="bottom">
+          Pesquisa rápida ({{ shortcutStore.label('songs.quickSearch') }})
+        </v-tooltip>
       </v-btn>
     </v-toolbar>
 

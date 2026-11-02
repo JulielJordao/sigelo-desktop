@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { ask } from '@tauri-apps/plugin-dialog';
+import { ask, message } from '@tauri-apps/plugin-dialog';
+import { SESSION_EXPIRED_EVENT } from '../routes/index';
+import { useShortcutStore } from '../stores/shortcutStore';
 import SettingsModal from '../components/config/SettingsModal.vue';
 import RemoteControlDialog from '../components/remote/RemoteControlDialog.vue';
 import { useRemoteControlStore } from '../stores/remoteControlStore';
@@ -69,6 +71,27 @@ const handleProjection = (bibleData: any) => {
 
 let unlistenBible: UnlistenFn | null = null;
 
+// ── Sessão encerrada pelo servidor ──────────────────────────────────────
+// Sair deste computador pelo site ("Dispositivos conectados"), 90 dias sem
+// uso ou conta desativada: a renovação falha e o app volta ao login.
+let handlingExpired = false;
+const onSessionExpired = async () => {
+  if (handlingExpired || userStore.isGuest) return;
+  handlingExpired = true;
+  try {
+    await userStore.logout();
+    menuStore.toggleMenu('Login');
+    await router.push('/');
+    await message(
+      'Sua sessão foi encerrada. Isso acontece quando você sai deste computador por outro aparelho ' +
+      'ou fica muito tempo sem usar. Entre novamente para continuar.',
+      { title: 'Sessão encerrada', kind: 'warning' }
+    );
+  } finally {
+    handlingExpired = false;
+  }
+};
+
 const openSettingsModal = () => {
 
   settingsModalRef.value.openDialog();
@@ -109,7 +132,13 @@ const toggleEventsSidebar = () => {
   menuStore.toggleMenu('Events');
 };
 
+const shortcutStore = useShortcutStore();
+
 onMounted(async () => {
+  window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  // Atalhos de teclado: um listener só para o app (stores/shortcutStore.ts).
+  shortcutStore.install();
+
   menuStore.toggleMenu('Songs')
 
   // Controle remoto pelo celular (religa sozinho se estava ligado).
@@ -122,6 +151,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  shortcutStore.uninstall();
   if (unlistenBible) unlistenBible();
   remoteStore.dispose();
 })

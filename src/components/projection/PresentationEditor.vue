@@ -15,6 +15,7 @@ import ModalSelectPreset from '../presets/modalSelectPreset.vue';
 import { useMusicPresentationStore } from '../../stores/presentationStore';
 import { useStatusPresentationStore } from '../../stores/statusPresentationStore';
 import { useMenuStore } from '../../stores/menuStore';
+import { onShortcut, useShortcutStore } from '../../stores/shortcutStore';
 import { useRemoteControlStore } from '../../stores/remoteControlStore';
 import type { Slide } from '../../stores/presentationStore';
 import { formatAuthorCredits } from '../../utils/formatCredits';
@@ -29,6 +30,7 @@ import QuickBibleModal from '../bible/QuickBibleModal.vue';
 import { BibleRef } from '../../types/bibleRef';
 
 const menuStore = useMenuStore();
+const shortcutStore = useShortcutStore();
 const configStore = useConfigStore();
 const infoPresentationStore = usePresentationStore(); // INSTANCIANDO O STORE
 const statusPresStore = useStatusPresentationStore();
@@ -493,32 +495,27 @@ const stopProjection = async () => {
 
 const isClean = computed(() => songInfo.rawLyric == '')
 
+// Atalhos configuráveis (stores/shortcutStore.ts — Configurações → Atalhos).
+onShortcut('bible.quickOpen', () => {
+    if (menuStore.menuOpened !== 'PdfPresenter') isQuickBibleOpen.value = true
+})
+
+onShortcut('projection.project', () => {
+    if (!isClean.value && !isProjecting.value) projectCurrentSlide()
+})
+
+onShortcut('projection.projectFromStart', () => {
+    if (isClean.value) return
+    currentSlideIndex.value = 0
+    projectCurrentSlide()
+})
+
+onShortcut('projection.toggleWindow', async () => {
+    await statusPresStore.toggleProjectionWindow()
+})
+
+// Setas e Esc (fixos) navegam/encerram durante a apresentação.
 const handleKeydown = async (e: KeyboardEvent) => {
-
-    if (menuStore.menuOpened !== 'PdfPresenter' && !menuStore.isShiftShortcutLocked) {
-        if (e.shiftKey && e.key === 'B') {
-            // Necessário para não abrir a modal com o valor b por causa do autofocus
-            setTimeout(() => {
-                isQuickBibleOpen.value = true
-            }, 50)
-        }
-    }
-
-    if (!isClean.value) {
-        if (e.shiftKey && e.key === 'F5') {
-            currentSlideIndex.value = 0
-            projectCurrentSlide()
-        } else if (e.key === 'F5' && !isProjecting.value) {
-            projectCurrentSlide()
-        }
-    }
-
-    if (e.ctrlKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault()
-        await statusPresStore.toggleProjectionWindow()
-        return
-    }
-
     if (!isProjecting.value) return
     await slideKeypress(e.key)
 };
@@ -804,9 +801,10 @@ const updateCurrentPreset = async () => {
                     <div><kbd class="bg-grey-darken-3 px-1 rounded">←</kbd> <kbd
                             class="bg-grey-darken-3 px-1 rounded">→</kbd>
                         Navegar</div>
-                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">F5</kbd> Projetar atual</div>
-                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">SHIFT+F5</kbd> Projetar começo</div>
-                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">CTRL+F</kbd> Ocultar/Mostrar Tela projeção</div>
+                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">{{ shortcutStore.label('projection.project') }}</kbd> Projetar atual</div>
+                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">{{ shortcutStore.label('projection.projectFromStart') }}</kbd> Projetar começo</div>
+                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">{{ shortcutStore.label('projection.toggleWindow') }}</kbd> Ocultar/Mostrar Tela projeção</div>
+                    <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">{{ shortcutStore.label('bible.quickOpen') }}</kbd> Bíblia rápida</div>
                     <div class="mt-1"><kbd class="bg-grey-darken-3 px-1 rounded">Esc</kbd> Sair</div>
 
                 </div>
